@@ -174,6 +174,10 @@ export function groupTurns(blocks: Block[]): Block[][] {
   const turns: Block[][] = [];
   let current: Block[] = [];
   for (const block of blocks) {
+    // A turn the app wrote to keep an orchestration moving is not a user
+    // message. Dropping it here folds the reply into the turn above, so a
+    // supervised run reads as one conversation.
+    if (block.internal) continue;
     if (block.role === "handoff") {
       if (current.length > 0) turns.push(current);
       turns.push([block]);

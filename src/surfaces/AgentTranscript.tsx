@@ -2294,7 +2294,7 @@ function lastUserBlockId(blocks: Block[]): string | undefined {
 
 function turnUserBlock(blocks: Block[]): Block | undefined {
   for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].role === "user") return blocks[i];
+    if (blocks[i].role === "user" && !blocks[i].internal) return blocks[i];
   }
   return undefined;
 }

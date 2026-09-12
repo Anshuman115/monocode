@@ -20,7 +20,7 @@ function block(role: Block["role"], approval?: Block["approval"]): Block {
 }
 
 describe("pendingApprovalForSession", () => {
-  it("shows worker approvals in the focused lead panel and only toasts when the lead is elsewhere", () => {
+  it("never toasts a worker approval, which its lead answers instead", () => {
     const worker = {
       ...newSession(),
       id: "worker",
@@ -30,9 +30,12 @@ describe("pendingApprovalForSession", () => {
     const leadTab = newTab("lead");
     const otherTab = newTab("unrelated");
     const tabs = [leadTab, otherTab];
-    expect(hiddenApprovalNotices([worker], leadTab.id, tabs, true)).toEqual([]);
+    for (const active of [leadTab, otherTab])
+      expect(hiddenApprovalNotices([worker], active.id, tabs, true)).toEqual([]);
+    // The same approval on an ordinary session still reaches the user.
+    const solo = { ...worker, orchestrationLeadId: undefined };
     expect(
-      hiddenApprovalNotices([worker], otherTab.id, tabs, true)[0].sessionId,
+      hiddenApprovalNotices([solo], otherTab.id, tabs, true)[0].sessionId,
     ).toBe("worker");
   });
   it("returns the latest undecided approval", () => {

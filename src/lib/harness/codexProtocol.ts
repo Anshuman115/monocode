@@ -26,12 +26,36 @@ export type CodexThreadConfig = {
   sandbox: "read-only" | "workspace-write" | "danger-full-access";
   approvalsReviewer: "user" | "auto_review";
   sandboxPolicy:
-    | { type: "readOnly" }
-    | { type: "workspaceWrite" }
+    | { type: "readOnly"; networkAccess?: boolean }
+    | { type: "workspaceWrite"; networkAccess?: boolean }
     | { type: "dangerFullAccess" };
 };
 
-export function runtimeModeToCodexConfig(mode: RuntimeMode): CodexThreadConfig {
+/**
+ * `readOnly` and `workspaceWrite` both default to networkAccess: false, which
+ * blocks loopback too. An orchestration lead has to reach the control CLI's
+ * socket, so it opts in; every other session keeps the default.
+ */
+function withNetwork(
+  config: CodexThreadConfig,
+  controlsAgents?: boolean,
+): CodexThreadConfig {
+  if (!controlsAgents || config.sandboxPolicy.type === "dangerFullAccess")
+    return config;
+  return {
+    ...config,
+    sandboxPolicy: { ...config.sandboxPolicy, networkAccess: true },
+  };
+}
+
+export function runtimeModeToCodexConfig(
+  mode: RuntimeMode,
+  controlsAgents?: boolean,
+): CodexThreadConfig {
+  return withNetwork(baseCodexConfig(mode), controlsAgents);
+}
+
+function baseCodexConfig(mode: RuntimeMode): CodexThreadConfig {
   switch (mode) {
     case "supervised":
       return {
@@ -69,14 +93,19 @@ export function runtimeModeToCodexConfig(mode: RuntimeMode): CodexThreadConfig {
 export function buildThreadStartParams(input: {
   cwd: string;
   runtimeMode: RuntimeMode;
+  controlsAgents?: boolean;
   model?: string;
   serviceTier?: string;
 }): Record<string, unknown> {
-  const config = runtimeModeToCodexConfig(input.runtimeMode);
+  const config = runtimeModeToCodexConfig(
+    input.runtimeMode,
+    input.controlsAgents,
+  );
   return {
     cwd: input.cwd,
     approvalPolicy: config.approvalPolicy,
     sandbox: config.sandbox,
+    sandboxPolicy: config.sandboxPolicy,
     approvalsReviewer: config.approvalsReviewer,
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier && input.serviceTier !== "default"
@@ -101,6 +130,7 @@ export function buildTurnSteerParams(input: {
 export function buildTurnStartParams(input: {
   threadId: string;
   runtimeMode: RuntimeMode;
+  controlsAgents?: boolean;
   prompt?: string;
   attachments?: Attachment[];
   model?: string;
@@ -108,15 +138,21 @@ export function buildTurnStartParams(input: {
   serviceTier?: string;
   intent?: TurnIntent;
 }): Record<string, unknown> {
-  const runtimeConfig = runtimeModeToCodexConfig(input.runtimeMode);
+  const runtimeConfig = runtimeModeToCodexConfig(
+    input.runtimeMode,
+    input.controlsAgents,
+  );
   const config: CodexThreadConfig =
     input.intent === "plan"
-      ? {
-          approvalPolicy: "never",
-          sandbox: "read-only",
-          approvalsReviewer: runtimeConfig.approvalsReviewer,
-          sandboxPolicy: { type: "readOnly" },
-        }
+      ? withNetwork(
+          {
+            approvalPolicy: "never",
+            sandbox: "read-only",
+            approvalsReviewer: runtimeConfig.approvalsReviewer,
+            sandboxPolicy: { type: "readOnly" },
+          },
+          input.controlsAgents,
+        )
       : runtimeConfig;
   return {
     threadId: input.threadId,

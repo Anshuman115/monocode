@@ -49,6 +49,8 @@ import {
 } from "./OrchestrationActions";
 import { newSession } from "../lib/session";
 import type { OrchestrationRun, OrchestrationTask } from "../lib/orchestration";
+import type { OrchestrationSummary } from "../lib/orchestrationSummary";
+import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
 import {
   modelsFor,
   setHarnessModels,
@@ -314,7 +316,7 @@ describe("orchestration composer and card", () => {
     expect(container.querySelector("[data-orchestration-review]")).toBeNull();
     expect(container.textContent).not.toContain("Confirm & start");
   });
-  it("keeps the lead composer beside a compact worker panel and handles worker input there", async () => {
+  it("gives the lead's transcript and composer the whole pane", async () => {
     const lead = {
       ...newSession("codex", "/repo", "codex:one"),
       id: "lead",
@@ -442,17 +444,12 @@ describe("orchestration composer and card", () => {
       );
     }
     await act(async () => root.render(createElement(LeadPane)));
-    const main = container.querySelector("[data-orchestration-main]")!;
-    const rail = container.querySelector("[data-orchestration-agents]")!;
-    expect(main.parentElement).toBe(rail.parentElement);
-    expect(main.textContent).toContain("I am coordinating the work.");
-    expect(main.querySelector("[data-orchestration-agents]")).toBeNull();
-    expect(rail.textContent).toContain("UI worker");
-    expect(rail.textContent).toContain("Which check should I run?");
-    await click(button("Approve"));
-    expect(approve).toHaveBeenCalledWith("worker", 42, "allow");
+    // Agents live on the sidebar card now; nothing narrows the lead's pane.
+    expect(container.querySelector("[data-orchestration-agents]")).toBeNull();
+    expect(container.textContent).toContain("I am coordinating the work.");
+    expect(container.textContent).not.toContain("UI worker");
     expect(open).not.toHaveBeenCalled();
-    const composer = main.querySelector("textarea")!;
+    const composer = container.querySelector("textarea")!;
     await input(composer, "Ask the UI worker to check keyboard navigation.");
     await act(async () => {
       composer.dispatchEvent(
@@ -465,5 +462,114 @@ describe("orchestration composer and card", () => {
       [],
       { intent: "default" },
     );
+  });
+
+  it("shows a blocked agent as the lead's to answer, not the user's", async () => {
+    const worker = {
+      ...newSession("codex", "/repo", "codex:two"),
+      id: "worker",
+      orchestrationLeadId: "lead",
+      busy: true,
+      blocks: [
+        {
+          id: "approval",
+          role: "approval" as const,
+          text: "Run the UI check",
+          approval: { requestId: 42 },
+        },
+      ],
+    };
+    const second = {
+      ...worker,
+      id: "second",
+      blocks: [],
+      pendingQuestion: {
+        requestId: 43,
+        title: "Choose validation",
+        questions: [
+          {
+            id: "q",
+            prompt: "Which check should I run?",
+            multiSelect: false,
+            allowCustom: false,
+            options: [{ id: "unit", label: "Unit tests" }],
+          },
+        ],
+      },
+    };
+    const summary: OrchestrationSummary = {
+      status: "active",
+      live: true,
+      tasks: [
+        {
+          sessionId: "worker",
+          title: "UI worker",
+          harness: "codex",
+          model: "codex:two",
+          status: "running",
+          needsInput: true,
+        },
+        {
+          sessionId: "second",
+          title: "Check worker",
+          harness: "codex",
+          model: "codex:two",
+          status: "running",
+          needsInput: true,
+        },
+      ],
+    };
+    function Card() {
+      const [selectedId, inspect] = useState<string | null>(null);
+      return createElement(
+        OrchestrationWorkers.Provider,
+        { value: { sessions: [worker, second], selectedId, inspect } },
+        createElement(OrchestrationSidebarAgents, { leadId: "lead", summary }),
+      );
+    }
+    await act(async () => root.render(createElement(Card)));
+    expect(container.textContent).toContain("UI worker");
+    // A blocked agent expands itself, but only to report who owes it an answer.
+    expect(container.textContent).toContain("Waiting on the orchestrator");
+    expect(button("Allow")).toBeUndefined();
+    expect(button("Deny")).toBeUndefined();
+    expect(container.textContent).not.toContain("Which check should I run?");
+  });
+
+  it("expands any number of agents at once", async () => {
+    const summary: OrchestrationSummary = {
+      status: "active",
+      live: true,
+      tasks: ["one", "two", "three"].map((id) => ({
+        sessionId: id,
+        title: `Agent ${id}`,
+        harness: "codex" as const,
+        model: "codex:two",
+        status: "running" as const,
+      })),
+    };
+    function Card() {
+      const [selectedId, inspect] = useState<string | null>(null);
+      return createElement(
+        OrchestrationWorkers.Provider,
+        { value: { sessions: [], selectedId, inspect } },
+        createElement(OrchestrationSidebarAgents, { leadId: "lead", summary }),
+      );
+    }
+    await act(async () => root.render(createElement(Card)));
+    const row = (id: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-orchestration-agent="${id}"] button`,
+      )!;
+    const openIds = () =>
+      [...container.querySelectorAll("[data-orchestration-agent]")]
+        .filter((entry) => entry.querySelector("[aria-expanded=true]"))
+        .map((entry) => entry.getAttribute("data-orchestration-agent"));
+    await click(row("one"));
+    await click(row("three"));
+    expect(openIds()).toEqual(["one", "three"]);
+    // Collapsing one leaves the other where it was.
+    await click(row("one"));
+    expect(openIds()).toEqual(["three"]);
   });
 });

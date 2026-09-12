@@ -184,6 +184,12 @@ export type Block = {
   orchestration?: OrchestrationProposal;
   /** Parent conversation for an internal orchestration worker. */
   orchestrationLeadId?: string;
+  /**
+   * A turn the app wrote on the user's behalf to keep an orchestration moving.
+   * The harness needs it; the transcript hides it, so a run reads as one
+   * conversation rather than the user narrating their own agents.
+   */
+  internal?: boolean;
   handoff?: HandoffMeta;
   secondOpinion?: SecondOpinionMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */

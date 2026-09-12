@@ -2,7 +2,10 @@ import { createContext } from "react";
 import type { OrchestrationProposal } from "../lib/orchestrationPlan";
 import type { Session } from "../lib/session";
 
-/** Worker activity is rendered inside the lead's pane, without workspace tabs. */
+/**
+ * Workers have no pane of their own; the lead's sidebar card is where their
+ * activity is inspected. Their approvals go to the lead, not to the user.
+ */
 export const OrchestrationWorkers = createContext<{
   sessions: Session[];
   selectedId: string | null;

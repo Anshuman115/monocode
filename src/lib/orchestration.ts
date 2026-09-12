@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { HARNESSES, type HarnessId, type Session } from "./session";
-import type { HarnessEvent } from "./harness/types";
+import type { ApprovalDecision, HarnessEvent } from "./harness/types";
+import { pendingApprovalForSession } from "./approvalToast";
+import type { UserQuestionReply } from "./userQuestion";
 import {
   validateOrchestrationSettings,
   validateProposedTasks,
@@ -59,6 +61,13 @@ export type OrchestrationHost = {
     done: (outcome: ControlOutcome) => void,
   ): void;
   stop(id: string): Promise<void>;
+  /** Answer on a worker's behalf; the lead, not the user, decides. */
+  respondApproval(
+    id: string,
+    requestId: number,
+    decision: ApprovalDecision,
+  ): void;
+  answerQuestion(id: string, requestId: number, reply: UserQuestionReply): void;
 };
 type Storage = {
   save(run: OrchestrationRun): Promise<void>;
@@ -101,15 +110,93 @@ export const sameCheckout = (a: string, b: string) =>
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 function text(value: unknown, label: string, max = 30_000): string {
-  if (typeof value !== "string" || !value.trim() || value.length > max)
-    throw new Error(`Invalid ${label}`);
+  if (typeof value !== "string" || !value.trim())
+    throw new Error(`Invalid ${label}: provide a non-empty string`);
+  if (value.length > max)
+    throw new Error(`Invalid ${label}: keep it under ${max} characters`);
   return value.trim();
 }
 function strings(value: unknown, label: string, max = 64): string[] {
-  if (!Array.isArray(value) || value.length > max)
-    throw new Error(`Invalid ${label}`);
+  if (!Array.isArray(value))
+    throw new Error(`Invalid ${label}: provide an array of strings`);
+  if (value.length > max)
+    throw new Error(`Invalid ${label}: at most ${max} entries`);
   return [...new Set(value.map((item) => text(item, label, 512)))];
 }
+/**
+ * A mistyped field must fail loudly rather than silently change the task. A
+ * Map, so an action named after an Object member is still just unknown.
+ */
+const FIELDS = new Map<string, string[]>([
+  ["list", []],
+  ["delegate", ["title", "harness", "model", "prompt", "files", "dependsOn"]],
+  ["get", ["taskId"]],
+  ["message", ["taskId", "text"]],
+  ["cancel", ["taskId"]],
+  ["wait", ["timeoutSeconds"]],
+  ["review", ["taskId"]],
+  ["finish", []],
+  ["respond", ["taskId", "requestId", "decision"]],
+  ["answer", ["taskId", "requestId", "answers", "skip"]],
+]);
+function checkFields(action: string, input: Record<string, unknown>) {
+  const allowed = FIELDS.get(action);
+  if (!allowed)
+    throw new Error(
+      `Unknown action "${action}". Use one of: ${[...FIELDS.keys()].join(", ")}. Run the control CLI with --help.`,
+    );
+  const unknown = Object.keys(input).filter((key) => !allowed.includes(key));
+  if (unknown.length)
+    throw new Error(
+      `Unknown ${action} field${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. ${allowed.length ? `${action} accepts: ${allowed.join(", ")}.` : `${action} takes no input.`}`,
+    );
+}
+/**
+ * Quote the executable for the shell the lead runs in, and only when needed.
+ * The path is absolute, so a leading slash means a POSIX shell — where a
+ * backslash escapes rather than separates, and so is never safe bare.
+ */
+export function shellPath(path: string): string {
+  if (path.startsWith("/"))
+    return /^[A-Za-z0-9._/:-]+$/.test(path)
+      ? path
+      : `'${path.replace(/'/g, `'\\''`)}'`;
+  return /[\s"]/.test(path) ? `"${path.replace(/"/g, "")}"` : path;
+}
+/** Map the lead's chosen option IDs onto the worker's own question shape. */
+function questionAnswers(
+  value: unknown,
+  questions: { id: string; options: { id: string }[] }[] = [],
+): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(
+      'answers must be an object of questionId -> [optionId], or pass {"skip":true}',
+    );
+  const answers: Record<string, string[]> = {};
+  for (const [id, chosen] of Object.entries(value)) {
+    const question = questions.find((entry) => entry.id === id);
+    if (!question)
+      throw new Error(
+        `Unknown question "${id}". Ask for: ${listed(questions.map((entry) => entry.id)) || "none"}.`,
+      );
+    const ids = strings(chosen, `answers.${id}`, 16);
+    const unknown = ids.filter(
+      (option) => !question.options.some((entry) => entry.id === option),
+    );
+    if (unknown.length)
+      throw new Error(
+        `Unknown option${unknown.length > 1 ? "s" : ""} for "${id}": ${listed(unknown)}. Choose from: ${listed(question.options.map((entry) => entry.id))}.`,
+      );
+    answers[id] = ids;
+  }
+  if (!Object.keys(answers).length)
+    throw new Error('Answer at least one question, or pass {"skip":true}');
+  return answers;
+}
+const listed = (values: string[], max = 12) =>
+  values.length > max
+    ? `${values.slice(0, max).join(", ")} (+${values.length - max} more)`
+    : values.join(", ");
 
 export class Orchestrator {
   private runs: OrchestrationRun[] = [];
@@ -122,6 +209,8 @@ export class Orchestrator {
   private starting = new Set<string>();
   private pumpAgain = false;
   private waking = new Set<string>();
+  private blocked = new Map<string, string>();
+  private announced = new Map<string, Set<string>>();
   private inflight = new Map<
     string,
     { signature: string; promise: Promise<unknown> }
@@ -343,15 +432,12 @@ export class Orchestrator {
       leadId,
       `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, files, dependsOn }) => ({ taskId: id, title, prompt, harness, model, files, dependsOn })))}`,
       (outcome) => {
-        const run = this.run(leadId);
-        if (outcome.status !== "completed" && run?.status === "active")
-          void this.commit({
-            ...run,
-            status: "paused",
-            error:
-              outcome.error ??
-              "The lead was interrupted. Review and resume the run.",
-          }).catch(console.error);
+        if (outcome.status !== "completed")
+          void this.pause(
+            leadId,
+            outcome.error ??
+              "The lead was interrupted. Its agents were stopped; review and resume the run.",
+          ).catch(console.error);
       },
     );
   }
@@ -460,8 +546,8 @@ export class Orchestrator {
   prompt(id: string, prompt: string): string {
     const run = this.run(id);
     if (!run || run.status !== "active") return prompt;
-    const cli = `'${run.cli.replace(/'/g, `'\\''`)}' control`;
-    return `${prompt}\n\n<monocode_orchestration>\nYou are the lead of a local MonoCode run. Coordinate the user's task using ${cli}. Run it with --help to learn the commands. Credentials are already in your environment; never print them.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the same checkout. You may read and plan; leave file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For installs, Git mutations, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish.\nRead results with get or wait; completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. Cancel discarded tasks. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. Do not expose credentials, use worktrees, switch branches or silently escalate worker permissions.\n</monocode_orchestration>`;
+    const cli = `${shellPath(run.cli)} control`;
+    return `${prompt}\n\n<monocode_orchestration>\nYou are the lead of a local MonoCode run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching MonoCode, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the same checkout. You may read and plan; leave file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For installs, Git mutations, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nRead results with get or wait; completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. Cancel discarded tasks. A failed task blocks finish until you retry it with message or drop it with cancel. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. Do not expose credentials, use worktrees, switch branches or silently escalate worker permissions.\n</monocode_orchestration>`;
   }
   async handle(
     leadId: string,
@@ -469,9 +555,16 @@ export class Orchestrator {
     action: string,
     input: Record<string, unknown>,
   ): Promise<unknown> {
+    checkFields(action, input);
     const signature = JSON.stringify({ action, input });
     const key = `${leadId}:${requestId}`;
-    const previous = this.persisted.get(leadId)?.requests[requestId];
+    const receipts = this.persisted.get(leadId)?.requests;
+    const previous =
+      receipts &&
+      Object.prototype.hasOwnProperty.call(receipts, requestId) &&
+      typeof receipts[requestId]?.signature === "string"
+        ? receipts[requestId]
+        : undefined;
     if (previous) {
       if (previous.signature !== signature)
         throw new Error("Request ID was already used with different input");
@@ -521,7 +614,28 @@ export class Orchestrator {
         prompt: undefined,
         scopes: undefined,
         waitingFor: this.waitingFor(run, task),
+        needsInput: this.pendingInput(task),
       })),
+    };
+  }
+  /**
+   * What a worker is blocked on. Workers have no user-facing prompt: the lead
+   * answers for them, and escalates to the user in its own conversation when
+   * it does not want to decide alone.
+   */
+  pendingInput(task: OrchestrationTask) {
+    const worker = this.host?.session(task.sessionId);
+    const pending = worker && pendingApprovalForSession(worker);
+    if (!pending) return undefined;
+    return {
+      kind: pending.kind,
+      requestId: pending.requestId,
+      label: pending.label,
+      detail:
+        pending.kind === "approval"
+          ? (pending.block?.tool?.detail?.trim() ?? pending.block?.text)
+          : undefined,
+      questions: worker?.pendingQuestion?.questions,
     };
   }
   waitingFor(
@@ -575,7 +689,10 @@ export class Orchestrator {
       const found = this.run(run.leadId)!.tasks.find(
         (entry) => entry.id === id,
       );
-      if (!found) throw new Error("Task does not belong to this run");
+      if (!found)
+        throw new Error(
+          "Task does not belong to this run. Use a taskId returned by delegate or list.",
+        );
       return found;
     };
     switch (action) {
@@ -597,8 +714,16 @@ export class Orchestrator {
               ),
             })),
         };
-      case "get":
-        return task();
+      case "get": {
+        // The fields list reports, plus this task's own prompt.
+        const target = task();
+        return {
+          ...target,
+          scopes: undefined,
+          waitingFor: this.waitingFor(this.run(run.leadId)!, target),
+          needsInput: this.pendingInput(target),
+        };
+      }
       case "delegate": {
         if (run.tasks.length >= 40)
           throw new Error("This run has reached its 40-task limit");
@@ -607,7 +732,9 @@ export class Orchestrator {
           !HARNESSES.includes(harness) ||
           !run.allowedHarnesses.includes(harness)
         )
-          throw new Error("Harness is not allowed in this run");
+          throw new Error(
+            `Harness "${harness}" is not allowed in this run. Allowed: ${listed(run.allowedHarnesses)}.`,
+          );
         const choice = this.host!.choices().find(
           (entry) => entry.harness === harness,
         );
@@ -625,24 +752,27 @@ export class Orchestrator {
             ? permittedModels[0]?.id
             : text(input.model, "model", 256);
         if (!model || !permittedModels.some((item) => item.id === model))
-          throw new Error("Choose a model ID returned by list");
+          throw new Error(
+            `Choose a model ID returned by list for ${harness}: ${listed(permittedModels.map((item) => item.id)) || "none available"}.`,
+          );
         const title = text(input.title, "title", 160);
         const prompt = text(input.prompt, "prompt");
         const files = strings(input.files, "files");
         if (!files.length)
           throw new Error(
-            "Declare at least one file/directory scope, or '.' for exclusive checkout access",
+            "Declare at least one file/directory scope in files, or '.' for exclusive checkout access",
           );
         const dependsOn = strings(input.dependsOn ?? [], "dependsOn", 40);
-        if (
-          dependsOn.some(
-            (id) =>
-              !run.tasks.some(
-                (item) => item.id === id && item.status !== "cancelled",
-              ),
-          )
-        )
-          throw new Error("Dependencies must be existing tasks in this run");
+        const missing = dependsOn.filter(
+          (id) =>
+            !run.tasks.some(
+              (item) => item.id === id && item.status !== "cancelled",
+            ),
+        );
+        if (missing.length)
+          throw new Error(
+            `dependsOn must hold taskIds from this run; unknown or cancelled: ${listed(missing)}.`,
+          );
         const scopes = await this.store.scopes(run.cwd, files);
         const created: OrchestrationTask = {
           id: crypto.randomUUID(),
@@ -675,7 +805,7 @@ export class Orchestrator {
         const target = task();
         if (activeTask(target) || target.status === "queued")
           throw new Error(
-            "Wait for this worker or cancel it before sending a new turn",
+            `Wait for this worker or cancel it before sending a new turn; ${target.title} is ${target.status}.`,
           );
         if (
           run.tasks.some(
@@ -704,19 +834,72 @@ export class Orchestrator {
       case "cancel":
         await this.cancelTask(run.leadId, task().id);
         return record(this.run(run.leadId)!, { cancelled: true });
+      case "respond": {
+        const target = task();
+        const pending = this.pendingInput(target);
+        if (pending?.kind !== "approval")
+          throw new Error(
+            `${target.title} is not waiting on an approval. Read needsInput from list or wait before responding.`,
+          );
+        if (input.requestId !== pending.requestId)
+          throw new Error(
+            `Stale requestId. ${target.title} is waiting on ${pending.requestId}.`,
+          );
+        const decision = text(input.decision, "decision", 16);
+        if (decision !== "allow" && decision !== "deny")
+          throw new Error('decision must be "allow" or "deny"');
+        this.host!.respondApproval(target.sessionId, pending.requestId, decision);
+        return record(this.run(run.leadId)!, {
+          taskId: target.id,
+          decision,
+        });
+      }
+      case "answer": {
+        const target = task();
+        const pending = this.pendingInput(target);
+        if (pending?.kind !== "question")
+          throw new Error(
+            `${target.title} is not waiting on a question. Read needsInput from list or wait before answering.`,
+          );
+        if (input.requestId !== pending.requestId)
+          throw new Error(
+            `Stale requestId. ${target.title} is waiting on ${pending.requestId}.`,
+          );
+        const reply: UserQuestionReply =
+          input.skip === true
+            ? { kind: "skipped" }
+            : {
+                kind: "answered",
+                answers: questionAnswers(input.answers, pending.questions),
+              };
+        this.host!.answerQuestion(target.sessionId, pending.requestId, reply);
+        return record(this.run(run.leadId)!, {
+          taskId: target.id,
+          answered: reply.kind === "answered",
+        });
+      }
       case "review": {
         const target = task();
         if (target.status !== "completed")
-          throw new Error("Only a completed result can be accepted");
+          throw new Error(
+            `Only a completed result can be accepted; ${target.title} is ${target.status}. ${
+              target.status === "failed"
+                ? "Send it another turn with message, or drop it with cancel."
+                : "Wait for it to finish, or cancel it."
+            }`,
+          );
         return changeTask(target.id, { accepted: true }, { accepted: true });
       }
       case "finish": {
-        if (
-          run.tasks.some(
-            (entry) => entry.status !== "cancelled" && !entry.accepted,
-          )
-        )
-          throw new Error("Review all required tasks before finishing");
+        const outstanding = this.run(run.leadId)!.tasks.filter(
+          (entry) => entry.status !== "cancelled" && !entry.accepted,
+        );
+        if (outstanding.length)
+          throw new Error(
+            `Review all remaining tasks before finishing. Outstanding: ${listed(
+              outstanding.map((entry) => `${entry.title} (${entry.status})`),
+            )}. Accept a completed task with review, send a failed one another turn with message, or drop it with cancel.`,
+          );
         const result = await record(
           { ...this.run(run.leadId)!, status: "finished" },
           { finished: true },
@@ -740,6 +923,9 @@ export class Orchestrator {
       seconds > 25
     )
       throw new Error("timeoutSeconds must be 0 to 25");
+    // A worker blocking on the lead changes no run state, so watch for that
+    // separately; otherwise the lead sleeps while an agent waits on it.
+    const blocked = this.blocked.get(leadId);
     if (
       run.tasks.some(activeTask) ||
       run.tasks.some((task) => task.status === "queued")
@@ -751,7 +937,8 @@ export class Orchestrator {
           resolve();
         };
         const unsubscribe = this.subscribe(() => {
-          if (this.run(leadId) !== run) finish();
+          if (this.run(leadId) !== run || this.blocked.get(leadId) !== blocked)
+            finish();
         });
         const timer = setTimeout(finish, seconds * 1000);
       });
@@ -872,6 +1059,26 @@ export class Orchestrator {
     });
     void this.pump();
   }
+  /**
+   * A paused run has no supervisor, so its agents stop with it. Leaving them
+   * editing the shared checkout with nobody reviewing is how a run quietly
+   * diverges from what the user approved. Queued work is left alone: `pump`
+   * will not dispatch while paused, so it resumes intact.
+   */
+  private async pause(
+    leadId: string,
+    error: string,
+    patch?: (run: OrchestrationRun) => OrchestrationRun,
+  ) {
+    const run = this.run(leadId);
+    if (!run || run.status !== "active") return;
+    await this.commit({ ...(patch ? patch(run) : run), status: "paused", error });
+    await Promise.all(
+      this.run(leadId)!
+        .tasks.filter(activeTask)
+        .map((task) => this.cancelTask(leadId, task.id)),
+    );
+  }
   async stopRun(leadId: string) {
     const run = this.run(leadId);
     if (!run) return;
@@ -924,13 +1131,33 @@ export class Orchestrator {
     const task = run.tasks.find((entry) => entry.sessionId === id)!;
     return this.cancelTask(run.leadId, task.id);
   }
+  /** `${taskId}:${requestId}` for every worker currently blocked on the lead. */
+  private blockedKeys(run: OrchestrationRun): string[] {
+    return run.tasks.flatMap((task) => {
+      const pending = this.pendingInput(task);
+      return pending ? [`${task.id}:${pending.requestId}`] : [];
+    });
+  }
   sync() {
+    for (const run of this.runs) {
+      if (run.status !== "active") continue;
+      // A blocked worker changes no run state, so `wait` needs telling.
+      const keys = this.blockedKeys(run).join(",");
+      if (this.blocked.get(run.leadId) !== keys) {
+        this.blocked.set(run.leadId, keys);
+        this.emit();
+      }
+    }
     for (const run of this.runs) {
       if (run.status !== "active" || this.waking.has(run.leadId)) continue;
       const lead = this.host?.session(run.leadId);
       if (!lead || lead.busy || lead.queuedMessages?.length) continue;
+      const announced = this.announced.get(run.leadId) ?? new Set<string>();
       const results = run.tasks.filter((task) => !task.delivered);
-      if (!results.length) continue;
+      const blocked = this.blockedKeys(run).filter(
+        (key) => !announced.has(key),
+      );
+      if (!results.length && !blocked.length) continue;
       this.waking.add(run.leadId);
       // Let session state settle before checking idle; never interrupt user input.
       setTimeout(() => {
@@ -952,14 +1179,18 @@ export class Orchestrator {
                 !activeTask(task) &&
                 task.status !== "queued",
             );
-            if (!results.length) return;
+            const seen = this.announced.get(run.leadId) ?? new Set<string>();
+            const waiting = current.tasks.flatMap((task) => {
+              const pending = this.pendingInput(task);
+              const key = pending && `${task.id}:${pending.requestId}`;
+              return key && !seen.has(key) ? [{ task, pending, key }] : [];
+            });
+            if (!results.length && !waiting.length) return;
             if (current.continuations >= 20) {
-              await this.commit({
-                ...current,
-                status: "paused",
-                error:
-                  "Automatic continuation limit reached. Review and resume the run.",
-              });
+              await this.pause(
+                run.leadId,
+                "Automatic continuation limit reached. Its agents were stopped; review and resume the run.",
+              );
               return;
             }
             await this.commit({
@@ -971,33 +1202,54 @@ export class Orchestrator {
                   : task,
               ),
             });
+            this.announced.set(
+              run.leadId,
+              new Set([...seen, ...waiting.map((entry) => entry.key)]),
+            );
             const summary = results
               .map(
                 (task) =>
                   `${task.id} — ${task.title}: ${task.status}\n${task.error ?? ""}\n${task.result.slice(-4000)}`,
               )
               .join("\n\n");
+            const asks = waiting
+              .map(
+                ({ task, pending }) =>
+                  `${task.id} — ${task.title} needs ${pending.kind === "approval" ? "an approval" : "an answer"} (requestId ${pending.requestId}): ${pending.label}\n${pending.detail?.slice(0, 2000) ?? ""}${
+                    pending.questions
+                      ? `\n${JSON.stringify(pending.questions)}`
+                      : ""
+                  }`,
+              )
+              .join("\n\n");
+            const body = [
+              results.length
+                ? `Worker results are ready. Review the work, request corrections through the CLI when needed, and finish the original task.\n\n${summary}`
+                : "",
+              waiting.length
+                ? `These agents are blocked waiting on you. Decide each one with respond or answer; they stay stopped until you do. Judge it against the task you assigned, and ask the user in this conversation only when the call is genuinely theirs to make.\n\n${asks}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n\n");
             this.host!.submit(
               run.leadId,
-              `Worker results are ready. Review the work, request corrections through the CLI when needed, and finish the original task.\n\n${summary}`,
+              body,
               (outcome) => {
-                const latest = this.run(run.leadId);
-                if (
-                  outcome.status !== "completed" &&
-                  latest?.status === "active"
-                ) {
-                  void this.commit({
-                    ...latest,
-                    status: "paused",
-                    error:
-                      outcome.error ??
-                      "Lead continuation was interrupted. Review and resume.",
-                    tasks: latest.tasks.map((task) =>
-                      results.some((item) => item.id === task.id)
-                        ? { ...task, delivered: false }
-                        : task,
-                    ),
-                  }).catch(console.error);
+                if (outcome.status !== "completed") {
+                  void this.pause(
+                    run.leadId,
+                    outcome.error ??
+                      "Lead continuation was interrupted. Its agents were stopped; review and resume.",
+                    (current) => ({
+                      ...current,
+                      tasks: current.tasks.map((task) =>
+                        results.some((item) => item.id === task.id)
+                          ? { ...task, delivered: false }
+                          : task,
+                      ),
+                    }),
+                  ).catch(console.error);
                 } else this.sync();
               },
             );

@@ -399,6 +399,9 @@ function sanitizeBlock(block: Block): Block | null {
     isPersistableId(block.orchestrationLeadId)
   )
     next.orchestrationLeadId = block.orchestrationLeadId;
+  // Without this the transcript would show the app's orchestration turns as
+  // the user's own after a reload.
+  if (block.role === "user" && block.internal) next.internal = true;
   if (block.tool) next.tool = block.tool;
   if (block.approval?.decided) {
     next.approval = {

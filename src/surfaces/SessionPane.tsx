@@ -10,7 +10,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "../chrome/Composer";
-import { OrchestrationPanel } from "../chrome/OrchestrationPanel";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { SessionReview } from "../chrome/SessionReview";
@@ -241,6 +240,11 @@ export const SessionPane = memo(function SessionPane({
   useEffect(() => {
     if (!visible) setAstraWelcomeRun(null);
   }, [visible]);
+  // Restore a saved run for this lead; its agents render on the sidebar card.
+  useEffect(() => {
+    if (!session.inboxAsk)
+      void orchestrator.hydrate(session.id).catch(console.error);
+  }, [session.id, session.inboxAsk]);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
@@ -454,121 +458,108 @@ export const SessionPane = memo(function SessionPane({
           </button>
         </div>
       ) : null}
-      <div className="flex min-h-0 min-w-0 flex-1" data-orchestration-layout>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
-          data-orchestration-main
+          ref={transcriptScope}
+          className="@container relative min-h-0 flex-1"
         >
-          <div
-            ref={transcriptScope}
-            className="@container relative min-h-0 flex-1"
-          >
-            {isEmpty ? (
-              session.inboxAsk ? (
-                <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
-                  <DiscussionEmpty message="Explore this item with your agent." />
-                </div>
-              ) : (
-                <EmptySession
-                  cwd={session.cwd}
-                  hasChatBackground={Boolean(
-                    projectBackground || globalBackgroundPath,
-                  )}
-                  composer={dockComposer ? undefined : composer}
-                />
-              )
+          {isEmpty ? (
+            session.inboxAsk ? (
+              <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
+                <DiscussionEmpty message="Explore this item with your agent." />
+              </div>
             ) : (
-              <>
-                <AgentTranscript
-                  blocks={session.blocks}
-                  busy={!!session.busy}
-                  visible={visible}
-                  cwd={workCwd}
-                  harness={session.harness}
-                  model={session.model}
-                  pendingQuestion={!!session.pendingQuestion}
-                  onApproval={approve}
-                  onAddToChat={addSelectionToChat}
-                  onSaveNote={notesEnabled ? saveNote : undefined}
-                  onSaveSelectionNote={
-                    notesEnabled ? saveSelectionNote : undefined
-                  }
-                  onOpenFile={onOpenFile}
-                  onOpenDiff={onOpenDiff}
-                  onOpenPlan={openPlan}
-                  onBuildPlan={buildPlan}
-                  onSecondOpinion={
-                    !session.inboxAsk && onSecondOpinion
-                      ? (harness, turn, model) =>
-                          onSecondOpinion(session.id, harness, turn, model)
-                      : undefined
-                  }
-                  onHandoff={
-                    !session.inboxAsk && onHandoff
-                      ? (harness, turn, model) =>
-                          onHandoff(session.id, harness, turn, model)
-                      : undefined
-                  }
-                  onJumpToBottomChange={setShowJumpToBottom}
-                  onJumpToBottomReady={onJumpToBottomReady}
-                  onRevealReady={onRevealReady}
-                  latestTurnAccessory={
-                    session.inboxAsk ? undefined : (
-                      <SessionReview
-                        sessionId={session.id}
-                        cwd={workCwd}
-                        enabled={visible}
-                        busy={!!session.busy}
-                        undoLocked={
-                          reviewUndoLocked ||
-                          orchestrationRuns.some(
-                            (run) =>
-                              run.leadId === session.id ||
-                              run.tasks.some(
-                                (task) => task.sessionId === session.id,
-                              ),
-                          )
-                        }
-                        onOpenDiff={onOpenDiff}
-                      />
-                    )
-                  }
-                />
-                <PromptOutline
-                  blocks={session.blocks}
-                  scope={transcriptScope}
-                  visible={visible}
-                  revealBlock={revealBlock}
-                />
-                {showJumpToBottom ? (
-                  <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
-                    <button
-                      type="button"
-                      title="Jump to latest"
-                      aria-label="Jump to latest"
-                      data-jump-to-bottom
-                      onClick={() => jumpToBottomRef.current?.()}
-                      className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
-                    >
-                      <ChevronDown className="size-4" strokeWidth={2} />
-                    </button>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-          {dockComposer ? (
-            <div className="mx-auto w-full max-w-4xl shrink-0">{composer}</div>
-          ) : null}
+              <EmptySession
+                cwd={session.cwd}
+                hasChatBackground={Boolean(
+                  projectBackground || globalBackgroundPath,
+                )}
+                composer={dockComposer ? undefined : composer}
+              />
+            )
+          ) : (
+            <>
+              <AgentTranscript
+                blocks={session.blocks}
+                busy={!!session.busy}
+                visible={visible}
+                cwd={workCwd}
+                harness={session.harness}
+                model={session.model}
+                pendingQuestion={!!session.pendingQuestion}
+                onApproval={approve}
+                onAddToChat={addSelectionToChat}
+                onSaveNote={notesEnabled ? saveNote : undefined}
+                onSaveSelectionNote={
+                  notesEnabled ? saveSelectionNote : undefined
+                }
+                onOpenFile={onOpenFile}
+                onOpenDiff={onOpenDiff}
+                onOpenPlan={openPlan}
+                onBuildPlan={buildPlan}
+                onSecondOpinion={
+                  !session.inboxAsk && onSecondOpinion
+                    ? (harness, turn, model) =>
+                        onSecondOpinion(session.id, harness, turn, model)
+                    : undefined
+                }
+                onHandoff={
+                  !session.inboxAsk && onHandoff
+                    ? (harness, turn, model) =>
+                        onHandoff(session.id, harness, turn, model)
+                    : undefined
+                }
+                onJumpToBottomChange={setShowJumpToBottom}
+                onJumpToBottomReady={onJumpToBottomReady}
+                onRevealReady={onRevealReady}
+                latestTurnAccessory={
+                  session.inboxAsk ? undefined : (
+                    <SessionReview
+                      sessionId={session.id}
+                      cwd={workCwd}
+                      enabled={visible}
+                      busy={!!session.busy}
+                      undoLocked={
+                        reviewUndoLocked ||
+                        orchestrationRuns.some(
+                          (run) =>
+                            run.leadId === session.id ||
+                            run.tasks.some(
+                              (task) => task.sessionId === session.id,
+                            ),
+                        )
+                      }
+                      onOpenDiff={onOpenDiff}
+                    />
+                  )
+                }
+              />
+              <PromptOutline
+                blocks={session.blocks}
+                scope={transcriptScope}
+                visible={visible}
+                revealBlock={revealBlock}
+              />
+              {showJumpToBottom ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
+                  <button
+                    type="button"
+                    title="Jump to latest"
+                    aria-label="Jump to latest"
+                    data-jump-to-bottom
+                    onClick={() => jumpToBottomRef.current?.()}
+                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
+                  >
+                    <ChevronDown className="size-4" strokeWidth={2} />
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-        {!session.inboxAsk && (
-          <OrchestrationPanel
-            session={session}
-            onApproval={onApproval}
-            onQuestionReply={onQuestionReply}
-            onQuestionInteraction={onQuestionInteraction}
-          />
-        )}
+        {dockComposer ? (
+          <div className="mx-auto w-full max-w-4xl shrink-0">{composer}</div>
+        ) : null}
       </div>
     </div>
   );

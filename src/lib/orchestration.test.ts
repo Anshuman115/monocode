@@ -5,6 +5,7 @@ import {
   type ControlOutcome,
   type OrchestrationHost,
   type OrchestrationRun,
+  shellPath,
 } from "./orchestration";
 import { newSession } from "./session";
 import type { OrchestrationProposal } from "./orchestrationPlan";
@@ -53,6 +54,8 @@ function setup() {
       const session = sessions.find((entry) => entry.id === id);
       if (session) session.busy = false;
     }),
+    respondApproval: vi.fn(),
+    answerQuestion: vi.fn(),
   };
   manager.bind(host);
   let request = 0;
@@ -480,6 +483,205 @@ describe("local orchestration", () => {
     await vi.waitFor(() => expect(f.tasks()[0].status).toBe("failed"));
     await expect(f.call("review", { taskId: f.tasks()[0].id })).rejects.toThrow(
       "Only a completed",
+    );
+  });
+  it("names the way out of a run that cannot finish yet", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "failed",
+      text: "",
+      error: "Provider crashed",
+    });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("failed"));
+    // A failed task can never be reviewed, so both exits must be spelled out.
+    await expect(f.call("review", { taskId: f.tasks()[0].id })).rejects.toThrow(
+      /message.*cancel/,
+    );
+    await expect(f.call("finish")).rejects.toThrow(/Task \(failed\)/);
+    await expect(f.call("finish")).rejects.toThrow(/message.*cancel/);
+    await f.call("cancel", { taskId: f.tasks()[0].id });
+    expect(await f.call("finish")).toEqual({ finished: true });
+  });
+  it("rejects mistyped fields instead of silently dropping them", async () => {
+    const f = setup();
+    await f.start();
+    // Silently ignoring depends_on would race two workers over one file.
+    await expect(
+      f.delegate(["a"], { depends_on: [], modelId: "codex:test" }),
+    ).rejects.toThrow("Unknown delegate fields: depends_on, modelId");
+    await expect(f.call("finish", { taskId: "x" })).rejects.toThrow(
+      "finish takes no input",
+    );
+    await expect(f.call("wait", { timeout: 5 })).rejects.toThrow(
+      "wait accepts: timeoutSeconds",
+    );
+    expect(f.tasks()).toHaveLength(0);
+  });
+  it("points a bad delegate at the values list would have returned", async () => {
+    const f = setup();
+    await f.start();
+    await expect(f.delegate(["a"], { harness: "claude" })).rejects.toThrow(
+      'Harness "claude" is not allowed in this run. Allowed: codex.',
+    );
+    await expect(f.delegate(["a"], { model: "codex:ghost" })).rejects.toThrow(
+      "Choose a model ID returned by list for codex: codex:test.",
+    );
+    await expect(f.delegate([], {})).rejects.toThrow("at least one file");
+    await expect(
+      f.call("delegate", {
+        title: "T",
+        prompt: "P",
+        harness: "codex",
+        files: ["a"],
+        dependsOn: ["nope"],
+      }),
+    ).rejects.toThrow("unknown or cancelled: nope");
+  });
+  it("keeps the retry ledger free of inherited object keys", async () => {
+    const f = setup();
+    await f.start();
+    const first = await f.call(
+      "delegate",
+      {
+        title: "A",
+        prompt: "Implement",
+        harness: "codex",
+        files: ["a"],
+      },
+      "constructor",
+    );
+    expect(first).toHaveProperty("taskId");
+  });
+  it("quotes the control path only when the shell needs it", () => {
+    expect(
+      shellPath("/Applications/MonoCode.app/Contents/MacOS/monocode"),
+    ).toBe("/Applications/MonoCode.app/Contents/MacOS/monocode");
+    expect(shellPath("/Users/a b/MonoCode")).toBe("'/Users/a b/MonoCode'");
+    expect(shellPath("C:/Program Files/MonoCode/monocode.exe")).toBe(
+      '"C:/Program Files/MonoCode/monocode.exe"',
+    );
+    expect(shellPath("C:\\Tools\\monocode.exe")).toBe("C:\\Tools\\monocode.exe");
+    // A backslash escapes in a POSIX shell, so bare would rewrite the path.
+    expect(shellPath("/Users/a\\b/MonoCode")).toBe("'/Users/a\\b/MonoCode'");
+    expect(shellPath("/Users/it's/MonoCode")).toBe("'/Users/it'\\''s/MonoCode'");
+  });
+  it("treats an action named after an Object member as unknown", async () => {
+    const f = setup();
+    await f.start();
+    for (const action of ["constructor", "toString", "__proto__"])
+      await expect(f.call(action)).rejects.toThrow(
+        `Unknown action "${action}"`,
+      );
+  });
+  it("routes a blocked agent to the lead instead of the user", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const worker = f.sessions.find(
+      (session) => session.id === f.tasks()[0].sessionId,
+    )!;
+    worker.blocks = [
+      {
+        id: "ask",
+        role: "approval",
+        text: "rm -rf build",
+        approval: { requestId: 7 },
+      },
+    ];
+    const view = (await f.call("get", { taskId: f.tasks()[0].id })) as {
+      needsInput?: { kind: string; requestId: number };
+    };
+    expect(view.needsInput).toMatchObject({ kind: "approval", requestId: 7 });
+    // A stale or invented requestId must never decide a live prompt.
+    await expect(
+      f.call("respond", {
+        taskId: f.tasks()[0].id,
+        requestId: 6,
+        decision: "allow",
+      }),
+    ).rejects.toThrow("Stale requestId");
+    await expect(
+      f.call("respond", {
+        taskId: f.tasks()[0].id,
+        requestId: 7,
+        decision: "maybe",
+      }),
+    ).rejects.toThrow('decision must be "allow" or "deny"');
+    await f.call("respond", {
+      taskId: f.tasks()[0].id,
+      requestId: 7,
+      decision: "deny",
+    });
+    expect(f.host.respondApproval).toHaveBeenCalledWith(
+      worker.id,
+      7,
+      "deny",
+    );
+  });
+  it("validates the lead's answer against the agent's own question", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const worker = f.sessions.find(
+      (session) => session.id === f.tasks()[0].sessionId,
+    )!;
+    worker.pendingQuestion = {
+      requestId: 9,
+      title: "Pick a check",
+      questions: [
+        {
+          id: "check",
+          prompt: "Which check?",
+          multiSelect: false,
+          allowCustom: false,
+          options: [{ id: "unit", label: "Unit" }],
+        },
+      ],
+    };
+    const taskId = f.tasks()[0].id;
+    await expect(
+      f.call("answer", { taskId, requestId: 9, answers: { check: ["e2e"] } }),
+    ).rejects.toThrow("Unknown option");
+    await expect(
+      f.call("answer", { taskId, requestId: 9, answers: { nope: ["unit"] } }),
+    ).rejects.toThrow("Unknown question");
+    await f.call("answer", { taskId, requestId: 9, answers: { check: ["unit"] } });
+    expect(f.host.answerQuestion).toHaveBeenCalledWith(worker.id, 9, {
+      kind: "answered",
+      answers: { check: ["unit"] },
+    });
+  });
+  it("stops the agents whenever the lead stops supervising", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    await f.manager.startApproved("lead", "card", proposal());
+    await vi.waitFor(() =>
+      expect(f.host.createWorker).toHaveBeenCalledTimes(1),
+    );
+    const running = f.tasks().find((task) => task.title === "Types")!;
+    expect(running.status).toBe("running");
+    // The lead's turn dies. Its agents must not carry on editing the shared
+    // checkout with nobody left to review them.
+    f.completions.get("lead")!({
+      status: "failed",
+      text: "",
+      error: "Provider crashed",
+    });
+    await vi.waitFor(() => expect(f.manager.run("lead")!.status).toBe("paused"));
+    await vi.waitFor(() =>
+      expect(
+        f.tasks().find((task) => task.title === "Types")!.status,
+      ).toBe("cancelled"),
+    );
+    expect(f.host.stop).toHaveBeenCalledWith(running.sessionId);
+    // Queued work is untouched, so resuming picks it up intact.
+    expect(f.tasks().find((task) => task.title === "UI")!.status).toBe(
+      "queued",
     );
   });
   it("blocks ordinary sessions while a run owns their checkout", async () => {

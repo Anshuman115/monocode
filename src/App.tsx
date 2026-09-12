@@ -11,8 +11,14 @@ import {
   type OrchestrationProposal,
 } from "./lib/orchestrationPlan";
 import { discoverOrchestrationSettings } from "./lib/orchestrationCatalog";
-import { attachOrchestrationWorkers, consolidateOrchestrationTabs } from "./lib/orchestrationWorkspace";
-import { OrchestrationActions, OrchestrationWorkers } from "./chrome/OrchestrationActions";
+import {
+  attachOrchestrationWorkers,
+  consolidateOrchestrationTabs,
+} from "./lib/orchestrationWorkspace";
+import {
+  OrchestrationActions,
+  OrchestrationWorkers,
+} from "./chrome/OrchestrationActions";
 import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -660,8 +666,14 @@ export default function App({
     useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [notesViewOpen, setNotesViewOpen] = useState(false);
-  const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(null);
-  const orchestrationRuns = useSyncExternalStore(orchestrator.subscribe, orchestrator.snapshot, orchestrator.snapshot);
+  const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(
+    null,
+  );
+  const orchestrationRuns = useSyncExternalStore(
+    orchestrator.subscribe,
+    orchestrator.snapshot,
+    orchestrator.snapshot,
+  );
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
     loadNotesEnabled,
@@ -1385,8 +1397,15 @@ export default function App({
     // Internal workers stay attached to the lead, even while idle between
     // turns. They must not be discarded merely because they have no tab.
     for (const session of sessions) {
-      if (session.orchestrationLeadId && (visibleIds.has(session.orchestrationLeadId) ||
-        orchestrationRuns.some((run) => run.leadId === session.orchestrationLeadId && ["active", "paused"].includes(run.status))))
+      if (
+        session.orchestrationLeadId &&
+        (visibleIds.has(session.orchestrationLeadId) ||
+          orchestrationRuns.some(
+            (run) =>
+              run.leadId === session.orchestrationLeadId &&
+              ["active", "paused"].includes(run.status),
+          ))
+      )
         visibleIds.add(session.id);
     }
     const keepUnseen = liveAgentsEnabled;
@@ -1418,7 +1437,8 @@ export default function App({
   const activateTab = useCallback((id: string, paneId?: string) => {
     const tab = tabsRef.current.find((entry) => entry.id === id);
     const nextFocusedId =
-      tab && paneId &&
+      tab &&
+      paneId &&
       (leafIds(tab.layout).includes(paneId) ||
         tab.editorPanes.some((entry) => entry.id === paneId) ||
         (tab.terminalPanes ?? []).some((entry) => entry.id === paneId))
@@ -2866,7 +2886,9 @@ export default function App({
     async (sessionId: string) => {
       let session = await ensureOpenSession(sessionId);
       if (!session || session.inboxAsk) return;
-      const parentId = session.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
+      const parentId =
+        session.orchestrationLeadId ??
+        orchestrator.forSession(sessionId)?.leadId;
       if (parentId && parentId !== sessionId) {
         setInspectedWorkerId(sessionId);
         session = await ensureOpenSession(parentId);
@@ -2924,7 +2946,9 @@ export default function App({
   const sessionReminders = useSessionReminders(
     openReminderSession,
     ensureReminderSessionsSaved,
-    sessions.filter((session) => !session.inboxAsk).map((session) => session.id),
+    sessions
+      .filter((session) => !session.inboxAsk)
+      .map((session) => session.id),
   );
 
   const onPlaceSessionOnPane = useCallback(
@@ -3835,7 +3859,10 @@ export default function App({
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
-      const controlError = orchestrator.submissionError(sessionId, options?.managed);
+      const controlError = orchestrator.submissionError(
+        sessionId,
+        options?.managed,
+      );
       if (controlError) {
         enqueueHarnessEvent(sessionId, { type: "status", text: controlError });
         flushHarnessEvents();
@@ -3843,8 +3870,18 @@ export default function App({
       }
       if (options?.managed) {
         const target = sessionsRef.current.find((s) => s.id === sessionId);
-        if (!target || target.busy || target.pendingSwitch || isPreparingHandoff(target) || removingSessionIds.current.has(sessionId)) {
-          options.onSettled?.({ status: "failed", text: "", error: "Session is unavailable or already running" });
+        if (
+          !target ||
+          target.busy ||
+          target.pendingSwitch ||
+          isPreparingHandoff(target) ||
+          removingSessionIds.current.has(sessionId)
+        ) {
+          options.onSettled?.({
+            status: "failed",
+            text: "",
+            error: "Session is unavailable or already running",
+          });
           return;
         }
       }
@@ -3858,9 +3895,15 @@ export default function App({
       if (intent === "orchestrate") {
         try {
           const run = orchestrator.forSession(sessionId);
-          if (run && ["active", "paused"].includes(run.status)) throw new Error("Stop the current orchestration run before preparing another proposal.");
+          if (run && ["active", "paused"].includes(run.status))
+            throw new Error(
+              "Stop the current orchestration run before preparing another proposal.",
+            );
         } catch (error) {
-          enqueueHarnessEvent(sessionId, { type: "status", text: error instanceof Error ? error.message : String(error) });
+          enqueueHarnessEvent(sessionId, {
+            type: "status",
+            text: error instanceof Error ? error.message : String(error),
+          });
           flushHarnessEvents();
           return;
         }
@@ -4050,7 +4093,11 @@ export default function App({
           : card
             ? SECOND_OPINION_TITLE
             : submittedText;
-      const cards = rawCommand ? undefined : userTurnCards(noteCard, card);
+      const cards = {
+        ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
+        // The orchestrator writes these turns, not the user; hide them.
+        ...(options?.managed ? { internal: true } : {}),
+      };
       const live = isLiveHarness(current.harness);
       const queuedHandoff =
         live && !pendingSwitch ? pendingHandoff(current) : null;
@@ -4179,7 +4226,11 @@ export default function App({
         if (pendingSwitch) {
           void forgetHarnessSession(pendingSwitch.from, sessionId);
         }
-        options?.onSettled?.({ status: "failed", text: "", error: "Harness is not connected" });
+        options?.onSettled?.({
+          status: "failed",
+          text: "",
+          error: "Harness is not connected",
+        });
         return;
       }
 
@@ -4271,9 +4322,20 @@ export default function App({
         const routePlanEvent = (event: HarnessEvent): HarnessEvent | null => {
           if (event.type === "session.error") providerFailureSeen = true;
           if (proposalDraft) {
-            if (event.type === "message.delta") { proposalText = (proposalText + event.text).slice(-200_000); return null; }
-            if (event.type === "message.completed") { proposalText += "\n"; return null; }
-            if (event.type === "plan") { nativeProposalText = event.append ? nativeProposalText + event.text : event.text; return null; }
+            if (event.type === "message.delta") {
+              proposalText = (proposalText + event.text).slice(-200_000);
+              return null;
+            }
+            if (event.type === "message.completed") {
+              proposalText += "\n";
+              return null;
+            }
+            if (event.type === "plan") {
+              nativeProposalText = event.append
+                ? nativeProposalText + event.text
+                : event.text;
+              return null;
+            }
           }
           if (intent !== "plan") return event;
           if (event.type === "plan") {
@@ -4301,8 +4363,11 @@ export default function App({
                   sessionId,
                   cwd: workCwd,
                 });
-          const turnPrompt =
-            proposalDraft ? orchestrationPlanningPrompt(prompt, proposalDraft.settings) : intent === "plan" && !rawCommand ? planTurnPrompt(prompt) : prompt;
+          const turnPrompt = proposalDraft
+            ? orchestrationPlanningPrompt(prompt, proposalDraft.settings)
+            : intent === "plan" && !rawCommand
+              ? planTurnPrompt(prompt)
+              : prompt;
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
@@ -4314,24 +4379,34 @@ export default function App({
             modelSettings: current.modelSettings,
             runtimeMode: current.runtimeMode,
             intent: intent === "orchestrate" ? "plan" : intent,
-            text: orchestrator.prompt(sessionId, inboxAskPrompt(
-              rawCommand ? undefined : current.inboxAsk,
-              wrap && !rawCommand
-                ? wrapHandoffPrompt(
-                    wrap.text,
-                    wrap.from,
-                    turnPrompt.trim() || CONTINUE_PROMPT,
-                    earlier,
-                  )
-                : turnPrompt,
-            )),
+            // A lead drives the control CLI over loopback; without this the
+            // harness sandbox denies the socket and it cannot supervise.
+            controlsAgents:
+              orchestrator.run(sessionId)?.status === "active",
+            text: orchestrator.prompt(
+              sessionId,
+              inboxAskPrompt(
+                rawCommand ? undefined : current.inboxAsk,
+                wrap && !rawCommand
+                  ? wrapHandoffPrompt(
+                      wrap.text,
+                      wrap.from,
+                      turnPrompt.trim() || CONTINUE_PROMPT,
+                      earlier,
+                    )
+                  : turnPrompt,
+              ),
+            ),
             attachments: prepared,
             onEvent: (event) => {
               if (turnGen.current.get(sessionId) !== gen) return;
               orchestrator.observe(sessionId, event);
-              if (options?.onSettled && event.type === "message.delta") controlText = (controlText + event.text).slice(-20_000);
-              if (options?.onSettled && event.type === "message.completed") controlText += "\n";
-              if (event.type === "session.error") controlOutcome.error = event.message;
+              if (options?.onSettled && event.type === "message.delta")
+                controlText = (controlText + event.text).slice(-20_000);
+              if (options?.onSettled && event.type === "message.completed")
+                controlText += "\n";
+              if (event.type === "session.error")
+                controlOutcome.error = event.message;
               if (
                 wrap &&
                 (event.type === "session.started" ||
@@ -4340,7 +4415,8 @@ export default function App({
                 revealHandoff(wrap.text);
               }
               nudgeOpenEditors(event, workCwd);
-              if (!orchestrator.forSession(sessionId)) trackSessionEdits(sessionId, workCwd, event);
+              if (!orchestrator.forSession(sessionId))
+                trackSessionEdits(sessionId, workCwd, event);
               const routed = routePlanEvent(event);
               if (routed) enqueueHarnessEvent(sessionId, routed);
             },
@@ -4378,7 +4454,12 @@ export default function App({
           if (turnGen.current.get(sessionId) !== gen) return;
           flushHarnessEvents();
           controlOutcome = {
-            status: providerFailureSeen || isProviderFailureText(controlText) || !buildSucceeded ? "failed" : "completed",
+            status:
+              providerFailureSeen ||
+              isProviderFailureText(controlText) ||
+              !buildSucceeded
+                ? "failed"
+                : "completed",
             text: controlText.trim(),
             ...(providerFailureSeen ? { error: controlOutcome.error } : {}),
           };
@@ -4398,11 +4479,23 @@ export default function App({
               const providerFailed =
                 providerFailureSeen ||
                 isProviderFailureText(lastAssistantTextInTurn(stopped));
-              const finalized = proposalDraft && proposalId
-                ? withOrchestrationProposal(stopped, proposalId, completeOrchestrationProposal(proposalDraft, nativeProposalText || proposalText, providerFailed || !buildSucceeded ? controlOutcome.error ?? "The lead could not finish planning." : undefined))
-                : intent === "plan" && !nativePlanSeen && !providerFailed
-                  ? promoteLastAssistantToPlan(stopped, planEventKey)
-                  : stopped;
+              const finalized =
+                proposalDraft && proposalId
+                  ? withOrchestrationProposal(
+                      stopped,
+                      proposalId,
+                      completeOrchestrationProposal(
+                        proposalDraft,
+                        nativeProposalText || proposalText,
+                        providerFailed || !buildSucceeded
+                          ? (controlOutcome.error ??
+                              "The lead could not finish planning.")
+                          : undefined,
+                      ),
+                    )
+                  : intent === "plan" && !nativePlanSeen && !providerFailed
+                    ? promoteLastAssistantToPlan(stopped, planEventKey)
+                    : stopped;
               return approvedPlan && intent === "build"
                 ? withPlanStatus(
                     finalized,
@@ -4432,18 +4525,45 @@ export default function App({
           nudgeWatchedFiles();
           window.setTimeout(() => nudgeWatchedFiles(), 150);
         }
-      })().catch((error: unknown) => {
-        controlOutcome = { status: "failed", text: controlText, error: error instanceof Error ? error.message : String(error) };
-        if (turnGen.current.get(sessionId) === gen) {
-          enqueueHarnessEvent(sessionId, { type: "session.error", message: controlOutcome.error! });
-          flushHarnessEvents();
-          setSessions((prev) => prev.map((session) => session.id === sessionId ? proposalId && proposalDraft ? withOrchestrationProposal(stopStreaming(session), proposalId, completeOrchestrationProposal(proposalDraft, "", controlOutcome.error)) : stopStreaming(session) : session));
-        }
-      }).finally(() => {
-        options?.onSettled?.(turnGen.current.get(sessionId) !== gen
-          ? { status: "cancelled", text: controlText }
-          : controlOutcome);
-      });
+      })()
+        .catch((error: unknown) => {
+          controlOutcome = {
+            status: "failed",
+            text: controlText,
+            error: error instanceof Error ? error.message : String(error),
+          };
+          if (turnGen.current.get(sessionId) === gen) {
+            enqueueHarnessEvent(sessionId, {
+              type: "session.error",
+              message: controlOutcome.error!,
+            });
+            flushHarnessEvents();
+            setSessions((prev) =>
+              prev.map((session) =>
+                session.id === sessionId
+                  ? proposalId && proposalDraft
+                    ? withOrchestrationProposal(
+                        stopStreaming(session),
+                        proposalId,
+                        completeOrchestrationProposal(
+                          proposalDraft,
+                          "",
+                          controlOutcome.error,
+                        ),
+                      )
+                    : stopStreaming(session)
+                  : session,
+              ),
+            );
+          }
+        })
+        .finally(() => {
+          options?.onSettled?.(
+            turnGen.current.get(sessionId) !== gen
+              ? { status: "cancelled", text: controlText }
+              : controlOutcome,
+          );
+        });
     },
     [enqueueHarnessEvent, flushHarnessEvents],
   );
@@ -4627,7 +4747,10 @@ export default function App({
         : undefined;
       if (!session || !message) return;
       if (message.intent === "orchestrate" && session.busy) {
-        enqueueHarnessEvent(sessionId, { type: "status", text: "Orchestration planning will start after the current turn finishes." });
+        enqueueHarnessEvent(sessionId, {
+          type: "status",
+          text: "Orchestration planning will start after the current turn finishes.",
+        });
         flushHarnessEvents();
         return;
       }
@@ -4885,7 +5008,10 @@ export default function App({
     (sessionId: string, managed = false) => {
       if (!managed) {
         const stopping = orchestrator.stopForSession(sessionId);
-        if (stopping) { void stopping.catch(console.error); return; }
+        if (stopping) {
+          void stopping.catch(console.error);
+          return;
+        }
       }
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
@@ -4985,14 +5111,17 @@ export default function App({
   const onQuestionInteraction = useCallback(
     (sessionId: string, requestId: number) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (session) keepHarnessQuestionOpen(session.harness, sessionId, requestId);
+      if (session)
+        keepHarnessQuestionOpen(session.harness, sessionId, requestId);
     },
     [],
   );
 
   const onOpenApprovalSession = useCallback(
     (sessionId: string) => {
-      const parentId = sessionsRef.current.find((session) => session.id === sessionId)?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
+      const parentId =
+        sessionsRef.current.find((session) => session.id === sessionId)
+          ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
       if (parentId && parentId !== sessionId) {
         setInspectedWorkerId(sessionId);
         if (!focusOpenSession(parentId)) void onSelectHistorySession(parentId);
@@ -5008,7 +5137,11 @@ export default function App({
   }, [orchestrationRuns]);
 
   useEffect(() => {
-    const next = consolidateOrchestrationTabs(tabs, activeTabId, orchestrationRuns);
+    const next = consolidateOrchestrationTabs(
+      tabs,
+      activeTabId,
+      orchestrationRuns,
+    );
     if (next.tabs !== tabs) setTabs(next.tabs);
     if (next.activeTabId !== activeTabId) setActiveTabId(next.activeTabId);
   }, [tabs, activeTabId, orchestrationRuns]);
@@ -5027,19 +5160,51 @@ export default function App({
           leadId: run.leadId,
           sessionId: task.sessionId,
         });
-        const existing = sessionsRef.current.find((session) => session.id === task.sessionId);
-        if (existing) {
-          if (existing.harness !== task.harness || existing.model !== task.model || existing.cwd !== run.cwd) throw new Error("This worker's configuration changed. Restore its approved harness, model and project before retrying.");
-          return;
-        }
+        const existing = sessionsRef.current.find(
+          (session) => session.id === task.sessionId,
+        );
         const lead = sessionsRef.current.find(
           (session) => session.id === run.leadId,
         );
         if (!lead) throw new Error("Lead session is unavailable");
+        if (existing) {
+          if (
+            existing.harness !== task.harness ||
+            existing.model !== task.model ||
+            existing.cwd !== run.cwd
+          )
+            throw new Error(
+              "This worker's configuration changed. Restore its approved harness, model and project before retrying.",
+            );
+          // The lead's runtime mode governs its agents, including across a
+          // change mid-run: auto stays auto, supervised asks the lead.
+          if (existing.runtimeMode !== lead.runtimeMode) {
+            const synced = { ...existing, runtimeMode: lead.runtimeMode };
+            await upsertSession(synced);
+            const next = sessionsRef.current.map((session) =>
+              session.id === synced.id ? synced : session,
+            );
+            sessionsRef.current = next;
+            setSessions(next);
+          }
+          return;
+        }
         const restored = await getSession(task.sessionId);
-        if (restored && (restored.harness !== task.harness || restored.model !== task.model)) throw new Error("The saved worker no longer matches its approved model. Create a new assignment.");
+        if (
+          restored &&
+          (restored.harness !== task.harness || restored.model !== task.model)
+        )
+          throw new Error(
+            "The saved worker no longer matches its approved model. Create a new assignment.",
+          );
         const base = restored
-          ? { ...restored, busy: false, cwd: run.cwd, worktreeCwd: undefined }
+          ? {
+              ...restored,
+              busy: false,
+              cwd: run.cwd,
+              worktreeCwd: undefined,
+              runtimeMode: lead.runtimeMode,
+            }
           : {
               ...newSession(
                 task.harness,
@@ -5067,7 +5232,17 @@ export default function App({
       submit: (id, text, done) => {
         // Commit the new turn before the scheduler or confirmation updates
         // another session snapshot in the same event loop.
-        flushSync(() => onSubmit(id, text, [], { managed: true, onSettled: done }));
+        flushSync(() =>
+          onSubmit(id, text, [], { managed: true, onSettled: done }),
+        );
+      },
+      respondApproval: (id, requestId, decision) => {
+        const session = sessionsRef.current.find((entry) => entry.id === id);
+        if (session) respondHarnessApproval(session.harness, id, requestId, decision);
+      },
+      answerQuestion: (id, requestId, reply) => {
+        const session = sessionsRef.current.find((entry) => entry.id === id);
+        if (session) respondHarnessQuestion(session.harness, id, requestId, reply);
       },
       stop: async (id) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
@@ -5131,9 +5306,14 @@ export default function App({
   }, []);
 
   const confirmingOrchestration = useRef(new Set<string>());
-  const orchestrationWorkers = useMemo(() => ({
-    sessions, selectedId: inspectedWorkerId, inspect: setInspectedWorkerId,
-  }), [sessions, inspectedWorkerId]);
+  const orchestrationWorkers = useMemo(
+    () => ({
+      sessions,
+      selectedId: inspectedWorkerId,
+      inspect: setInspectedWorkerId,
+    }),
+    [sessions, inspectedWorkerId],
+  );
   const updateOrchestrationCard = useCallback(
     (leadId: string, blockId: string, proposal: OrchestrationProposal) => {
       const next = sessionsRef.current.map((session) =>
@@ -5269,14 +5449,20 @@ export default function App({
 
   const sidebarHistory = useMemo(
     () =>
-      historyWithLiveSessions(history, sessions, sidebarCwd, {
-        ...(projectBranches?.current
-          ? { branch: projectBranches.current }
-          : {}),
-        ...(sidebarCwd && sidebarCwd !== "~"
-          ? { repo: projectName(sidebarCwd) }
-          : {}),
-      }, orchestrationRuns),
+      historyWithLiveSessions(
+        history,
+        sessions,
+        sidebarCwd,
+        {
+          ...(projectBranches?.current
+            ? { branch: projectBranches.current }
+            : {}),
+          ...(sidebarCwd && sidebarCwd !== "~"
+            ? { repo: projectName(sidebarCwd) }
+            : {}),
+        },
+        orchestrationRuns,
+      ),
     [history, projectBranches, sessions, sidebarCwd, orchestrationRuns],
   );
   const inboxRelatedSessions = useMemo(() => {
@@ -5313,7 +5499,9 @@ export default function App({
       sessions
         .filter(
           (session) =>
-            !session.inboxAsk && !session.orchestrationLeadId && sameProjectPath(session.cwd, sidebarCwd),
+            !session.inboxAsk &&
+            !session.orchestrationLeadId &&
+            sameProjectPath(session.cwd, sidebarCwd),
         )
         .map((session) =>
           summaryFromSession(session, {
@@ -5940,404 +6128,412 @@ export default function App({
 
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
-    <OrchestrationWorkers.Provider value={orchestrationWorkers}>
-    <div
-      className={`flex h-full text-content ${
-        HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
-      }`}
-    >
-      <Sidebar
-        cwd={sidebarCwd}
-        gitCwd={gitCwd}
-        open
-        tab={sidebarTab}
-        onTabChange={setSidebarTab}
-        filesSearchOpen={filesSearchOpen}
-        onFilesSearchOpenChange={setFilesSearchOpen}
-        onOpenFilesSearch={onFindInProject}
-        searchFocusToken={searchFocusToken}
-        sessions={sidebarHistory}
-        busySessionIds={busySessionIds}
-        approvalSessionIds={approvalSessionIds}
-        activeSessionId={active?.id}
-        status={historyFailed ? "error" : "idle"}
-        pending={historyPending}
-        onSelectSession={onSelectHistorySession}
-        onSessionNavigationOrder={onSessionNavigationOrder}
-        onPlaceSessionOnPane={onPlaceSessionOnPane}
-        onRenameSession={onRenameHistorySession}
-        onArchiveSession={onArchiveHistorySession}
-        onArchiveSessions={onArchiveHistorySessions}
-        onPinSession={onPinHistorySession}
-        onPinSessions={onPinHistorySessions}
-        reminders={sessionReminders.reminders}
-        onSetReminders={sessionReminders.schedule}
-        onCancelReminders={sessionReminders.cancel}
-        onDeleteSession={onDeleteHistorySession}
-        onDeleteSessions={onDeleteHistorySessions}
-        onOpenFile={onOpenFile}
-        onOpenTerminal={onOpenTerminal}
-        onFileMoved={onFileMoved}
-        onFileDeleted={onFileDeleted}
-        canGoBack={
-          tabVisitNav.canBack ||
-          searchViewOpen ||
-          settingsOpen ||
-          inboxViewOpen ||
-          notesViewOpen
-        }
-        canGoForward={tabVisitNav.canForward}
-        onGoBack={onRailBack}
-        onGoForward={onRailForward}
-        onOpenDiff={onOpenWorkingTreeDiff}
-        onOpenAllChanges={onOpenAllChanges}
-        onOpenCommit={onOpenCommit}
-        onShowSourceControl={onToggleChanges}
-        selectedDiffPath={
-          activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
-        }
-        selectedDiffKind={activeTab ? selectedChangeKind(activeTab) : undefined}
-        selectedCommitSha={activeTab ? selectedCommitSha(activeTab) : undefined}
-        textHarness={pickTextHarness(active?.harness)}
-        recents={recents}
-        busyProjectPaths={sessions.flatMap((session) =>
-          session.busy && session.cwd ? [session.cwd] : [],
-        )}
-        liveAgents={liveAgents}
-        onSelectAgent={onSelectLiveAgent}
-        onSelectProject={onSelectProject}
-        onOpenProject={pickProject}
-        onRemoveProject={onRemoveProject}
-        onNew={onNew}
-        openSessions={openProjectSessions}
-        onNewTerminal={onNewTerminal}
-        onSearch={onOpenSearch}
-        onOpenInbox={onOpenInbox}
-        onOpenInboxItem={onOpenLinkedWorkItem}
-        onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-        onGoToFile={onGoToFile}
-        searchActive={searchViewOpen}
-        inboxActive={inboxViewOpen}
-        notesActive={notesViewOpen}
-        notesEnabled={notesEnabled}
-        projectRailOpen={projectRailOpen}
-        onToggleProjectRail={onToggleProjectRail}
-        unseenFinishedIds={unseenFinishedIds}
-        settingsOpen={settingsOpen}
-        settingsSection={settingsSection}
-        onOpenSettings={onOpenSettings}
-        onSelectSettingsSection={onSelectSettingsSection}
-        onCloseSettings={onCloseSettings}
-        updateNotice={updateNotice}
-        onOpenWhatsNew={onOpenWhatsNew}
-        onDismissUpdate={() => setUpdateNotice(null)}
-      />
-
-      <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+      <OrchestrationWorkers.Provider value={orchestrationWorkers}>
         <div
-          className={
-            searchViewOpen || settingsOpen || inboxViewOpen || notesViewOpen
-              ? "hidden"
-              : "flex min-h-0 min-w-0 flex-1 flex-col"
-          }
-          aria-hidden={
-            searchViewOpen || settingsOpen || inboxViewOpen || notesViewOpen
-          }
-          inert={
-            searchViewOpen ||
-            settingsOpen ||
-            inboxViewOpen ||
-            notesViewOpen ||
-            undefined
-          }
+          className={`flex h-full text-content ${
+            HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
+          }`}
         >
-          {!IS_MAC ? (
-            <MenuBar
-              onNew={onNew}
-              onNewTerminal={onNewTerminal}
-              onToggleTerminal={onToggleProjectTerminal}
-              onGoToFile={onGoToFile}
-              onToggleSidebar={onToggleSidebar}
-              onShowSourceControl={onToggleChanges}
-              onCloseCurrentTab={
-                activeTabId ? () => onCloseTab(activeTabId) : undefined
-              }
-              onCloseOtherTabs={onCloseOtherTabs}
-              onPickProject={pickProject}
-              onFindInProject={onFindInProject}
-              onSearch={onOpenSearch}
-              onOpenInbox={onOpenInbox}
-              onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-              onZoomIn={() => {
-                const next = saveUiScale(zoomInUiScale(loadUiScale()));
-                void applyUiScale(next);
-              }}
-              onZoomOut={() => {
-                const next = saveUiScale(zoomOutUiScale(loadUiScale()));
-                void applyUiScale(next);
-              }}
-              onZoomReset={() => {
-                saveUiScale(UI_SCALE_DEFAULT);
-                void applyUiScale(UI_SCALE_DEFAULT);
-              }}
-            />
-          ) : null}
-          <TitleBar
-            tabs={titleTabs}
-            activeId={activeTabId}
+          <Sidebar
             cwd={sidebarCwd}
-            projectRailOpen={projectRailOpen}
-            onToggleSidebar={onToggleSidebar}
-            onSelect={activateTab}
-            onNew={onNew}
-            onNewTerminal={onNewTerminal}
-            onShowTerminal={onShowProjectTerminal}
-            projectTerminalActive={
-              !!currentProjectDock && currentProjectDock.pane.files.length > 0
+            gitCwd={gitCwd}
+            open
+            tab={sidebarTab}
+            onTabChange={setSidebarTab}
+            filesSearchOpen={filesSearchOpen}
+            onFilesSearchOpenChange={setFilesSearchOpen}
+            onOpenFilesSearch={onFindInProject}
+            searchFocusToken={searchFocusToken}
+            sessions={sidebarHistory}
+            busySessionIds={busySessionIds}
+            approvalSessionIds={approvalSessionIds}
+            activeSessionId={active?.id}
+            status={historyFailed ? "error" : "idle"}
+            pending={historyPending}
+            onSelectSession={onSelectHistorySession}
+            onSessionNavigationOrder={onSessionNavigationOrder}
+            onPlaceSessionOnPane={onPlaceSessionOnPane}
+            onRenameSession={onRenameHistorySession}
+            onArchiveSession={onArchiveHistorySession}
+            onArchiveSessions={onArchiveHistorySessions}
+            onPinSession={onPinHistorySession}
+            onPinSessions={onPinHistorySessions}
+            reminders={sessionReminders.reminders}
+            onSetReminders={sessionReminders.schedule}
+            onCancelReminders={sessionReminders.cancel}
+            onDeleteSession={onDeleteHistorySession}
+            onDeleteSessions={onDeleteHistorySessions}
+            onOpenFile={onOpenFile}
+            onOpenTerminal={onOpenTerminal}
+            onFileMoved={onFileMoved}
+            onFileDeleted={onFileDeleted}
+            canGoBack={
+              tabVisitNav.canBack ||
+              searchViewOpen ||
+              settingsOpen ||
+              inboxViewOpen ||
+              notesViewOpen
             }
-            onOpenSettings={onOpenSettings}
-            onOpenInbox={onOpenInbox}
-            onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-            onClose={onCloseTitleTab}
-            onCloseMany={onCloseTabs}
-            onReorder={onReorderTabs}
-            onGoToFile={onGoToFile}
+            canGoForward={tabVisitNav.canForward}
+            onGoBack={onRailBack}
+            onGoForward={onRailForward}
+            onOpenDiff={onOpenWorkingTreeDiff}
+            onOpenAllChanges={onOpenAllChanges}
+            onOpenCommit={onOpenCommit}
+            onShowSourceControl={onToggleChanges}
+            selectedDiffPath={
+              activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
+            }
+            selectedDiffKind={
+              activeTab ? selectedChangeKind(activeTab) : undefined
+            }
+            selectedCommitSha={
+              activeTab ? selectedCommitSha(activeTab) : undefined
+            }
+            textHarness={pickTextHarness(active?.harness)}
             recents={recents}
+            busyProjectPaths={sessions.flatMap((session) =>
+              session.busy && session.cwd ? [session.cwd] : [],
+            )}
+            liveAgents={liveAgents}
+            onSelectAgent={onSelectLiveAgent}
             onSelectProject={onSelectProject}
+            onOpenProject={pickProject}
+            onRemoveProject={onRemoveProject}
+            onNew={onNew}
+            openSessions={openProjectSessions}
+            onNewTerminal={onNewTerminal}
+            onSearch={onOpenSearch}
+            onOpenInbox={onOpenInbox}
+            onOpenInboxItem={onOpenLinkedWorkItem}
+            onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+            onGoToFile={onGoToFile}
+            searchActive={searchViewOpen}
+            inboxActive={inboxViewOpen}
+            notesActive={notesViewOpen}
+            notesEnabled={notesEnabled}
+            projectRailOpen={projectRailOpen}
+            onToggleProjectRail={onToggleProjectRail}
+            unseenFinishedIds={unseenFinishedIds}
+            settingsOpen={settingsOpen}
+            settingsSection={settingsSection}
+            onOpenSettings={onOpenSettings}
+            onSelectSettingsSection={onSelectSettingsSection}
+            onCloseSettings={onCloseSettings}
+            updateNotice={updateNotice}
+            onOpenWhatsNew={onOpenWhatsNew}
+            onDismissUpdate={() => setUpdateNotice(null)}
           />
 
-          <main className="relative min-h-0 min-w-0 flex-1">
+          <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
             <div
-              ref={dockGridRef}
-              className="absolute inset-0 grid h-full min-h-0 min-w-0"
+              className={
+                searchViewOpen || settingsOpen || inboxViewOpen || notesViewOpen
+                  ? "hidden"
+                  : "flex min-h-0 min-w-0 flex-1 flex-col"
+              }
+              aria-hidden={
+                searchViewOpen || settingsOpen || inboxViewOpen || notesViewOpen
+              }
+              inert={
+                searchViewOpen ||
+                settingsOpen ||
+                inboxViewOpen ||
+                notesViewOpen ||
+                undefined
+              }
             >
-              {projectTerminals.map((dock) => {
-                const show =
-                  dock.open && sameProjectPath(dock.projectPath, projectCwd);
-                return (
-                  <div
-                    key={dock.projectPath}
-                    className={
-                      show
-                        ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
-                        : "hidden"
-                    }
-                    style={show ? { gridArea: "dock" } : undefined}
-                    aria-hidden={!show}
-                  >
-                    <ProjectTerminalDock
-                      dock={dock}
-                      focused={show && projectTerminalFocused}
-                      onFocus={focusProjectTerminal}
-                      onHide={onHideProjectTerminal}
-                      onSideChange={onProjectTerminalSide}
-                      onSizePaint={paintDockSize}
-                      onSizeCommit={commitDockSize}
-                      onAddTerminal={() =>
-                        onOpenTerminal(active?.cwd ?? projectCwd)
-                      }
-                      onSelectTerminal={onSelectProjectTerminal}
-                      onCloseTerminal={onCloseProjectTerminal}
-                      onCloseOtherTerminals={onCloseOtherProjectTerminals}
-                      onReorderTerminals={onReorderProjectTerminals}
-                      onTerminalMetaChange={onTerminalMetaChange}
-                    />
-                  </div>
-                );
-              })}
-              <div
-                className="relative flex min-h-0 min-w-0 flex-row"
-                style={{ gridArea: "main" }}
-              >
-                <div className="relative min-h-0 min-w-0 flex-1">
-                  {tabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      aria-hidden={tab.id !== activeTabId}
-                      className={
-                        tab.id === activeTabId
-                          ? "absolute inset-0 flex h-full min-h-0 flex-col"
-                          : "hidden"
-                      }
-                    >
-                      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                        <PaneTree
-                          {...sessionPaneProps}
-                          visible={tab.id === activeTabId && !inboxViewOpen}
-                          layout={tab.layout}
-                          sessions={sessions}
-                          editorPanes={[
-                            ...tab.editorPanes,
-                            ...(tab.terminalPanes ?? []),
-                          ]}
-                          dirtyFileIds={dirtyFiles}
-                          fileErrorCounts={fileErrorCounts}
-                          focusedId={
-                            tab.id === activeTabId &&
-                            !inboxViewOpen &&
-                            !tab.diffFocused &&
-                            !projectTerminalFocused
-                              ? tab.focusedId
-                              : ""
+              {!IS_MAC ? (
+                <MenuBar
+                  onNew={onNew}
+                  onNewTerminal={onNewTerminal}
+                  onToggleTerminal={onToggleProjectTerminal}
+                  onGoToFile={onGoToFile}
+                  onToggleSidebar={onToggleSidebar}
+                  onShowSourceControl={onToggleChanges}
+                  onCloseCurrentTab={
+                    activeTabId ? () => onCloseTab(activeTabId) : undefined
+                  }
+                  onCloseOtherTabs={onCloseOtherTabs}
+                  onPickProject={pickProject}
+                  onFindInProject={onFindInProject}
+                  onSearch={onOpenSearch}
+                  onOpenInbox={onOpenInbox}
+                  onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                  onZoomIn={() => {
+                    const next = saveUiScale(zoomInUiScale(loadUiScale()));
+                    void applyUiScale(next);
+                  }}
+                  onZoomOut={() => {
+                    const next = saveUiScale(zoomOutUiScale(loadUiScale()));
+                    void applyUiScale(next);
+                  }}
+                  onZoomReset={() => {
+                    saveUiScale(UI_SCALE_DEFAULT);
+                    void applyUiScale(UI_SCALE_DEFAULT);
+                  }}
+                />
+              ) : null}
+              <TitleBar
+                tabs={titleTabs}
+                activeId={activeTabId}
+                cwd={sidebarCwd}
+                projectRailOpen={projectRailOpen}
+                onToggleSidebar={onToggleSidebar}
+                onSelect={activateTab}
+                onNew={onNew}
+                onNewTerminal={onNewTerminal}
+                onShowTerminal={onShowProjectTerminal}
+                projectTerminalActive={
+                  !!currentProjectDock &&
+                  currentProjectDock.pane.files.length > 0
+                }
+                onOpenSettings={onOpenSettings}
+                onOpenInbox={onOpenInbox}
+                onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                onClose={onCloseTitleTab}
+                onCloseMany={onCloseTabs}
+                onReorder={onReorderTabs}
+                onGoToFile={onGoToFile}
+                recents={recents}
+                onSelectProject={onSelectProject}
+              />
+
+              <main className="relative min-h-0 min-w-0 flex-1">
+                <div
+                  ref={dockGridRef}
+                  className="absolute inset-0 grid h-full min-h-0 min-w-0"
+                >
+                  {projectTerminals.map((dock) => {
+                    const show =
+                      dock.open &&
+                      sameProjectPath(dock.projectPath, projectCwd);
+                    return (
+                      <div
+                        key={dock.projectPath}
+                        className={
+                          show
+                            ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
+                            : "hidden"
+                        }
+                        style={show ? { gridArea: "dock" } : undefined}
+                        aria-hidden={!show}
+                      >
+                        <ProjectTerminalDock
+                          dock={dock}
+                          focused={show && projectTerminalFocused}
+                          onFocus={focusProjectTerminal}
+                          onHide={onHideProjectTerminal}
+                          onSideChange={onProjectTerminalSide}
+                          onSizePaint={paintDockSize}
+                          onSizeCommit={commitDockSize}
+                          onAddTerminal={() =>
+                            onOpenTerminal(active?.cwd ?? projectCwd)
                           }
-                          addToChatSessionId={
-                            tab.id === activeTabId ? active?.id : undefined
-                          }
-                          composerFocused={
-                            composerFocused && !projectTerminalFocused
-                          }
-                          onSelectFile={onSelectFileSurface}
-                          onCloseFile={onCloseFile}
-                          onCloseOtherFiles={onCloseOtherFiles}
-                          onReorderFiles={onReorderFiles}
-                          onFileDirtyChange={onFileDirtyChange}
-                          onFileErrorCountChange={onFileErrorCountChange}
-                          onRatio={(splitId, index, ratio) =>
-                            onRatio(tab.id, splitId, index, ratio)
-                          }
-                          editorNavigation={editorNavigation}
-                          onUpdatePlan={onUpdatePlan}
-                          onMovePane={onMovePane}
+                          onSelectTerminal={onSelectProjectTerminal}
+                          onCloseTerminal={onCloseProjectTerminal}
+                          onCloseOtherTerminals={onCloseOtherProjectTerminals}
+                          onReorderTerminals={onReorderProjectTerminals}
                           onTerminalMetaChange={onTerminalMetaChange}
                         />
                       </div>
+                    );
+                  })}
+                  <div
+                    className="relative flex min-h-0 min-w-0 flex-row"
+                    style={{ gridArea: "main" }}
+                  >
+                    <div className="relative min-h-0 min-w-0 flex-1">
+                      {tabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          aria-hidden={tab.id !== activeTabId}
+                          className={
+                            tab.id === activeTabId
+                              ? "absolute inset-0 flex h-full min-h-0 flex-col"
+                              : "hidden"
+                          }
+                        >
+                          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                            <PaneTree
+                              {...sessionPaneProps}
+                              visible={tab.id === activeTabId && !inboxViewOpen}
+                              layout={tab.layout}
+                              sessions={sessions}
+                              editorPanes={[
+                                ...tab.editorPanes,
+                                ...(tab.terminalPanes ?? []),
+                              ]}
+                              dirtyFileIds={dirtyFiles}
+                              fileErrorCounts={fileErrorCounts}
+                              focusedId={
+                                tab.id === activeTabId &&
+                                !inboxViewOpen &&
+                                !tab.diffFocused &&
+                                !projectTerminalFocused
+                                  ? tab.focusedId
+                                  : ""
+                              }
+                              addToChatSessionId={
+                                tab.id === activeTabId ? active?.id : undefined
+                              }
+                              composerFocused={
+                                composerFocused && !projectTerminalFocused
+                              }
+                              onSelectFile={onSelectFileSurface}
+                              onCloseFile={onCloseFile}
+                              onCloseOtherFiles={onCloseOtherFiles}
+                              onReorderFiles={onReorderFiles}
+                              onFileDirtyChange={onFileDirtyChange}
+                              onFileErrorCountChange={onFileErrorCountChange}
+                              onRatio={(splitId, index, ratio) =>
+                                onRatio(tab.id, splitId, index, ratio)
+                              }
+                              editorNavigation={editorNavigation}
+                              onUpdatePlan={onUpdatePlan}
+                              onMovePane={onMovePane}
+                              onTerminalMetaChange={onTerminalMetaChange}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              </main>
             </div>
-          </main>
-        </div>
-        {searchViewOpen ? (
-          <SearchView
-            open
-            cwd={sidebarCwd}
-            recents={recents}
-            history={projectHistory}
-            sessions={sessions.filter((session) => !session.inboxAsk)}
-            focusToken={searchViewFocusToken}
-            besideRail={projectRailOpen}
-            onClose={onLeaveSearch}
-            onToggleSidebar={onToggleSidebar}
-            onOpenFile={onOpenFile}
-            onOpenSession={onSelectHistorySession}
-            onOpenProject={onSelectProject}
-          />
-        ) : null}
-        <div className="hidden" aria-hidden>
-          {sessions
-            .filter((session) => session.inboxAsk)
-            .map((session) => {
-              const visible =
-                inboxViewOpen && inboxAskPortal?.sessionId === session.id;
-              return (
-                <SessionSurface
-                  key={session.id}
-                  host={visible ? inboxAskPortal.host : undefined}
-                >
-                  <SessionPane
-                    {...sessionPaneProps}
-                    session={session}
-                    visible={visible}
-                    focused={visible}
-                    inSplit={false}
-                    composerFocused={composerFocused}
-                  />
-                </SessionSurface>
-              );
-            })}
-        </div>
-        {inboxViewOpen ? (
-          <InboxView
-            cwd={sidebarCwd}
-            recents={recents}
-            besideRail={projectRailOpen}
-            onClose={onLeaveInbox}
-            onToggleSidebar={onToggleSidebar}
-            onStart={onStartInboxItem}
-            onAsk={onAskInboxItem}
-            onAskRestart={onRestartInboxAsk}
-            onAskMount={setInboxAskPortal}
-            sessions={inboxRelatedSessions}
-            onOpenSession={onOpenInboxSession}
-            target={inboxTarget}
-            onOpenIntegrations={onOpenInboxIntegrations}
-          />
-        ) : null}
-        {notesViewOpen ? (
-          <NotesView
-            besideRail={projectRailOpen}
-            cwd={projectCwd}
-            onClose={onLeaveNotes}
-            onToggleSidebar={onToggleSidebar}
-          />
-        ) : null}
-        {settingsOpen ? (
-          <SettingsView
-            section={settingsSection}
-            anchor={settingsAnchor}
-            cwd={sidebarCwd}
-            sessions={sidebarHistory}
-            besideRail
-            onClose={onCloseSettings}
-            onOpenSession={onOpenArchivedSession}
-            onArchiveSession={onArchiveHistorySession}
-            onDeleteSession={onDeleteHistorySession}
-            onRestoreProject={onRestoreProject}
-            onDeleteProject={(path) =>
-              onRemoveProject(path, { purgeData: true })
+            {searchViewOpen ? (
+              <SearchView
+                open
+                cwd={sidebarCwd}
+                recents={recents}
+                history={projectHistory}
+                sessions={sessions.filter((session) => !session.inboxAsk)}
+                focusToken={searchViewFocusToken}
+                besideRail={projectRailOpen}
+                onClose={onLeaveSearch}
+                onToggleSidebar={onToggleSidebar}
+                onOpenFile={onOpenFile}
+                onOpenSession={onSelectHistorySession}
+                onOpenProject={onSelectProject}
+              />
+            ) : null}
+            <div className="hidden" aria-hidden>
+              {sessions
+                .filter((session) => session.inboxAsk)
+                .map((session) => {
+                  const visible =
+                    inboxViewOpen && inboxAskPortal?.sessionId === session.id;
+                  return (
+                    <SessionSurface
+                      key={session.id}
+                      host={visible ? inboxAskPortal.host : undefined}
+                    >
+                      <SessionPane
+                        {...sessionPaneProps}
+                        session={session}
+                        visible={visible}
+                        focused={visible}
+                        inSplit={false}
+                        composerFocused={composerFocused}
+                      />
+                    </SessionSurface>
+                  );
+                })}
+            </div>
+            {inboxViewOpen ? (
+              <InboxView
+                cwd={sidebarCwd}
+                recents={recents}
+                besideRail={projectRailOpen}
+                onClose={onLeaveInbox}
+                onToggleSidebar={onToggleSidebar}
+                onStart={onStartInboxItem}
+                onAsk={onAskInboxItem}
+                onAskRestart={onRestartInboxAsk}
+                onAskMount={setInboxAskPortal}
+                sessions={inboxRelatedSessions}
+                onOpenSession={onOpenInboxSession}
+                target={inboxTarget}
+                onOpenIntegrations={onOpenInboxIntegrations}
+              />
+            ) : null}
+            {notesViewOpen ? (
+              <NotesView
+                besideRail={projectRailOpen}
+                cwd={projectCwd}
+                onClose={onLeaveNotes}
+                onToggleSidebar={onToggleSidebar}
+              />
+            ) : null}
+            {settingsOpen ? (
+              <SettingsView
+                section={settingsSection}
+                anchor={settingsAnchor}
+                cwd={sidebarCwd}
+                sessions={sidebarHistory}
+                besideRail
+                onClose={onCloseSettings}
+                onOpenSession={onOpenArchivedSession}
+                onArchiveSession={onArchiveHistorySession}
+                onDeleteSession={onDeleteHistorySession}
+                onRestoreProject={onRestoreProject}
+                onDeleteProject={(path) =>
+                  onRemoveProject(path, { purgeData: true })
+                }
+                onOpenWhatsNew={onOpenWhatsNew}
+              />
+            ) : null}
+            {searchViewOpen ||
+            inboxViewOpen ||
+            notesViewOpen ||
+            settingsOpen ? null : (
+              <UsageFooter
+                providers={usageProviders}
+                session={usageSession}
+                terminals={runningTerminals}
+                terminalOpen={runningTerminalOpen}
+                onToggleTerminal={onToggleRunningTerminal}
+              />
+            )}
+          </div>
+
+          {filePickerOpen ? (
+            <FilePicker
+              open
+              cwd={gitCwd}
+              openPaths={openFilePaths}
+              onOpenFile={onOpenFile}
+              onClose={() => setFilePickerOpen(false)}
+            />
+          ) : null}
+
+          <ApprovalToasts
+            notices={hiddenApprovalToasts}
+            topOffset={
+              12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)
             }
-            onOpenWhatsNew={onOpenWhatsNew}
+            onFocusSession={onOpenApprovalSession}
+            onApproval={onApproval}
           />
-        ) : null}
-        {searchViewOpen ||
-        inboxViewOpen ||
-        notesViewOpen ||
-        settingsOpen ? null : (
-          <UsageFooter
-            providers={usageProviders}
-            session={usageSession}
-            terminals={runningTerminals}
-            terminalOpen={runningTerminalOpen}
-            onToggleTerminal={onToggleRunningTerminal}
+          <ReminderNotices
+            reminders={sessionReminders.due}
+            error={sessionReminders.error}
+            onOpen={sessionReminders.open}
+            onSnooze={sessionReminders.schedule}
+            onDismiss={sessionReminders.cancel}
+            onRetry={sessionReminders.refresh}
+            onOpenSettings={() => openSettings()}
+            onHeightChange={setReminderNoticesHeight}
           />
-        )}
-      </div>
-
-      {filePickerOpen ? (
-        <FilePicker
-          open
-          cwd={gitCwd}
-          openPaths={openFilePaths}
-          onOpenFile={onOpenFile}
-          onClose={() => setFilePickerOpen(false)}
-        />
-      ) : null}
-
-      <ApprovalToasts
-        notices={hiddenApprovalToasts}
-        topOffset={12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)}
-        onFocusSession={onOpenApprovalSession}
-        onApproval={onApproval}
-      />
-      <ReminderNotices
-        reminders={sessionReminders.due}
-        error={sessionReminders.error}
-        onOpen={sessionReminders.open}
-        onSnooze={sessionReminders.schedule}
-        onDismiss={sessionReminders.cancel}
-        onRetry={sessionReminders.refresh}
-        onOpenSettings={() => openSettings()}
-        onHeightChange={setReminderNoticesHeight}
-      />
-      {whatsNewVersion ? (
-        <WhatsNewDialog
-          version={whatsNewVersion}
-          onClose={() => setWhatsNewVersion(null)}
-        />
-      ) : null}
-    </div>
-    </OrchestrationWorkers.Provider>
+          {whatsNewVersion ? (
+            <WhatsNewDialog
+              version={whatsNewVersion}
+              onClose={() => setWhatsNewVersion(null)}
+            />
+          ) : null}
+        </div>
+      </OrchestrationWorkers.Provider>
     </OrchestrationActions.Provider>
   );
 }

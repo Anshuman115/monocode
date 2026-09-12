@@ -2550,6 +2550,15 @@ function SessionCard({
   };
 
   const archiveLabel = session.archived ? "Unarchive" : "Archive";
+  // The archive button sits outside the card, because a button cannot nest
+  // inside role="button". That puts it on the wrapper's coordinates, so its
+  // offset has to track the card's own padding to stay centred on the footer
+  // row beside the harness mark. Keep the pair together: bottom = padding - 1.
+  const [cardPaddingY, archiveInset] = orchestration
+    ? ["py-2.5", "bottom-[9px]"]
+    : compact
+      ? ["py-1.5", "bottom-[5px]"]
+      : ["py-2", "bottom-[7px]"];
 
   return (
     <div className="group relative">
@@ -2571,24 +2580,24 @@ function SessionCard({
         }}
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
-        className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
-          orchestration ? "py-2.5" : compact ? "py-1.5" : "py-2"
-        } ${dragging ? "opacity-40" : ""} ${
+        className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${cardPaddingY} ${
+          dragging ? "opacity-40" : ""
+        } ${
           dropTarget
             ? "text-content border-transparent"
             : isSelected
               ? "bg-accent/15 text-content border-transparent"
               : needsApproval
-                ? orchestration
-                  ? "bg-amber-400/5 text-content border-amber-400/25"
-                  : "bg-content/20 text-content border-content/30 border-dashed"
-                : orchestration
-                  ? isActive
-                    ? "bg-accent/10 text-content border-accent/20"
-                    : "bg-accent/5 text-content/80 border-accent/10 hover:bg-accent/10 hover:text-content"
-                  : isActive
-                    ? "bg-content/10 text-content border-transparent"
-                    : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
+                ? "bg-content/20 text-content border-content/30 border-dashed"
+                : isActive
+                  ? "bg-content/10 text-content border-transparent"
+                  : // A lead rests at the tone others only reach on hover, so
+                    // its card reads as a group even when nothing is selected.
+                    `text-content/80 hover:text-content border-transparent ${
+                      orchestration
+                        ? "bg-content/5 hover:bg-content/10"
+                        : "hover:bg-content/5"
+                    }`
         }`}
       >
         {dropTarget ? (
@@ -2632,7 +2641,12 @@ function SessionCard({
             </span>
           ) : null}
         </span>
-        {orchestration ? <OrchestrationSidebarAgents summary={orchestration} /> : null}
+        {orchestration ? (
+          <OrchestrationSidebarAgents
+            leadId={session.id}
+            summary={orchestration}
+          />
+        ) : null}
         <span className="relative mt-1 flex items-center gap-2">
           {gitLabel ? (
             <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
@@ -2668,9 +2682,7 @@ function SessionCard({
             event.stopPropagation();
             onArchive();
           }}
-          className={`pointer-events-none absolute right-7 grid size-5 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
-            compact ? "bottom-[5px]" : "bottom-[7px]"
-          }`}
+          className={`pointer-events-none absolute right-7 grid size-5 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${archiveInset}`}
         >
           <Archive className="size-3.5" strokeWidth={1.75} />
         </button>
