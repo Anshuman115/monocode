@@ -33,6 +33,10 @@ Actions, with the JSON object each one takes:
   answer    {"taskId":"...","requestId":9,"answers":{"<questionId>":["<optionId>"]}}
             Answer a question an agent asked, or pass "skip":true instead of
             "answers". The question and its options come from needsInput.
+  steer     {"taskId":"...","text":"..."}
+            Redirect an agent that is still running, without discarding the
+            work it has already done. Use this the moment you see it going
+            the wrong way; message only lands once it has stopped.
   message   {"taskId":"...","text":"..."}
             Send a completed or failed worker another turn; it keeps its
             session, scope and history.
@@ -43,9 +47,9 @@ Actions, with the JSON object each one takes:
   finish    {}
             End the run, once every task is accepted or cancelled.
 
-Usual loop: list -> delegate ... -> wait or get -> unblock agents with respond
-or answer -> inspect the changes yourself -> message for corrections -> review
-each task -> finish.
+Usual loop: list -> delegate ... -> wait or get -> steer an agent that drifts,
+unblock one with respond or answer -> inspect the changes yourself -> message
+for corrections -> review each task -> finish.
 
 Output is one JSON line: {"ok":true,"result":...} or {"ok":false,"error":"..."}.
 The exit code is 0 only when "ok" is true.
@@ -65,8 +69,9 @@ MonoCode sets MONOCODE_CONTROL_ENDPOINT and MONOCODE_CONTROL_TOKEN for the lead
 agent's process only. They are already in your environment; never print them.
 "#;
 
-const ACTIONS: [&str; 10] = [
-    "list", "delegate", "get", "message", "cancel", "wait", "review", "finish", "respond", "answer",
+const ACTIONS: [&str; 11] = [
+    "list", "delegate", "get", "steer", "message", "cancel", "wait", "review", "finish", "respond",
+    "answer",
 ];
 
 /// Quote for the shell the lead agent actually runs commands in, and only when

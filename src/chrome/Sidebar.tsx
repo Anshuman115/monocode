@@ -2357,9 +2357,12 @@ function SessionCard({
   const title = sessionDisplayTitle(session.title, session.harness);
   const gitLabel = formatGitLabel(session.repo, session.branch);
   const time = formatRelative(session.updatedAt, now);
-  const model = compact
-    ? null
-    : resolveModel(session.harness, session.model).name;
+  // A lead card always shows its model, even compact: it heads a group of
+  // agents that each name theirs, so the row naming none reads as a gap.
+  const model =
+    compact && !orchestration
+      ? null
+      : resolveModel(session.harness, session.model).name;
   const statusClass = needsApproval
     ? "text-amber-400"
     : busy
@@ -2611,7 +2614,7 @@ function SessionCard({
                 className="size-3.5 shrink-0"
               />
               <span className="min-w-0 truncate text-[11px] text-content/50">
-                {orchestration ? "Orchestrator" : model}
+                {model}
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-1.5">

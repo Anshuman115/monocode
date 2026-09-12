@@ -312,7 +312,9 @@ describe("sidebar orchestration card", () => {
       expect(card().dataset.orchestrationCard).toBe("true");
       // The lead card carries the sidebar's ordinary active treatment.
       expect(card().className).toContain("bg-content/10");
-      expect(card().textContent).toContain("Orchestrator");
+      // The lead names its own model, like every agent row beneath it.
+    expect(card().textContent).toContain("Claude Sonnet 5");
+    expect(card().textContent).not.toContain("Orchestrator");
       expect(card().textContent).toContain("3 agents");
       expect(card().textContent).toContain("1/3 done");
       expect(card().textContent).toContain("Build settings");

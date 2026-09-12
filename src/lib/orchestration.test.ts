@@ -54,6 +54,7 @@ function setup() {
       const session = sessions.find((entry) => entry.id === id);
       if (session) session.busy = false;
     }),
+    steer: vi.fn(async () => {}),
     respondApproval: vi.fn(),
     answerQuestion: vi.fn(),
   };
@@ -683,6 +684,30 @@ describe("local orchestration", () => {
     expect(f.tasks().find((task) => task.title === "UI")!.status).toBe(
       "queued",
     );
+  });
+  it("steers a running agent and refuses one that is not", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("running"));
+    const task = f.tasks()[0];
+    await f.call("steer", { taskId: task.id, text: "Use the existing helper" });
+    expect(f.host.steer).toHaveBeenCalledWith(
+      task.sessionId,
+      "Use the existing helper",
+    );
+    // Steering must not end the turn, so the agent keeps its work.
+    expect(f.tasks()[0].status).toBe("running");
+    expect(f.host.stop).not.toHaveBeenCalledWith(task.sessionId);
+    // A stopped agent takes a fresh turn instead, and the error says so.
+    f.completions.get(task.sessionId)!({
+      status: "completed",
+      text: "Done",
+    });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("completed"));
+    await expect(
+      f.call("steer", { taskId: task.id, text: "Too late" }),
+    ).rejects.toThrow(/Only a running agent can be steered.*message/s);
   });
   it("blocks ordinary sessions while a run owns their checkout", async () => {
     const f = setup();

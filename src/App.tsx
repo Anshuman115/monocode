@@ -5236,6 +5236,33 @@ export default function App({
           onSubmit(id, text, [], { managed: true, onSettled: done }),
         );
       },
+      steer: async (id, text) => {
+        const session = sessionsRef.current.find((entry) => entry.id === id);
+        if (!session) throw new Error("This agent is no longer available");
+        if (!session.busy)
+          throw new Error(
+            "This agent is not running a turn; send it a fresh one with message.",
+          );
+        if (!isLiveHarness(session.harness) || !canSteerHarness(session.harness))
+          throw new Error(
+            `${session.harness} cannot take guidance mid-turn. Wait for the turn to finish, then use message.`,
+          );
+        // Record it on the worker before dispatch, so its own transcript shows
+        // why it changed course even if the harness call then fails.
+        const next = sessionsRef.current.map((entry) =>
+          entry.id === id ? appendSteerUser(entry, text) : entry,
+        );
+        sessionsRef.current = next;
+        setSessions(next);
+        await steerHarnessTurn({
+          harness: session.harness,
+          sessionId: id,
+          cwd: sessionWorkCwd(session),
+          model: session.model,
+          modelSettings: session.modelSettings,
+          text,
+        });
+      },
       respondApproval: (id, requestId, decision) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
         if (session) respondHarnessApproval(session.harness, id, requestId, decision);
