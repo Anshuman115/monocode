@@ -1,4 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
+import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import { modelsFor } from "./lib/models";
+import { isHarnessAvailable } from "./lib/harness/availability";
+import {
+  completeOrchestrationProposal,
+  orchestrationPlanningPrompt,
+  proposalBlock,
+  validateOrchestrationSettings,
+  withOrchestrationProposal,
+  type OrchestrationProposal,
+} from "./lib/orchestrationPlan";
+import { discoverOrchestrationSettings } from "./lib/orchestrationCatalog";
+import { attachOrchestrationWorkers, consolidateOrchestrationTabs } from "./lib/orchestrationWorkspace";
+import { OrchestrationActions, OrchestrationWorkers } from "./chrome/OrchestrationActions";
+import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -228,6 +243,7 @@ import {
 } from "./lib/workspaceTabGroups";
 import { runSessionRemoval } from "./lib/sessionRemoval";
 import {
+  HARNESSES,
   HARNESS_LABEL,
   HARNESS_TITLE,
   canReplaceSessionTitle,
@@ -644,6 +660,8 @@ export default function App({
     useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [notesViewOpen, setNotesViewOpen] = useState(false);
+  const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(null);
+  const orchestrationRuns = useSyncExternalStore(orchestrator.subscribe, orchestrator.snapshot, orchestrator.snapshot);
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
     loadNotesEnabled,
@@ -801,6 +819,7 @@ export default function App({
 
   const stopSessionForRemoval = useCallback(
     async (sessionId: string): Promise<Session | undefined> => {
+      await orchestrator.stopForSession(sessionId);
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
@@ -964,7 +983,10 @@ export default function App({
   const nextBusySessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const session of sessions) {
-      if (session.busy) ids.add(session.id);
+      if (session.busy) {
+        ids.add(session.id);
+        if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
+      }
     }
     return ids;
   }, [sessions]);
@@ -1010,7 +1032,10 @@ export default function App({
   const nextApprovalSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const session of sessions) {
-      if (sessionNeedsInput(session)) ids.add(session.id);
+      if (sessionNeedsInput(session)) {
+        ids.add(session.id);
+        if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
+      }
     }
     return ids;
   }, [sessions]);
@@ -1357,6 +1382,13 @@ export default function App({
     for (const session of sessions) {
       if (session.inboxAsk) visibleIds.add(session.id);
     }
+    // Internal workers stay attached to the lead, even while idle between
+    // turns. They must not be discarded merely because they have no tab.
+    for (const session of sessions) {
+      if (session.orchestrationLeadId && (visibleIds.has(session.orchestrationLeadId) ||
+        orchestrationRuns.some((run) => run.leadId === session.orchestrationLeadId && ["active", "paused"].includes(run.status))))
+        visibleIds.add(session.id);
+    }
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
       (session) =>
@@ -1381,7 +1413,7 @@ export default function App({
           skipForgetSessionIds.current.has(session.id),
       ),
     );
-  }, [sessions, tabs, persistSession, liveAgentsEnabled]);
+  }, [sessions, tabs, persistSession, liveAgentsEnabled, orchestrationRuns]);
 
   const activateTab = useCallback((id: string, paneId?: string) => {
     const tab = tabsRef.current.find((entry) => entry.id === id);
@@ -2832,9 +2864,15 @@ export default function App({
 
   const onSelectHistorySession = useCallback(
     async (sessionId: string) => {
-      if (focusOpenSession(sessionId)) return;
-      const session = await ensureOpenSession(sessionId);
+      let session = await ensureOpenSession(sessionId);
       if (!session || session.inboxAsk) return;
+      const parentId = session.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
+      if (parentId && parentId !== sessionId) {
+        setInspectedWorkerId(sessionId);
+        session = await ensureOpenSession(parentId);
+        if (!session) return;
+      }
+      if (focusOpenSession(session.id)) return;
       if (replaceBlankPaneWithSession(session)) return;
       const tab = newTab(session.id);
       appendTab(tab, session.cwd);
@@ -3793,8 +3831,23 @@ export default function App({
         intent?: TurnIntent;
         planBlockId?: string;
         buildTarget?: PlanBuildTarget;
+        managed?: boolean;
+        onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
+      const controlError = orchestrator.submissionError(sessionId, options?.managed);
+      if (controlError) {
+        enqueueHarnessEvent(sessionId, { type: "status", text: controlError });
+        flushHarnessEvents();
+        return;
+      }
+      if (options?.managed) {
+        const target = sessionsRef.current.find((s) => s.id === sessionId);
+        if (!target || target.busy || target.pendingSwitch || isPreparingHandoff(target) || removingSessionIds.current.has(sessionId)) {
+          options.onSettled?.({ status: "failed", text: "", error: "Session is unavailable or already running" });
+          return;
+        }
+      }
       if (removingSessionIds.current.has(sessionId)) return;
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
       if (!storedCurrent) return;
@@ -3802,6 +3855,16 @@ export default function App({
         ? withPlanBuildTarget(storedCurrent, options.buildTarget)
         : storedCurrent;
       const intent = options?.intent ?? "default";
+      if (intent === "orchestrate") {
+        try {
+          const run = orchestrator.forSession(sessionId);
+          if (run && ["active", "paused"].includes(run.status)) throw new Error("Stop the current orchestration run before preparing another proposal.");
+        } catch (error) {
+          enqueueHarnessEvent(sessionId, { type: "status", text: error instanceof Error ? error.message : String(error) });
+          flushHarnessEvents();
+          return;
+        }
+      }
       const approvedPlan = options?.planBlockId
         ? current.blocks.find(
             (block) =>
@@ -3846,7 +3909,7 @@ export default function App({
 
       if (current.busy && !pendingSwitch) {
         const followUpBehavior =
-          intent === "plan"
+          intent === "plan" || intent === "orchestrate"
             ? "queue"
             : (options?.followUpBehavior ?? loadFollowUpBehavior());
         if (followUpBehavior === "queue") {
@@ -3944,6 +4007,26 @@ export default function App({
 
       const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
       turnGen.current.set(sessionId, gen);
+      const proposalId =
+        intent === "orchestrate" ? crypto.randomUUID() : undefined;
+      let proposalDraft: OrchestrationProposal | undefined = proposalId
+        ? {
+            version: 1,
+            leadId: sessionId,
+            cwd: current.cwd,
+            request: harnessText,
+            author: {
+              harness: current.harness,
+              model: current.model,
+              name: resolveModel(current.harness, current.model).name,
+            },
+            settings: { choices: [], maxWorkers: 2 },
+            status: "planning",
+            title: "Orchestration plan",
+            summary: "",
+            tasks: [],
+          }
+        : undefined;
       const isFirstTurn = current.blocks.length === 0;
       const placeholderTitle = canReplaceSessionTitle(
         current.title,
@@ -4096,10 +4179,46 @@ export default function App({
         if (pendingSwitch) {
           void forgetHarnessSession(pendingSwitch.from, sessionId);
         }
+        options?.onSettled?.({ status: "failed", text: "", error: "Harness is not connected" });
         return;
       }
 
+      if (proposalId && proposalDraft) {
+        const draft = proposalDraft;
+        setSessions((prev) =>
+          prev.map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  blocks: [...session.blocks, proposalBlock(proposalId, draft)],
+                }
+              : session,
+          ),
+        );
+      }
+
+      let controlOutcome: ControlOutcome = {
+        status: "failed",
+        text: "",
+        error: "Turn did not complete",
+      };
+      let controlText = "";
+      let proposalText = "";
+      let nativeProposalText = "";
       void (async () => {
+        if (proposalDraft && proposalId) {
+          const settings = await discoverOrchestrationSettings();
+          if (turnGen.current.get(sessionId) !== gen) return;
+          proposalDraft = { ...proposalDraft, settings };
+          const discovering = proposalDraft;
+          setSessions((prev) =>
+            prev.map((session) =>
+              session.id === sessionId
+                ? withOrchestrationProposal(session, proposalId, discovering)
+                : session,
+            ),
+          );
+        }
         let wrap = handoffCard
           ? {
               from: handoffCard.from,
@@ -4151,6 +4270,11 @@ export default function App({
         let providerFailureSeen = false;
         const routePlanEvent = (event: HarnessEvent): HarnessEvent | null => {
           if (event.type === "session.error") providerFailureSeen = true;
+          if (proposalDraft) {
+            if (event.type === "message.delta") { proposalText = (proposalText + event.text).slice(-200_000); return null; }
+            if (event.type === "message.completed") { proposalText += "\n"; return null; }
+            if (event.type === "plan") { nativeProposalText = event.append ? nativeProposalText + event.text : event.text; return null; }
+          }
           if (intent !== "plan") return event;
           if (event.type === "plan") {
             nativePlanSeen = true;
@@ -4162,7 +4286,7 @@ export default function App({
           return event;
         };
 
-        if (!current.inboxAsk) {
+        if (!current.inboxAsk && !orchestrator.forSession(sessionId)) {
           await beginSessionTurn(sessionId, workCwd).catch(() => undefined);
         }
         if (turnGen.current.get(sessionId) !== gen) return;
@@ -4178,7 +4302,7 @@ export default function App({
                   cwd: workCwd,
                 });
           const turnPrompt =
-            intent === "plan" && !rawCommand ? planTurnPrompt(prompt) : prompt;
+            proposalDraft ? orchestrationPlanningPrompt(prompt, proposalDraft.settings) : intent === "plan" && !rawCommand ? planTurnPrompt(prompt) : prompt;
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
@@ -4189,8 +4313,8 @@ export default function App({
             model: current.model,
             modelSettings: current.modelSettings,
             runtimeMode: current.runtimeMode,
-            intent,
-            text: inboxAskPrompt(
+            intent: intent === "orchestrate" ? "plan" : intent,
+            text: orchestrator.prompt(sessionId, inboxAskPrompt(
               rawCommand ? undefined : current.inboxAsk,
               wrap && !rawCommand
                 ? wrapHandoffPrompt(
@@ -4200,10 +4324,14 @@ export default function App({
                     earlier,
                   )
                 : turnPrompt,
-            ),
+            )),
             attachments: prepared,
             onEvent: (event) => {
               if (turnGen.current.get(sessionId) !== gen) return;
+              orchestrator.observe(sessionId, event);
+              if (options?.onSettled && event.type === "message.delta") controlText = (controlText + event.text).slice(-20_000);
+              if (options?.onSettled && event.type === "message.completed") controlText += "\n";
+              if (event.type === "session.error") controlOutcome.error = event.message;
               if (
                 wrap &&
                 (event.type === "session.started" ||
@@ -4212,7 +4340,7 @@ export default function App({
                 revealHandoff(wrap.text);
               }
               nudgeOpenEditors(event, workCwd);
-              trackSessionEdits(sessionId, workCwd, event);
+              if (!orchestrator.forSession(sessionId)) trackSessionEdits(sessionId, workCwd, event);
               const routed = routePlanEvent(event);
               if (routed) enqueueHarnessEvent(sessionId, routed);
             },
@@ -4238,6 +4366,7 @@ export default function App({
             error instanceof Error
               ? error.message
               : `${current.harness} adapter failed`;
+          controlOutcome.error = message;
           if (!providerFailureSeen) {
             enqueueHarnessEvent(sessionId, {
               type: "session.error",
@@ -4248,6 +4377,11 @@ export default function App({
         } finally {
           if (turnGen.current.get(sessionId) !== gen) return;
           flushHarnessEvents();
+          controlOutcome = {
+            status: providerFailureSeen || isProviderFailureText(controlText) || !buildSucceeded ? "failed" : "completed",
+            text: controlText.trim(),
+            ...(providerFailureSeen ? { error: controlOutcome.error } : {}),
+          };
           // A failed provider can leave its process alive with a dead event
           // stream or poisoned turn state. Park it now; the next prompt will
           // reconnect and resume through a fresh transport.
@@ -4264,8 +4398,9 @@ export default function App({
               const providerFailed =
                 providerFailureSeen ||
                 isProviderFailureText(lastAssistantTextInTurn(stopped));
-              const finalized =
-                intent === "plan" && !nativePlanSeen && !providerFailed
+              const finalized = proposalDraft && proposalId
+                ? withOrchestrationProposal(stopped, proposalId, completeOrchestrationProposal(proposalDraft, nativeProposalText || proposalText, providerFailed || !buildSucceeded ? controlOutcome.error ?? "The lead could not finish planning." : undefined))
+                : intent === "plan" && !nativePlanSeen && !providerFailed
                   ? promoteLastAssistantToPlan(stopped, planEventKey)
                   : stopped;
               return approvedPlan && intent === "build"
@@ -4297,7 +4432,18 @@ export default function App({
           nudgeWatchedFiles();
           window.setTimeout(() => nudgeWatchedFiles(), 150);
         }
-      })();
+      })().catch((error: unknown) => {
+        controlOutcome = { status: "failed", text: controlText, error: error instanceof Error ? error.message : String(error) };
+        if (turnGen.current.get(sessionId) === gen) {
+          enqueueHarnessEvent(sessionId, { type: "session.error", message: controlOutcome.error! });
+          flushHarnessEvents();
+          setSessions((prev) => prev.map((session) => session.id === sessionId ? proposalId && proposalDraft ? withOrchestrationProposal(stopStreaming(session), proposalId, completeOrchestrationProposal(proposalDraft, "", controlOutcome.error)) : stopStreaming(session) : session));
+        }
+      }).finally(() => {
+        options?.onSettled?.(turnGen.current.get(sessionId) !== gen
+          ? { status: "cancelled", text: controlText }
+          : controlOutcome);
+      });
     },
     [enqueueHarnessEvent, flushHarnessEvents],
   );
@@ -4348,6 +4494,7 @@ export default function App({
         !session ||
         session.busy ||
         block?.role !== "plan" ||
+        !!block.orchestration ||
         !block.text.trim() ||
         block.plan?.status === "streaming" ||
         block.plan?.status === "building" ||
@@ -4479,14 +4626,20 @@ export default function App({
         ? queuedMessageForSubmit(session, messageId, "steer")
         : undefined;
       if (!session || !message) return;
+      if (message.intent === "orchestrate" && session.busy) {
+        enqueueHarnessEvent(sessionId, { type: "status", text: "Orchestration planning will start after the current turn finishes." });
+        flushHarnessEvents();
+        return;
+      }
       onSubmit(sessionId, message.text, message.attachments, {
         followUpBehavior: "steer",
         queuedMessageId: message.id,
         noteCard: message.noteCard,
         handoffCard: message.handoffCard,
+        intent: message.intent,
       });
     },
-    [onSubmit],
+    [onSubmit, enqueueHarnessEvent, flushHarnessEvents],
   );
 
   const onResumeQueue = useCallback(
@@ -4729,7 +4882,11 @@ export default function App({
   );
 
   const onStop = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, managed = false) => {
+      if (!managed) {
+        const stopping = orchestrator.stopForSession(sessionId);
+        if (stopping) { void stopping.catch(console.error); return; }
+      }
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
       flushHarnessEvents();
@@ -4835,11 +4992,250 @@ export default function App({
 
   const onOpenApprovalSession = useCallback(
     (sessionId: string) => {
-      if (!focusOpenSession(sessionId)) {
+      const parentId = sessionsRef.current.find((session) => session.id === sessionId)?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
+      if (parentId && parentId !== sessionId) {
+        setInspectedWorkerId(sessionId);
+        if (!focusOpenSession(parentId)) void onSelectHistorySession(parentId);
+      } else if (!focusOpenSession(sessionId)) {
         void onSelectHistorySession(sessionId);
       }
     },
     [focusOpenSession, onSelectHistorySession],
+  );
+
+  useEffect(() => {
+    setSessions((prev) => attachOrchestrationWorkers(prev, orchestrationRuns));
+  }, [orchestrationRuns]);
+
+  useEffect(() => {
+    const next = consolidateOrchestrationTabs(tabs, activeTabId, orchestrationRuns);
+    if (next.tabs !== tabs) setTabs(next.tabs);
+    if (next.activeTabId !== activeTabId) setActiveTabId(next.activeTabId);
+  }, [tabs, activeTabId, orchestrationRuns]);
+
+  useLayoutEffect(() => {
+    orchestrator.bind({
+      session: (id) => sessionsRef.current.find((session) => session.id === id),
+      sessions: () => sessionsRef.current,
+      choices: () =>
+        HARNESSES.filter(isHarnessAvailable).map((harness) => ({
+          harness,
+          models: modelsFor(harness).map(({ id, name }) => ({ id, name })),
+        })),
+      createWorker: async (run, task) => {
+        await invoke("control_attach_worker", {
+          leadId: run.leadId,
+          sessionId: task.sessionId,
+        });
+        const existing = sessionsRef.current.find((session) => session.id === task.sessionId);
+        if (existing) {
+          if (existing.harness !== task.harness || existing.model !== task.model || existing.cwd !== run.cwd) throw new Error("This worker's configuration changed. Restore its approved harness, model and project before retrying.");
+          return;
+        }
+        const lead = sessionsRef.current.find(
+          (session) => session.id === run.leadId,
+        );
+        if (!lead) throw new Error("Lead session is unavailable");
+        const restored = await getSession(task.sessionId);
+        if (restored && (restored.harness !== task.harness || restored.model !== task.model)) throw new Error("The saved worker no longer matches its approved model. Create a new assignment.");
+        const base = restored
+          ? { ...restored, busy: false, cwd: run.cwd, worktreeCwd: undefined }
+          : {
+              ...newSession(
+                task.harness,
+                run.cwd,
+                task.model,
+                lead.runtimeMode,
+              ),
+              id: task.sessionId,
+              title: task.title,
+            };
+        const worker = { ...base, orchestrationLeadId: run.leadId };
+        if (worker.providerSessionId)
+          bindHarnessSession(
+            worker.harness,
+            worker.id,
+            worker.providerSessionId,
+            worker.cwd,
+          );
+        await upsertSession(worker);
+        const next = [...sessionsRef.current, worker];
+        sessionsRef.current = next;
+        setSessions(next);
+        // Workers belong to the lead's agent panel; no workspace tab is created.
+      },
+      submit: (id, text, done) => {
+        // Commit the new turn before the scheduler or confirmation updates
+        // another session snapshot in the same event loop.
+        flushSync(() => onSubmit(id, text, [], { managed: true, onSettled: done }));
+      },
+      stop: async (id) => {
+        const session = sessionsRef.current.find((entry) => entry.id === id);
+        onStop(id, true);
+        try {
+          if (session)
+            await Promise.all(
+              sessionChildHarnesses(session).map((harness) =>
+                stopHarnessSession(harness, id),
+              ),
+            );
+        } finally {
+          // Also reap processes left behind by a renderer reload, before the
+          // corresponding session has been restored in this window.
+          await invoke("harness_kill", { sessionId: id });
+          await invoke("control_turn_finished", { sessionId: id });
+        }
+      },
+    });
+  }, [onSubmit, onStop]);
+
+  useEffect(() => {
+    orchestrator.sync();
+  }, [sessions]);
+
+  useEffect(() => {
+    const listening = listen<{
+      id: string;
+      sessionId: string;
+      requestId: string;
+      action: string;
+      input: Record<string, unknown>;
+    }>("monocode-control-request", ({ payload }) => {
+      void orchestrator
+        .handle(
+          payload.sessionId,
+          payload.requestId,
+          payload.action,
+          payload.input,
+        )
+        .then(
+          (result) =>
+            invoke("control_reply", {
+              id: payload.id,
+              response: { ok: true, result },
+            }),
+          (error: unknown) =>
+            invoke("control_reply", {
+              id: payload.id,
+              response: {
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            }),
+        )
+        .catch(console.error);
+    });
+    return () => {
+      void listening.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  const confirmingOrchestration = useRef(new Set<string>());
+  const orchestrationWorkers = useMemo(() => ({
+    sessions, selectedId: inspectedWorkerId, inspect: setInspectedWorkerId,
+  }), [sessions, inspectedWorkerId]);
+  const updateOrchestrationCard = useCallback(
+    (leadId: string, blockId: string, proposal: OrchestrationProposal) => {
+      const next = sessionsRef.current.map((session) =>
+        session.id === leadId
+          ? withOrchestrationProposal(session, blockId, proposal)
+          : session,
+      );
+      sessionsRef.current = next;
+      setSessions(next);
+      return next.find((session) => session.id === leadId);
+    },
+    [],
+  );
+  const orchestrationActions = useMemo(
+    () => ({
+      open: onOpenApprovalSession,
+      update: (
+        leadId: string,
+        blockId: string,
+        edited: OrchestrationProposal,
+      ) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === leadId,
+        );
+        const proposal = session?.blocks.find(
+          (block) => block.id === blockId,
+        )?.orchestration;
+        if (
+          !session ||
+          session.busy ||
+          proposal?.status !== "ready" ||
+          confirmingOrchestration.current.has(leadId)
+        )
+          return;
+        // Keep the discovered catalog authoritative while allowing task and parallelism edits.
+        const settings = validateOrchestrationSettings({
+          ...proposal.settings,
+          maxWorkers: edited.settings.maxWorkers,
+        });
+        updateOrchestrationCard(leadId, blockId, {
+          ...proposal,
+          settings,
+          tasks: edited.tasks,
+        });
+      },
+      confirm: async (leadId: string, blockId: string) => {
+        if (confirmingOrchestration.current.has(leadId)) return;
+        confirmingOrchestration.current.add(leadId);
+        let proposal: OrchestrationProposal | undefined;
+        try {
+          await orchestrator.hydrate(leadId);
+          const session = sessionsRef.current.find(
+            (entry) => entry.id === leadId,
+          );
+          proposal = session?.blocks.find(
+            (block) => block.id === blockId,
+          )?.orchestration;
+          if (!session || session.busy || proposal?.status !== "ready")
+            throw new Error(
+              "Wait for the proposal to finish before confirming.",
+            );
+          if (
+            session.harness !== proposal.author.harness ||
+            session.model !== proposal.author.model
+          )
+            throw new Error(
+              "The lead model has changed. Switch back to the model shown on this card, or generate a new proposal.",
+            );
+          const starting = updateOrchestrationCard(leadId, blockId, {
+            ...proposal,
+            status: "starting",
+          })!;
+          // Save the edited card before anything can execute.
+          await upsertSession(starting);
+          await orchestrator.startApproved(leadId, blockId, proposal);
+          updateOrchestrationCard(leadId, blockId, {
+            ...proposal,
+            status: "approved",
+          });
+        } catch (error) {
+          if (proposal)
+            updateOrchestrationCard(leadId, blockId, {
+              ...proposal,
+              status: "ready",
+            });
+          throw error;
+        } finally {
+          confirmingOrchestration.current.delete(leadId);
+        }
+      },
+      retry: (leadId: string, blockId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === leadId,
+        );
+        const proposal = session?.blocks.find(
+          (block) => block.id === blockId,
+        )?.orchestration;
+        if (!session || session.busy || !proposal) return;
+        onSubmit(leadId, proposal.request, [], { intent: "orchestrate" });
+      },
+    }),
+    [onOpenApprovalSession, onSubmit, updateOrchestrationCard],
   );
 
   const onSelectLiveAgent = useCallback(
@@ -4880,8 +5276,8 @@ export default function App({
         ...(sidebarCwd && sidebarCwd !== "~"
           ? { repo: projectName(sidebarCwd) }
           : {}),
-      }),
-    [history, projectBranches, sessions, sidebarCwd],
+      }, orchestrationRuns),
+    [history, projectBranches, sessions, sidebarCwd, orchestrationRuns],
   );
   const inboxRelatedSessions = useMemo(() => {
     const byId = new Map<string, SessionSummary>();
@@ -4917,7 +5313,7 @@ export default function App({
       sessions
         .filter(
           (session) =>
-            !session.inboxAsk && sameProjectPath(session.cwd, sidebarCwd),
+            !session.inboxAsk && !session.orchestrationLeadId && sameProjectPath(session.cwd, sidebarCwd),
         )
         .map((session) =>
           summaryFromSession(session, {
@@ -5543,6 +5939,8 @@ export default function App({
   };
 
   return (
+    <OrchestrationActions.Provider value={orchestrationActions}>
+    <OrchestrationWorkers.Provider value={orchestrationWorkers}>
     <div
       className={`flex h-full text-content ${
         HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
@@ -5939,6 +6337,8 @@ export default function App({
         />
       ) : null}
     </div>
+    </OrchestrationWorkers.Provider>
+    </OrchestrationActions.Provider>
   );
 }
 

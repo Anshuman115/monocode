@@ -1,0 +1,496 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  Orchestrator,
+  scopesOverlap,
+  type ControlOutcome,
+  type OrchestrationHost,
+  type OrchestrationRun,
+} from "./orchestration";
+import { newSession } from "./session";
+import type { OrchestrationProposal } from "./orchestrationPlan";
+
+function setup() {
+  const saved = new Map<string, OrchestrationRun>();
+  const store = {
+    save: vi.fn(async (run: OrchestrationRun) => {
+      saved.set(run.leadId, structuredClone(run));
+    }),
+    load: vi.fn(async (id: string) => saved.get(id) ?? null),
+    enable: vi.fn(
+      async () => "/Applications/MonoCode.app/Contents/MacOS/monocode",
+    ),
+    disable: vi.fn(async () => {}),
+    scopes: vi.fn(async (_cwd: string, files: string[]) =>
+      files.map((file) => (file === "." ? "/repo" : `/repo/${file}`)),
+    ),
+  };
+  const manager = new Orchestrator(store);
+  const lead = { ...newSession("claude", "/repo"), id: "lead", busy: true };
+  const sessions = [lead];
+  const completions = new Map<string, (outcome: ControlOutcome) => void>();
+  const host: OrchestrationHost = {
+    session: (id) => sessions.find((session) => session.id === id),
+    sessions: () => sessions,
+    choices: () => [
+      { harness: "codex", models: [{ id: "codex:test", name: "Test" }] },
+    ],
+    createWorker: vi.fn(async (run, task) => {
+      sessions.push({
+        ...newSession(task.harness, run.cwd),
+        id: task.sessionId,
+        busy: false,
+      });
+    }),
+    submit: vi.fn((id, _text, done) => {
+      const session = sessions.find((session) => session.id === id)!;
+      session.busy = true;
+      completions.set(id, (outcome) => {
+        session.busy = false;
+        done(outcome);
+      });
+    }),
+    stop: vi.fn(async (id) => {
+      const session = sessions.find((entry) => entry.id === id);
+      if (session) session.busy = false;
+    }),
+  };
+  manager.bind(host);
+  let request = 0;
+  const call = (
+    action: string,
+    input: Record<string, unknown> = {},
+    id = `request-${++request}`,
+  ) => manager.handle("lead", id, action, input);
+  const start = async () => {
+    lead.busy = false;
+    await manager.start("lead", ["codex"], 2);
+    lead.busy = true;
+  };
+  const delegate = (files: string[], extra = {}) =>
+    call("delegate", {
+      title: "Task",
+      prompt: "Implement the bounded change",
+      harness: "codex",
+      files,
+      ...extra,
+    });
+  const tasks = () => manager.run("lead")!.tasks;
+  return {
+    manager,
+    store,
+    host,
+    lead,
+    saved,
+    sessions,
+    start,
+    call,
+    delegate,
+    tasks,
+    completions,
+  };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("local orchestration", () => {
+  const proposal = (): OrchestrationProposal => ({
+    version: 1,
+    leadId: "lead",
+    cwd: "/repo",
+    request: "Build settings",
+    author: { harness: "claude", model: "claude:test", name: "Lead" },
+    settings: {
+      choices: [{ harness: "codex", model: "codex:test", name: "Test" }],
+      maxWorkers: 2,
+    },
+    status: "ready",
+    title: "Settings",
+    summary: "Split the work",
+    tasks: [
+      {
+        id: "ui",
+        title: "UI",
+        prompt: "User edited instructions",
+        harness: "codex",
+        model: "codex:test",
+        files: ["src/ui"],
+        dependsOn: ["types"],
+      },
+      {
+        id: "types",
+        title: "Types",
+        prompt: "Define the types",
+        harness: "codex",
+        model: "codex:test",
+        files: ["src/types"],
+        dependsOn: [],
+      },
+    ],
+  });
+  it("starts exactly the approved assignments and preserves forward dependencies", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    expect(f.host.submit).not.toHaveBeenCalled();
+    await f.manager.startApproved("lead", "card", proposal());
+    await vi.waitFor(() =>
+      expect(f.host.createWorker).toHaveBeenCalledTimes(1),
+    );
+    expect(f.tasks().map((task) => task.status)).toEqual(["queued", "running"]);
+    expect(f.tasks()[0].prompt).toBe("User edited instructions");
+    expect(f.tasks()[0].dependsOn).toEqual([f.tasks()[1].id]);
+    expect(f.manager.run("lead")?.proposalId).toBe("card");
+    expect(f.saved.get("lead")?.tasks).toHaveLength(2);
+    expect(
+      vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
+    ).toContain("do not delegate duplicates");
+  });
+  it("never launches a partial plan when one assignment has invalid scopes", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    f.store.scopes.mockRejectedValueOnce(new Error("Scope escapes project"));
+    await expect(
+      f.manager.startApproved("lead", "card", proposal()),
+    ).rejects.toThrow("Scope escapes");
+    expect(f.store.enable).not.toHaveBeenCalled();
+    expect(f.host.submit).not.toHaveBeenCalled();
+  });
+  it("requires a ready proposal and enforces the exact model pool for later CLI calls", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    await expect(
+      f.manager.startApproved("lead", "card", {
+        ...proposal(),
+        status: "planning",
+      }),
+    ).rejects.toThrow("completed proposal");
+    f.host.choices = () => [
+      {
+        harness: "codex",
+        models: [
+          { id: "codex:test", name: "Test" },
+          { id: "codex:extra", name: "Unselected" },
+        ],
+      },
+    ];
+    await f.manager.startApproved("lead", "card", proposal());
+    const result = (await f.call("list")) as {
+      harnesses: { models: { id: string }[] }[];
+    };
+    expect(result.harnesses[0].models.map((model) => model.id)).toEqual([
+      "codex:test",
+    ]);
+    await expect(
+      f.delegate(["extra"], { model: "codex:extra" }),
+    ).rejects.toThrow("model ID returned by list");
+  });
+  it("does not duplicate work when confirmation is repeated", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    const results = await Promise.allSettled([
+      f.manager.startApproved("lead", "card", proposal()),
+      f.manager.startApproved("lead", "card", proposal()),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(f.store.enable).toHaveBeenCalledTimes(1);
+    expect(f.tasks()).toHaveLength(2);
+  });
+  it("ignores unavailable unused catalog models but blocks an unavailable assignment", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    const card = proposal();
+    card.settings.choices.push({
+      harness: "claude",
+      model: "claude:removed",
+      name: "Removed",
+    });
+    await f.manager.startApproved("lead", "card", card);
+    expect(f.manager.run("lead")?.allowedHarnesses).toEqual(["codex"]);
+    expect(f.manager.run("lead")?.allowedModels).toEqual(
+      proposal().settings.choices,
+    );
+
+    const unavailable = setup();
+    unavailable.lead.busy = false;
+    card.tasks[0] = {
+      ...card.tasks[0],
+      harness: "claude",
+      model: "claude:removed",
+    };
+    await expect(
+      unavailable.manager.startApproved("lead", "card", card),
+    ).rejects.toThrow("An assigned model is no longer available");
+    expect(unavailable.store.enable).not.toHaveBeenCalled();
+    expect(unavailable.host.submit).not.toHaveBeenCalled();
+  });
+  it("treats directory scopes as overlapping only at path boundaries", () => {
+    expect(scopesOverlap(["/repo/src"], ["/repo/src/file.ts"])).toBe(true);
+    expect(scopesOverlap(["/repo/src"], ["/repo/src2/file.ts"])).toBe(false);
+    expect(scopesOverlap(["/repo"], ["/repo/anything"])).toBe(true);
+  });
+  it("runs disjoint workers concurrently and queues overlap", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["src/a"]);
+    await f.delegate(["src/b"]);
+    await f.delegate(["src/a/file.ts"]);
+    await vi.waitFor(() =>
+      expect(f.tasks().map((task) => task.status)).toEqual([
+        "running",
+        "running",
+        "queued",
+      ]),
+    );
+    expect(f.host.submit).toHaveBeenCalledTimes(2);
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: "Implemented A",
+    });
+    await vi.waitFor(() => expect(f.tasks()[2].status).toBe("running"));
+    expect(f.tasks()[0].accepted).toBe(false);
+  });
+  it("keeps a dependency queued until the lead accepts the upstream result", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["src/types.ts"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const upstream = f.tasks()[0];
+    await f.delegate(["src/ui"], { dependsOn: [upstream.id] });
+    f.completions.get(upstream.sessionId)!({
+      status: "completed",
+      text: "Types ready",
+    });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("completed"));
+    expect(f.tasks()[1].status).toBe("queued");
+    await f.call("review", { taskId: upstream.id });
+    await vi.waitFor(() => expect(f.tasks()[1].status).toBe("running"));
+  });
+  it("deduplicates command retries and rejects foreign tasks or unapproved harnesses", async () => {
+    const f = setup();
+    await f.start();
+    const input = {
+      title: "A",
+      prompt: "Implement",
+      harness: "codex",
+      files: ["a"],
+    };
+    const first = await f.call("delegate", input, "same");
+    expect(await f.call("delegate", input, "same")).toEqual(first);
+    expect(f.tasks()).toHaveLength(1);
+    await expect(
+      f.call("delegate", { ...input, title: "B" }, "same"),
+    ).rejects.toThrow("different input");
+    await expect(f.call("get", { taskId: "foreign" })).rejects.toThrow(
+      "does not belong",
+    );
+    await expect(f.delegate(["a"], { harness: "pi" })).rejects.toThrow(
+      "not allowed",
+    );
+  });
+  it("does not dispatch a worker if its task cannot be persisted", async () => {
+    const f = setup();
+    await f.start();
+    f.store.save.mockRejectedValueOnce(new Error("Disk full"));
+    await expect(f.delegate(["a"])).rejects.toThrow("Disk full");
+    expect(f.manager.run("lead")!.status).toBe("paused");
+    expect(f.host.submit).not.toHaveBeenCalled();
+  });
+  it("persists a delegation and its retry receipt in the same snapshot", async () => {
+    const f = setup();
+    await f.start();
+    const input = {
+      title: "A",
+      prompt: "Implement",
+      harness: "codex",
+      files: ["a"],
+    };
+    await f.call("delegate", input, "durable");
+    const firstTaskSave = f.store.save.mock.calls.find(
+      ([run]) => run.tasks.length === 1,
+    )![0];
+    expect(firstTaskSave.requests.durable.result).toMatchObject({
+      taskId: firstTaskSave.tasks[0].id,
+    });
+    const restored = new Orchestrator(f.store);
+    restored.bind(f.host);
+    await restored.hydrate("lead");
+    expect(await restored.handle("lead", "durable", "delegate", input)).toEqual(
+      firstTaskSave.requests.durable.result,
+    );
+    expect(restored.run("lead")!.tasks).toHaveLength(1);
+  });
+  it("rejects conflicting reuse of an in-flight request ID", async () => {
+    const f = setup();
+    await f.start();
+    let release!: (paths: string[]) => void;
+    f.store.scopes.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const input = {
+      title: "A",
+      prompt: "Implement",
+      harness: "codex",
+      files: ["a"],
+    };
+    const pending = f.call("delegate", input, "pending");
+    await vi.waitFor(() => expect(f.store.scopes).toHaveBeenCalled());
+    await expect(
+      f.call("delegate", { ...input, files: ["b"] }, "pending"),
+    ).rejects.toThrow("different input");
+    release(["/repo/a"]);
+    await pending;
+    expect(f.tasks()).toHaveLength(1);
+  });
+  it("stops an active worker if saving another assignment fails", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.store.save.mockRejectedValueOnce(new Error("Disk full"));
+    await expect(f.delegate(["b"])).rejects.toThrow("Disk full");
+    expect(f.host.stop).toHaveBeenCalledWith(f.tasks()[0].sessionId);
+    expect(f.manager.run("lead")!.status).toBe("paused");
+    expect(f.host.submit).toHaveBeenCalledTimes(1);
+  });
+  it("pauses and stops workers when a reported write escapes its scope", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["src/a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.manager.observe(f.tasks()[0].sessionId, {
+      type: "tool.started",
+      callId: "edit",
+      title: "Edit",
+      preview: { kind: "write", path: "src/a/../b/file.ts" },
+    });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("cancelled"));
+    expect(f.manager.run("lead")!.status).toBe("paused");
+    expect(f.manager.run("lead")!.error).toContain("outside its assignment");
+  });
+  it("holds ownership until a cancelled process has stopped", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    let stopped!: () => void;
+    vi.mocked(f.host.stop).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          stopped = resolve;
+        }),
+    );
+    const cancel = f.call("cancel", { taskId: f.tasks()[0].id });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("cancelling"));
+    expect(f.tasks()[1].status).toBe("queued");
+    stopped();
+    await cancel;
+    await vi.waitFor(() => expect(f.tasks()[1].status).toBe("running"));
+  });
+  it("stops queued work and suppresses lead continuation on stop", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const done = f.completions.get(f.tasks()[0].sessionId)!;
+    await f.manager.stopRun("lead");
+    done({ status: "completed", text: "late output" });
+    f.lead.busy = false;
+    f.manager.sync();
+    expect(f.tasks().map((task) => task.status)).toEqual([
+      "cancelled",
+      "cancelled",
+    ]);
+    expect(f.manager.run("lead")!.status).toBe("stopped");
+    expect(f.store.disable).toHaveBeenCalledWith("lead");
+    expect(f.host.submit).toHaveBeenCalledTimes(1);
+  });
+  it("returns worker output to an idle lead once", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.lead.busy = false;
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: "Tests pass",
+    });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(f.host.submit).mock.calls[1][0]).toBe("lead");
+    expect(vi.mocked(f.host.submit).mock.calls[1][1]).toContain("Tests pass");
+    f.manager.sync();
+    expect(f.host.submit).toHaveBeenCalledTimes(2);
+  });
+  it("keeps results available and pauses when the lead cannot continue", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.lead.busy = false;
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: "Result",
+    });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    f.completions.get("lead")!({
+      status: "failed",
+      text: "",
+      error: "Provider unavailable",
+    });
+    await vi.waitFor(() =>
+      expect(f.manager.run("lead")!.status).toBe("paused"),
+    );
+    expect(f.tasks()[0].delivered).toBe(false);
+    f.manager.sync();
+    expect(f.host.submit).toHaveBeenCalledTimes(2);
+  });
+  it("recovers interrupted tasks as failed instead of re-executing edits", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("running"));
+    await vi.waitFor(() =>
+      expect(f.saved.get("lead")?.tasks[0].status).toBe("running"),
+    );
+    const restored = new Orchestrator(f.store);
+    restored.bind(f.host);
+    await restored.hydrate("lead");
+    expect(restored.run("lead")?.status).toBe("paused");
+    expect(restored.run("lead")?.tasks[0].status).toBe("failed");
+    expect(f.host.submit).toHaveBeenCalledTimes(1);
+  });
+  it("does not claim a turn or run is successful before review", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await expect(f.call("finish")).rejects.toThrow("Review all");
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "failed",
+      text: "Partial edits",
+      error: "Provider crashed",
+    });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("failed"));
+    await expect(f.call("review", { taskId: f.tasks()[0].id })).rejects.toThrow(
+      "Only a completed",
+    );
+  });
+  it("blocks ordinary sessions while a run owns their checkout", async () => {
+    const f = setup();
+    await f.start();
+    f.sessions.push({
+      ...newSession("claude", "/repo"),
+      id: "other",
+      busy: false,
+    });
+    expect(f.manager.submissionError("other")).toContain("active orchestrator");
+    expect(f.manager.submissionError("lead")).toBeNull();
+  });
+});

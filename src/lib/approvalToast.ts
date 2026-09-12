@@ -66,7 +66,7 @@ export function hiddenApprovalNotices(
     if (!pending) continue;
     if (
       isSessionConversationFocused(
-        session.id,
+        session.orchestrationLeadId ?? session.id,
         activeTabId,
         tabs,
         composerFocused,

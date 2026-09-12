@@ -116,7 +116,12 @@ export function applyHarnessEvent(
         ...session,
         ...(event.model ? { model: event.model } : {}),
         ...(event.modelSettings
-          ? { modelSettings: { ...session.modelSettings, ...event.modelSettings } }
+          ? {
+              modelSettings: {
+                ...session.modelSettings,
+                ...event.modelSettings,
+              },
+            }
           : {}),
       };
     case "status":
@@ -463,6 +468,16 @@ export function promoteLastAssistantToPlan(
 
 function stopBlockProgress(block: Block): Block {
   let stopped = block.streaming ? { ...block, streaming: false } : block;
+  if (stopped.orchestration?.status === "planning") {
+    stopped = {
+      ...stopped,
+      orchestration: {
+        ...stopped.orchestration,
+        status: "invalid",
+        error: "Planning was interrupted. Generate the assignments again.",
+      },
+    };
+  }
   if (stopped.role === "plan" && stopped.plan?.status === "streaming") {
     stopped = {
       ...stopped,

@@ -1,0 +1,469 @@
+// @vitest-environment happy-dom
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => []),
+  isTauri: () => false,
+  convertFileSrc: (path: string) => path,
+}));
+vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ onFocusChanged: async () => () => {} }),
+}));
+vi.mock("../lib/harness/availability", () => ({
+  getHarnessAvailabilitySnapshot: () => 0,
+  hasProbedHarnessAvailability: () => true,
+  isHarnessAvailable: () => true,
+  harnessUnavailableHint: () => "",
+  probeHarnessAvailability: async () => {},
+  subscribeHarnessAvailability: () => () => {},
+}));
+vi.mock("../lib/harness/registry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/harness/registry")>()),
+  refreshHarnessCatalogs: async () => {},
+  isLiveHarness: () => true,
+}));
+vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
+vi.mock("./SessionReview", () => ({ SessionReview: () => null }));
+vi.mock("../lib/orchestration", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/orchestration")>()),
+  orchestrator: {
+    subscribe: () => () => {},
+    snapshot: () => emptyRuns,
+    hydrate: async () => {},
+    waitingFor: () => undefined,
+  },
+}));
+
+import { Composer } from "./Composer";
+import { AgentTranscript } from "../surfaces/AgentTranscript";
+import { SessionPane } from "../surfaces/SessionPane";
+import {
+  OrchestrationActions,
+  OrchestrationWorkers,
+} from "./OrchestrationActions";
+import { newSession } from "../lib/session";
+import type { OrchestrationRun, OrchestrationTask } from "../lib/orchestration";
+import {
+  modelsFor,
+  setHarnessModels,
+  resetHarnessModelOverlays,
+} from "../lib/models";
+import type { OrchestrationProposal } from "../lib/orchestrationPlan";
+import { invoke } from "@tauri-apps/api/core";
+
+const emptyRuns: OrchestrationRun[] = [];
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
+  setHarnessModels("codex", [
+    { id: "codex:one", harness: "codex", name: "Worker One" },
+    { id: "codex:two", harness: "codex", name: "Worker Two" },
+  ]);
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  resetHarnessModelOverlays();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+  emptyRuns.length = 0;
+});
+const button = (text: string) =>
+  [...document.querySelectorAll("button")].find((element) =>
+    element.textContent?.includes(text),
+  )!;
+async function click(element: Element) {
+  expect(element).toBeTruthy();
+  await act(async () => {
+    (element as HTMLElement).click();
+  });
+}
+async function input(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+) {
+  const prototype =
+    element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(
+      element,
+      value,
+    );
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+describe("orchestration composer and card", () => {
+  it("toggles a badge through the plus menu and submits without a team setup or execution", async () => {
+    const model = modelsFor("codex")[0];
+    const submit = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: false,
+          harness: "codex",
+          model: model.id,
+          runtimeMode: "supervised",
+          cwd: "/repo",
+          executionCwd: "/repo",
+          sessionId: "lead",
+          initialDraft: "Build settings",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          onFocus: () => {},
+          onCwdChange: () => {},
+          onModelChange: () => {},
+          onRuntimeModeChange: () => {},
+          onSubmit: submit,
+        }),
+      ),
+    );
+    await click(
+      document.querySelector(
+        'button[aria-label="Add files or choose a mode"]',
+      )!,
+    );
+    expect(button("Plan mode")).toBeTruthy();
+    await click(button("Orchestrator"));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(
+      document.querySelector('[aria-label="Turn off Orchestrator mode"]'),
+    ).not.toBeNull();
+    await click(
+      document.querySelector('[aria-label="Turn off Orchestrator mode"]')!,
+    );
+    expect(
+      document.querySelector('[aria-label="Turn off Orchestrator mode"]'),
+    ).toBeNull();
+    await click(
+      document.querySelector(
+        'button[aria-label="Add files or choose a mode"]',
+      )!,
+    );
+    await click(button("Plan mode"));
+    expect(
+      document.querySelector('[title="Turn off Plan mode"]'),
+    ).not.toBeNull();
+    await click(
+      document.querySelector(
+        'button[aria-label="Add files or choose a mode"]',
+      )!,
+    );
+    await click(button("Orchestrator"));
+    expect(document.querySelector('[title="Turn off Plan mode"]')).toBeNull();
+    const textarea = container.querySelector("textarea")!;
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
+    expect(submit).toHaveBeenCalledWith("Build settings", [], {
+      intent: "orchestrate",
+    });
+    expect(
+      document.querySelector('[aria-label="Turn off Orchestrator mode"]'),
+    ).toBeNull();
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.some(([command]) => command === "control_enable"),
+    ).toBe(false);
+  });
+  it("lets the user change an assignment's model and waits for explicit confirmation", async () => {
+    const choices = [
+      { harness: "codex" as const, model: "codex:one", name: "Worker One" },
+      { harness: "claude" as const, model: "claude:two", name: "Worker Two" },
+    ];
+    const initial: OrchestrationProposal = {
+      version: 1,
+      leadId: "lead",
+      cwd: "/repo",
+      request: "Build",
+      author: choices[0],
+      settings: { choices, maxWorkers: 2 },
+      status: "ready",
+      title: "Build settings",
+      summary: "Split UI and persistence",
+      tasks: [
+        {
+          id: "ui",
+          title: "Settings UI",
+          prompt: "Build the form",
+          harness: "codex",
+          model: "codex:one",
+          files: ["src/settings"],
+          dependsOn: [],
+        },
+      ],
+    };
+    const confirm = vi.fn(async (_proposal: OrchestrationProposal) => {});
+    function Card() {
+      const [proposal, setProposal] = useState(initial);
+      return createElement(
+        OrchestrationActions.Provider,
+        {
+          value: {
+            update: (_id, _block, edited) => setProposal(edited),
+            confirm: async () => confirm(proposal),
+            retry: () => {},
+            open: () => {},
+          },
+        },
+        createElement(AgentTranscript, {
+          blocks: [
+            {
+              id: "card",
+              role: "plan",
+              text: "Readable plan",
+              orchestration: proposal,
+            },
+          ],
+        }),
+      );
+    }
+    await act(async () => root.render(createElement(Card)));
+    expect(container.textContent).toContain("Settings UI");
+    expect(
+      container.querySelector("[data-orchestration-review]"),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("Readable plan");
+    expect(confirm).not.toHaveBeenCalled();
+    await click(
+      document.querySelector('[aria-label="Model for Settings UI"]')!,
+    );
+    await input(
+      document.querySelector('[aria-label="Search assignment models"]')!,
+      "Claude",
+    );
+    expect(
+      document.querySelector("[data-popover-side]")?.textContent,
+    ).not.toContain("Worker One");
+    await click(button("Worker Two"));
+    expect(container.textContent).toContain("Worker Two");
+    expect(container.querySelector("textarea")).toBeNull();
+    await click(
+      document.querySelector('[aria-label="Details for Settings UI"]')!,
+    );
+    await input(
+      document.querySelector('[aria-label="Instructions for task 1"]')!,
+      "Build the accessible form and check keyboard navigation",
+    );
+    await act(async () => {
+      const limit = document.querySelector<HTMLSelectElement>(
+        '[aria-label="Parallel workers"]',
+      )!;
+      limit.value = "1";
+      limit.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    await click(button("Confirm & start"));
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: expect.objectContaining({ maxWorkers: 1 }),
+        tasks: [
+          expect.objectContaining({
+            harness: "claude",
+            model: "claude:two",
+            prompt: "Build the accessible form and check keyboard navigation",
+          }),
+        ],
+      }),
+    );
+  });
+  it("never offers confirmation for a proposal that is still being generated", async () => {
+    const proposal: OrchestrationProposal = {
+      version: 1,
+      leadId: "lead",
+      cwd: "/repo",
+      request: "Build",
+      author: { harness: "codex", model: "test", name: "Lead" },
+      settings: { choices: [], maxWorkers: 2 },
+      status: "planning",
+      title: "Planning",
+      summary: "",
+      tasks: [],
+    };
+    await act(async () =>
+      root.render(
+        createElement(AgentTranscript, {
+          busy: true,
+          blocks: [
+            {
+              id: "draft",
+              role: "plan",
+              text: "",
+              orchestration: proposal,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(container.querySelector("[data-orchestration-review]")).toBeNull();
+    expect(container.textContent).not.toContain("Confirm & start");
+  });
+  it("keeps the lead composer beside a compact worker panel and handles worker input there", async () => {
+    const lead = {
+      ...newSession("codex", "/repo", "codex:one"),
+      id: "lead",
+      blocks: [
+        { id: "user", role: "user" as const, text: "Build the feature" },
+        {
+          id: "answer",
+          role: "assistant" as const,
+          text: "I am coordinating the work.",
+        },
+      ],
+    };
+    const worker = {
+      ...newSession("codex", "/repo", "codex:two"),
+      id: "worker",
+      orchestrationLeadId: "lead",
+      busy: true,
+      blocks: [
+        {
+          id: "approval",
+          role: "approval" as const,
+          text: "Run the UI check",
+          approval: { requestId: 42 },
+        },
+      ],
+    };
+    const second = {
+      ...worker,
+      id: "second",
+      blocks: [],
+      pendingQuestion: {
+        requestId: 43,
+        title: "Choose validation",
+        questions: [
+          {
+            id: "q",
+            prompt: "Which check should I run?",
+            multiSelect: false,
+            allowCustom: false,
+            options: [{ id: "unit", label: "Unit tests" }],
+          },
+        ],
+      },
+    };
+    const task: OrchestrationTask = {
+      id: "task",
+      sessionId: worker.id,
+      title: "UI worker",
+      harness: "codex",
+      model: "codex:two",
+      prompt: "Build UI",
+      files: ["ui"],
+      scopes: ["/repo/ui"],
+      dependsOn: [],
+      status: "running",
+      accepted: false,
+      delivered: false,
+      result: "",
+    };
+    emptyRuns.push({
+      version: 1,
+      leadId: lead.id,
+      cwd: lead.cwd,
+      status: "active",
+      allowedHarnesses: ["codex"],
+      maxWorkers: 2,
+      cli: "monocode",
+      tasks: [
+        task,
+        {
+          ...task,
+          id: "second-task",
+          sessionId: second.id,
+          title: "Check worker",
+        },
+      ],
+      continuations: 0,
+      requests: {},
+    });
+    const submit = vi.fn();
+    const approve = vi.fn();
+    const reply = vi.fn();
+    const open = vi.fn();
+    const noop = () => {};
+    function LeadPane() {
+      const [selectedId, inspect] = useState<string | null>(null);
+      return createElement(
+        OrchestrationActions.Provider,
+        { value: { update: noop, confirm: async () => {}, retry: noop, open } },
+        createElement(
+          OrchestrationWorkers.Provider,
+          { value: { sessions: [lead, worker, second], selectedId, inspect } },
+          createElement(SessionPane, {
+            session: lead,
+            visible: true,
+            focused: true,
+            inSplit: false,
+            composerFocused: true,
+            recents: [],
+            onFocus: noop,
+            onClose: noop,
+            onCwdChange: noop,
+            onBranchChange: noop,
+            onModelChange: noop,
+            onModelSettingsChange: noop,
+            onRuntimeModeChange: noop,
+            onSubmit: submit,
+            onStop: noop,
+            onCompactContext: () => false,
+            onPlaceSessionInFolder: noop,
+            onDeleteQueuedMessage: noop,
+            onEditQueuedMessage: noop,
+            onQueuedMessageEditingChange: noop,
+            onSteerQueuedMessage: noop,
+            onResumeQueue: noop,
+            onApproval: approve,
+            onQuestionReply: reply,
+            onOpenFile: noop,
+            onOpenDiff: noop,
+            onOpenPlan: noop,
+            onBuildPlan: noop,
+            onNewTerminal: noop,
+          }),
+        ),
+      );
+    }
+    await act(async () => root.render(createElement(LeadPane)));
+    const main = container.querySelector("[data-orchestration-main]")!;
+    const rail = container.querySelector("[data-orchestration-agents]")!;
+    expect(main.parentElement).toBe(rail.parentElement);
+    expect(main.textContent).toContain("I am coordinating the work.");
+    expect(main.querySelector("[data-orchestration-agents]")).toBeNull();
+    expect(rail.textContent).toContain("UI worker");
+    expect(rail.textContent).toContain("Which check should I run?");
+    await click(button("Approve"));
+    expect(approve).toHaveBeenCalledWith("worker", 42, "allow");
+    expect(open).not.toHaveBeenCalled();
+    const composer = main.querySelector("textarea")!;
+    await input(composer, "Ask the UI worker to check keyboard navigation.");
+    await act(async () => {
+      composer.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(submit).toHaveBeenCalledWith(
+      "lead",
+      "Ask the UI worker to check keyboard navigation.",
+      [],
+      { intent: "default" },
+    );
+  });
+});

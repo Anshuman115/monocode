@@ -99,6 +99,10 @@ pub struct SessionUpsert {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestration_lead_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestration: Option<Value>,
     pub cwd: String,
     pub harness: String,
     pub model: String,
@@ -126,6 +130,8 @@ pub struct SessionSummary {
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestration_lead_id: Option<String>,
     pub cwd: String,
     pub harness: String,
     pub model: String,
@@ -603,7 +609,126 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     crate::notes::ensure_notes_table(conn)?;
     crate::reminders::ensure_table(conn)?;
+    ensure_orchestration_history(conn)?;
     Ok(())
+}
+
+fn ensure_orchestration_history(conn: &Connection) -> rusqlite::Result<()> {
+    let indexed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'orchestration_sidebar')",
+        [],
+        |row| row.get(0),
+    )?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS orchestration_runs (lead_id TEXT PRIMARY KEY, state TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS orchestration_sidebar (lead_id TEXT PRIMARY KEY, summary TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS orchestration_workers (session_id TEXT PRIMARY KEY, lead_id TEXT NOT NULL);",
+    )?;
+    if !indexed {
+        // One-time compatibility pass for the preview that listed workers as
+        // separate chats. Normal sidebar reads never scan transcripts/run blobs.
+        let runs = tx
+            .prepare("SELECT lead_id, state FROM orchestration_runs")?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (lead, state) in runs {
+            if let Ok(run) = serde_json::from_str::<Value>(&state) {
+                index_orchestration(&tx, &lead, &run)?;
+            }
+        }
+        let workers = tx.prepare("SELECT id, blocks_json FROM sessions WHERE blocks_json LIKE '%orchestrationLeadId%'")?
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (id, blocks) in workers {
+            if let Ok(blocks) = serde_json::from_str::<Value>(&blocks) {
+                remember_worker_from_blocks(&tx, &id, &blocks)?;
+            }
+        }
+    }
+    tx.commit()
+}
+
+fn remember_worker(conn: &Connection, id: &str, lead: &str) -> rusqlite::Result<()> {
+    if id != lead && validate_id(id, "Worker").is_ok() && validate_id(lead, "Lead").is_ok() {
+        // Keep earlier workers indexed when a lead starts a subsequent run.
+        conn.execute(
+            "INSERT OR IGNORE INTO orchestration_workers(session_id, lead_id) VALUES (?1, ?2)",
+            params![id, lead],
+        )?;
+    }
+    Ok(())
+}
+
+fn remember_worker_from_blocks(
+    conn: &Connection,
+    id: &str,
+    blocks: &Value,
+) -> rusqlite::Result<()> {
+    if let Some(blocks) = blocks.as_array() {
+        for block in blocks {
+            if block["role"] == "user" {
+                if let Some(lead) = block["orchestrationLeadId"].as_str() {
+                    remember_worker(conn, id, lead)?;
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn index_orchestration(conn: &Connection, lead: &str, run: &Value) -> rusqlite::Result<()> {
+    let Some(tasks) = run["tasks"].as_array() else {
+        return Ok(());
+    };
+    let mut summaries = Vec::new();
+    for task in tasks {
+        let Some(id) = task["sessionId"].as_str() else {
+            continue;
+        };
+        remember_worker(conn, id, lead)?;
+        summaries.push(serde_json::json!({
+            "sessionId": id, "title": task["title"], "harness": task["harness"],
+            "model": task["model"], "status": task["status"],
+        }));
+    }
+    let summary = serde_json::json!({ "status": run["status"], "tasks": summaries });
+    conn.execute("INSERT INTO orchestration_sidebar(lead_id, summary) VALUES (?1, ?2) ON CONFLICT(lead_id) DO UPDATE SET summary = excluded.summary", params![lead, summary.to_string()])?;
+    Ok(())
+}
+
+pub(crate) fn save_orchestration(
+    conn: &Connection,
+    lead: &str,
+    run: &Value,
+) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("INSERT INTO orchestration_runs(lead_id, state) VALUES (?1, ?2) ON CONFLICT(lead_id) DO UPDATE SET state = excluded.state", params![lead, run.to_string()])?;
+    index_orchestration(&tx, lead, run)?;
+    tx.commit()
+}
+
+fn worker_parent(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT lead_id FROM orchestration_workers WHERE session_id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn orchestration_summary(conn: &Connection, id: &str) -> rusqlite::Result<Option<Value>> {
+    Ok(optional_json(
+        conn.query_row(
+            "SELECT summary FROM orchestration_sidebar WHERE lead_id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?,
+    ))
 }
 
 fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
@@ -708,8 +833,11 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         ],
     )?;
 
+    remember_worker_from_blocks(conn, &session.id, &session.blocks)?;
     Ok(SessionSummary {
         id: session.id.clone(),
+        orchestration_lead_id: worker_parent(conn, &session.id)?,
+        orchestration: orchestration_summary(conn, &session.id)?,
         cwd: session.cwd.clone(),
         harness: session.harness.clone(),
         model: session.model.clone(),
@@ -979,11 +1107,13 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
-                linked_work_item_json
+                linked_work_item_json,
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
          FROM sessions
          WHERE cwd = ?1
            AND has_user_message = 1
            AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+           AND id NOT IN (SELECT session_id FROM orchestration_workers)
          ORDER BY updated_at DESC, id ASC",
     )?;
     let rows = statement.query_map(params![cwd], |row| {
@@ -993,6 +1123,8 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
         let linked_work_item = optional_json(row.get(12)?);
         Ok(SessionSummary {
             id: row.get(0)?,
+            orchestration_lead_id: None,
+            orchestration: optional_json(row.get(13)?),
             cwd: row.get(1)?,
             harness: row.get(2)?,
             model: row.get(3)?,
@@ -1017,11 +1149,13 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
-                linked_work_item_json
+                linked_work_item_json,
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
            AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+           AND id NOT IN (SELECT session_id FROM orchestration_workers)
          ORDER BY updated_at DESC, id ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -1029,6 +1163,8 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
         let pinned: i64 = row.get(11)?;
         Ok(SessionSummary {
             id: row.get(0)?,
+            orchestration_lead_id: None,
+            orchestration: optional_json(row.get(13)?),
             cwd: row.get(1)?,
             harness: row.get(2)?,
             model: row.get(3)?,
@@ -1123,6 +1259,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
             })?;
             Ok(SessionRecord {
                 id: row.get(0)?,
+                orchestration_lead_id: worker_parent(conn, session_id)?,
                 cwd: row.get(1)?,
                 harness: row.get(2)?,
                 model: row.get(3)?,
@@ -1285,6 +1422,90 @@ mod tests {
         assert_eq!(count, 2);
     }
 
+    #[test]
+    fn orchestration_history_groups_workers_and_keeps_their_transcripts() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        for id in ["lead", "worker-a", "worker-b", "unrelated"] {
+            upsert_session(&conn, &sample(id, "/tmp/a", id)).unwrap();
+        }
+        let run = json!({"status": "active", "tasks": [
+            {"sessionId": "worker-a", "title": "UI", "harness": "codex", "model": "one", "status": "running", "prompt": "private instructions", "result": "large result"},
+            {"sessionId": "worker-b", "title": "Tests", "harness": "claude", "model": "two", "status": "queued"}
+        ]});
+        save_orchestration(&conn, "lead", &run).unwrap();
+        // Reopening/migration must not hydrate, pause or otherwise mutate runs.
+        migrate(&conn).unwrap();
+        let rows = list_by_project(&conn, "/tmp/a").unwrap();
+        assert_eq!(rows.len(), 2);
+        let lead = rows.iter().find(|row| row.id == "lead").unwrap();
+        let summary = lead.orchestration.as_ref().unwrap();
+        assert_eq!(summary["tasks"].as_array().unwrap().len(), 2);
+        assert_eq!(summary["status"], "active");
+        assert!(summary["tasks"][0].get("prompt").is_none());
+        assert!(summary["tasks"][0].get("result").is_none());
+        let worker = get_session(&conn, "worker-a").unwrap().unwrap();
+        assert_eq!(worker.orchestration_lead_id.as_deref(), Some("lead"));
+        assert!(has_user_block(&worker.blocks));
+        // A later run replaces the card's agents without resurfacing old chats.
+        save_orchestration(&conn, "lead", &json!({"status": "active", "tasks": []})).unwrap();
+        assert_eq!(list_by_project(&conn, "/tmp/a").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn worker_upserts_carry_ownership_before_the_run_is_saved() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut worker = sample("worker", "/tmp/a", "Worker");
+        worker.blocks =
+            json!([{"id": "u", "role": "user", "text": "Task", "orchestrationLeadId": "lead"}]);
+        worker.linked_work_item = Some(json!({"kind": "pr", "number": 1}));
+        let summary = upsert_session(&conn, &worker).unwrap();
+        assert_eq!(summary.orchestration_lead_id.as_deref(), Some("lead"));
+        assert!(list_by_project(&conn, "/tmp/a").unwrap().is_empty());
+        assert!(list_linked(&conn).unwrap().is_empty());
+        // An older renderer's next write cannot accidentally detach a worker.
+        worker.blocks = json!([{"id": "u", "role": "user", "text": "Task"}]);
+        upsert_session(&conn, &worker).unwrap();
+        assert!(list_by_project(&conn, "/tmp/a").unwrap().is_empty());
+    }
+
+    #[test]
+    fn migration_groups_workers_from_the_earlier_preview() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        for id in ["lead", "old-worker", "current-worker"] {
+            upsert_session(&conn, &sample(id, "/tmp/a", id)).unwrap();
+        }
+        conn.execute(
+            "UPDATE sessions SET blocks_json = ?1 WHERE id = 'old-worker'",
+            [
+                json!([{"role": "user", "orchestrationLeadId": "lead", "text": "Old task"}])
+                    .to_string(),
+            ],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO orchestration_runs(lead_id, state) VALUES ('lead', ?1)", [json!({"status": "paused", "tasks": [{"sessionId": "current-worker", "title": "Task", "harness": "codex", "model": "one", "status": "completed"}]}).to_string()]).unwrap();
+        conn.execute_batch("DROP TABLE orchestration_sidebar; DROP TABLE orchestration_workers;")
+            .unwrap();
+        migrate(&conn).unwrap();
+        let rows = list_by_project(&conn, "/tmp/a").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "lead");
+        assert_eq!(
+            rows[0].orchestration.as_ref().unwrap()["tasks"][0]["title"],
+            "Task"
+        );
+        assert_eq!(
+            worker_parent(&conn, "old-worker").unwrap().as_deref(),
+            Some("lead")
+        );
+        assert_eq!(
+            worker_parent(&conn, "current-worker").unwrap().as_deref(),
+            Some("lead")
+        );
+    }
+
     /// The sidebar query must stay answerable from the index alone. Selecting a
     /// column the index does not carry silently reintroduces a table seek per
     /// row, and every summary column sits behind a ~180 KB `blocks_json` blob
@@ -1299,11 +1520,13 @@ mod tests {
                 "EXPLAIN QUERY PLAN
                  SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                         created_at, updated_at, branch, archived, pinned,
-                        linked_work_item_json
+                        linked_work_item_json,
+                        (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
                  FROM sessions
                  WHERE cwd = ?1
                    AND has_user_message = 1
                    AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+                   AND id NOT IN (SELECT session_id FROM orchestration_workers)
                  ORDER BY updated_at DESC, id ASC",
                 params!["/tmp/a"],
                 |row| row.get(3),

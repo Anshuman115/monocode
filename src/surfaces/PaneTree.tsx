@@ -30,7 +30,7 @@ import {
   type PlanBuildTarget,
   type RuntimeMode,
   type Session,
-  type TurnIntent,
+  type ComposerTurnOptions,
 } from "../lib/session";
 import { FilePane } from "./FilePane";
 import { SessionPane } from "./SessionPane";
@@ -68,7 +68,7 @@ type Shared = {
     sessionId: string,
     text: string,
     attachments: Attachment[],
-    options?: { intent?: TurnIntent },
+    options?: ComposerTurnOptions,
   ) => void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;

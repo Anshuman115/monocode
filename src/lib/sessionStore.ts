@@ -16,8 +16,13 @@ import type {
   TurnModel,
 } from "./session";
 import { HARNESSES, RUNTIME_MODES } from "./session";
+import { restoreOrchestrationProposal } from "./orchestrationPlan";
+
+import type { OrchestrationSummary } from "./orchestrationSummary";
 
 export type SessionSummary = {
+  orchestrationLeadId?: string;
+  orchestration?: OrchestrationSummary;
   id: string;
   cwd: string;
   harness: HarnessId;
@@ -37,6 +42,7 @@ export type SessionSummary = {
 };
 
 type SessionRecord = {
+  orchestrationLeadId?: string;
   id: string;
   cwd: string;
   harness: string;
@@ -141,10 +147,17 @@ export function sanitizeLinkedWorkItem(
 export function sanitizeSessionForPersist(
   session: Session,
 ): SessionUpsertPayload {
+  const firstUser = session.blocks.findIndex((block) => block.role === "user");
   return {
     ...persistableMeta(session),
     blocks: session.blocks
-      .map(sanitizeBlock)
+      .map((block, index) =>
+        sanitizeBlock(
+          index === firstUser && session.orchestrationLeadId
+            ? { ...block, orchestrationLeadId: session.orchestrationLeadId }
+            : block,
+        ),
+      )
       .filter((block): block is Block => block != null),
   };
 }
@@ -210,7 +223,7 @@ function blockToken(block: Block): number {
 }
 
 export function persistFingerprint(session: Session): string {
-  return `${JSON.stringify(persistableMeta(session))}|${session.blocks
+  return `${JSON.stringify(persistableMeta(session))}|${session.orchestrationLeadId ?? ""}|${session.blocks
     .map(blockToken)
     .join(",")}`;
 }
@@ -380,6 +393,12 @@ function sanitizeBlock(block: Block): Block | null {
   if (block.durationMs != null) next.durationMs = block.durationMs;
   const turnModel = sanitizeTurnModel(block.turnModel);
   if (block.role === "user" && turnModel) next.turnModel = turnModel;
+  if (
+    block.role === "user" &&
+    typeof block.orchestrationLeadId === "string" &&
+    isPersistableId(block.orchestrationLeadId)
+  )
+    next.orchestrationLeadId = block.orchestrationLeadId;
   if (block.tool) next.tool = block.tool;
   if (block.approval?.decided) {
     next.approval = {
@@ -394,6 +413,8 @@ function sanitizeBlock(block: Block): Block | null {
   if (taskList) next.taskList = taskList;
   else if (block.role === "tasks") return null;
   const plan = sanitizePlan(block.plan, block.text);
+  if (block.orchestration)
+    next.orchestration = restoreOrchestrationProposal(block.orchestration);
   if (plan) next.plan = plan;
   else if (block.role === "plan") {
     next.plan = { status: "ready", originalText: block.text };
@@ -532,6 +553,10 @@ function recordToSession(record: SessionRecord): Session {
     title: record.title,
     blocks,
     busy: false,
+    orchestrationLeadId: record.orchestrationLeadId ?? blocks.find(
+      (block) =>
+        block.orchestrationLeadId && block.orchestrationLeadId !== record.id,
+    )?.orchestrationLeadId,
     ...(record.providerSessionId
       ? { providerSessionId: record.providerSessionId }
       : {}),

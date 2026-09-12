@@ -25,6 +25,57 @@ function render(
 }
 
 describe("AgentTranscript collapsed work", () => {
+  it("reveals an orchestration result after the finished turn and before its action row", () => {
+    const card: Block = {
+      id: "proposal",
+      role: "plan",
+      text: "Assignment plan",
+      orchestration: {
+        version: 1,
+        leadId: "lead",
+        cwd: "/repo",
+        request: "Build",
+        author: { harness: "claude", model: "claude:test", name: "Lead" },
+        settings: {
+          choices: [
+            { harness: "claude", model: "claude:test", name: "Worker" },
+          ],
+          maxWorkers: 2,
+        },
+        status: "ready",
+        title: "Proposed assignments",
+        summary: "Implement and verify",
+        tasks: [],
+      },
+    };
+    const blocks: Block[] = [
+      {
+        id: "user",
+        role: "user",
+        text: "Build",
+        startedAt: 1000,
+        durationMs: 500,
+      },
+      card, // Existing records have the card before the work.
+      tool("inspection"),
+      {
+        id: "answer",
+        role: "assistant",
+        text: "The investigation is complete.",
+      },
+    ];
+    expect(render(blocks, true)).not.toContain("data-orchestration-review");
+    const finished = render(blocks);
+    expect(finished.indexOf("The investigation is complete.")).toBeLessThan(
+      finished.indexOf("data-orchestration-result"),
+    );
+    expect(finished.indexOf("data-orchestration-review")).toBeLessThan(
+      finished.indexOf('aria-label="Worked for 1s"'),
+    );
+    expect(finished.match(/data-orchestration-review/g)).toHaveLength(1);
+    card.orchestration!.status = "planning";
+    expect(render(blocks)).not.toContain("data-orchestration-review");
+  });
   it("keeps each completed turn's recorded model label", () => {
     const blocks: Block[] = [
       {

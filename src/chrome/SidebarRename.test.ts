@@ -262,6 +262,58 @@ describe("sidebar pinned sessions", () => {
   });
 });
 
+describe("sidebar orchestration card", () => {
+  it.each([false, true])("keeps agents inside a distinct lead card (pinned=%s)", (pinned) => {
+    const lead = {
+      ...props.sessions[0], pinned,
+      orchestration: {
+        status: "active" as const, live: true,
+        tasks: [
+          { sessionId: "worker-a", title: "Build settings", harness: "codex" as const, model: "codex:worker-a", status: "running" as const },
+          { sessionId: "worker-b", title: "Review changes", harness: "claude" as const, model: "claude:worker-b", status: "running" as const, needsInput: true },
+          { sessionId: "worker-c", title: "Check types", harness: "codex" as const, model: "codex:worker-c", status: "completed" as const },
+        ],
+      },
+    };
+    props.sessions = [lead, { ...props.sessions[0], id: "unrelated" }, {
+      ...props.sessions[0], id: "worker-a", orchestrationLeadId: lead.id,
+    }];
+    act(() => render());
+    expect(container.querySelectorAll("[data-session-card]")).toHaveLength(2);
+    expect(card().dataset.orchestrationCard).toBe("true");
+    expect(card().className).toContain("bg-accent/10");
+    expect(card().textContent).toContain("Orchestrator");
+    expect(card().textContent).toContain("3 agents");
+    expect(card().textContent).toContain("1 done");
+    expect(card().textContent).toContain("Build settings");
+    expect(card().textContent).toContain("codex:worker-a");
+    expect(card().textContent).toContain("claude:worker-b");
+    expect(card().textContent).toContain("Needs input");
+    expect(card().querySelectorAll("[data-orchestration-agent]")).toHaveLength(3);
+    const normal = container.querySelector<HTMLElement>('[data-session-card="unrelated"]')!;
+    expect(normal.hasAttribute("data-orchestration-card")).toBe(false);
+    expect(normal.querySelector("[data-orchestration-agent]")).toBeNull();
+    act(() => card().querySelector<HTMLElement>('[data-orchestration-agent="worker-b"]')!.click());
+    expect(props.onSelectSession).toHaveBeenCalledExactlyOnceWith(lead.id);
+    props.approvalSessionIds = new Set([lead.id]);
+    act(() => render());
+    expect(card().className).toContain("bg-amber-400/5");
+    expect(card().textContent).toContain("Needs input");
+  });
+
+  it("renders saved worker details without claiming the workers are running", () => {
+    props.busySessionIds = new Set();
+    props.sessions[0].orchestration = {
+      status: "active", tasks: [{ sessionId: "worker", title: "Saved task", harness: "codex", model: "codex:test", status: "running" }],
+    };
+    act(() => render());
+    expect(card().textContent).toContain("Saved task");
+    expect(card().textContent).toContain("Saved");
+    expect(card().textContent).not.toContain("Working");
+    expect(card().querySelector(".motion-safe\\:animate-pulse")).toBeNull();
+  });
+});
+
 describe("sidebar session reminders", () => {
   function openReminderMenu() {
     act(() =>

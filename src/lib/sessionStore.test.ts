@@ -20,6 +20,23 @@ describe("isPersistableId", () => {
 });
 
 describe("sanitizeSessionForPersist", () => {
+  it("preserves an internal worker's lead in its saved transcript", () => {
+    const session = {
+      ...newSession("claude", "/repo"),
+      orchestrationLeadId: "lead",
+    };
+    session.blocks = [{ id: "u", role: "user", text: "Bounded assignment" }];
+    const saved = sanitizeSessionForPersist(session);
+    expect(saved.blocks[0].orchestrationLeadId).toBe("lead");
+    expect(session.blocks[0].orchestrationLeadId).toBeUndefined();
+    expect(
+      sanitizeSessionForPersist({
+        ...session,
+        orchestrationLeadId: undefined,
+        blocks: saved.blocks,
+      }).blocks[0].orchestrationLeadId,
+    ).toBe("lead");
+  });
   it("persists model provenance recorded on a user turn", () => {
     const session = newSession("claude", "/tmp/project", "claude:opus-5");
     session.blocks = [
