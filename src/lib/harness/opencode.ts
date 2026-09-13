@@ -10,7 +10,11 @@ import {
   unwatchChild,
   watchChild,
 } from "./child";
-import { OpenCodeClient, OpenCodeHttpError } from "./opencodeClient";
+import {
+  OpenCodeClient,
+  OpenCodeHttpError,
+  type OpenCodeMessage,
+} from "./opencodeClient";
 import {
   appendOpenCodeAssistantTextDelta,
   asRecord,
@@ -32,7 +36,7 @@ import {
   sessionErrorMessage,
   stringField,
   textDeltaEvent,
-  toOpenCodeFileParts,
+  toOpenCodePromptParts,
   toOpenCodePermissionReply,
   toolKindFromName,
   type OpenCodePart,
@@ -192,12 +196,7 @@ export async function steerOpenCodeTurn(input: SteerTurnInput): Promise<void> {
     );
   }
 
-  const parts = [
-    ...(input.text.trim()
-      ? [{ type: "text" as const, text: input.text.trim() }]
-      : []),
-    ...toOpenCodeFileParts(input.attachments),
-  ];
+  const parts = toOpenCodePromptParts(input.text, input.attachments);
   if (parts.length === 0) return;
 
   await live.client.promptAsync({
@@ -359,6 +358,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       runtimeMode: input.runtimeMode,
       cwd: input.cwd,
     });
+    if (canResume) {
+      await repairUnsupportedFileTurn(client, openCodeSession.id).catch(
+        (error: unknown) =>
+          console.debug("[monocode] opencode attachment recovery", error),
+      );
+    }
 
     const live: Live = {
       client,
@@ -488,12 +493,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
       "OpenCode models use provider/model ids. Wait for the catalog to load, then pick a model.",
     );
   }
-  const parts = [
-    ...(input.text.trim()
-      ? [{ type: "text" as const, text: input.text.trim() }]
-      : []),
-    ...toOpenCodeFileParts(input.attachments),
-  ];
+  const parts = toOpenCodePromptParts(input.text, input.attachments);
   if (parts.length === 0) return;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
@@ -1145,6 +1145,70 @@ function sameDirectory(left: string, right: string): boolean {
 
 function isHttpNotFound(error: unknown): boolean {
   return error instanceof OpenCodeHttpError && error.status === 404;
+}
+
+/**
+ * A rejected native file remains in OpenCode's durable history and can make
+ * every later prompt fail while converting that history for the provider.
+ * Revert the original attachment turn before resuming; OpenCode removes the
+ * reverted tail when the next prompt starts.
+ */
+async function repairUnsupportedFileTurn(
+  client: OpenCodeClient,
+  sessionID: string,
+): Promise<void> {
+  const messages = await client.getMessages(sessionID);
+  if (!Array.isArray(messages)) return;
+  const byId = new Map<string, OpenCodeMessage>();
+  for (const message of messages) {
+    const id = stringField(asRecord(message.info), "id");
+    if (id) byId.set(id, message);
+  }
+  const failures = messages
+    .map((message) => {
+      const info = asRecord(message.info);
+      if (stringField(info, "role") !== "assistant") return null;
+      const mime = unsupportedFileMediaType(info?.error);
+      const parentID = stringField(info, "parentID");
+      if (!mime || !parentID) return null;
+      const parent = byId.get(parentID);
+      const hasRejectedFile = (parent?.parts ?? []).some((part) => {
+        const record = asRecord(part);
+        return (
+          stringField(record, "type") === "file" &&
+          stringField(record, "mime")?.toLowerCase() === mime
+        );
+      });
+      if (!hasRejectedFile) return null;
+      const time = asRecord(info?.time)?.created;
+      if (typeof time !== "number") return null;
+      return { messageID: parentID, created: time };
+    })
+    .filter(
+      (failure): failure is { messageID: string; created: number } =>
+        failure !== null,
+    )
+    .filter(({ created }) =>
+      messages.every((message) => {
+        const info = asRecord(message.info);
+        if (stringField(info, "role") !== "assistant" || info?.error) {
+          return true;
+        }
+        const time = asRecord(info?.time)?.created;
+        return typeof time !== "number" || time <= created;
+      }),
+    )
+    .sort((left, right) => left.created - right.created);
+  const first = failures[0];
+  if (first) await client.revertSession(sessionID, first.messageID);
+}
+
+function unsupportedFileMediaType(error: unknown): string | undefined {
+  const message = sessionErrorMessage(error);
+  if (!/functionality not supported/i.test(message)) return undefined;
+  return message
+    .match(/file part media type\s+([^\s'"`]+)/i)?.[1]
+    ?.toLowerCase();
 }
 
 async function assertOpenCodeVersion(path: string, cwd: string): Promise<void> {
