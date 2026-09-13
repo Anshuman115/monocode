@@ -1,5 +1,5 @@
 import { modelContextWindow, nativeModelId } from "../models";
-import type { RuntimeMode } from "../session";
+import type { RuntimeMode, TurnMetrics } from "../session";
 import { taskListFromToolInput } from "../taskList";
 import {
   execChild,
@@ -21,6 +21,7 @@ import {
   buildOpenCodePermissionRules,
   compareSemver,
   contextUsedFromMessageInfo,
+  turnMetricsFromMessageInfo,
   detailFromToolPart,
   eventSessionId,
   isOpenCodeNotFound,
@@ -94,6 +95,7 @@ type Live = {
   partById: Map<string, OpenCodePart>;
   emittedTextByPartId: Map<string, string>;
   messageRoleById: Map<string, "user" | "assistant" | "hidden">;
+  turnMetricsByMessageId: Map<string, TurnMetrics>;
   cancelled: boolean;
   muteUpdates: boolean;
   turns: Promise<void>;
@@ -383,6 +385,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       partById: new Map(),
       emittedTextByPartId: new Map(),
       messageRoleById: new Map(),
+      turnMetricsByMessageId: new Map(),
       cancelled: false,
       muteUpdates: false,
       turns: Promise.resolve(),
@@ -501,6 +504,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     live.turnFailed = reject;
   });
   live.activeTurn = true;
+  live.turnMetricsByMessageId.clear();
   settlePendingTurn(live);
 
   try {
@@ -780,6 +784,39 @@ export function openCodeAgentForTurn(input: {
  */
 function emitContext(live: Live, info: Record<string, unknown> | null): void {
   const used = contextUsedFromMessageInfo(info);
+  const metrics = turnMetricsFromMessageInfo(info);
+  const messageId = stringField(info, "id");
+  if (metrics && messageId) live.turnMetricsByMessageId.set(messageId, metrics);
+  if (metrics && !messageId) {
+    live.onEvent({ type: "turn.metrics", ...metrics });
+  }
+  const aggregate = [
+    ...live.turnMetricsByMessageId.values(),
+  ].reduce<TurnMetrics>(
+    (total, current) => ({
+      inputTokens: (total.inputTokens ?? 0) + (current.inputTokens ?? 0),
+      outputTokens: (total.outputTokens ?? 0) + (current.outputTokens ?? 0),
+      cacheReadTokens:
+        (total.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
+      cacheWriteTokens:
+        (total.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0),
+    }),
+    {},
+  );
+  const aggregateInput =
+    (aggregate.inputTokens ?? 0) +
+    (aggregate.cacheReadTokens ?? 0) +
+    (aggregate.cacheWriteTokens ?? 0);
+  const hasAggregate = Object.values(aggregate).some(
+    (value) => typeof value === "number" && value > 0,
+  );
+  if (hasAggregate) {
+    aggregate.cacheHitPercent =
+      aggregateInput > 0
+        ? ((aggregate.cacheReadTokens ?? 0) / aggregateInput) * 100
+        : undefined;
+    live.onEvent({ type: "turn.metrics", ...aggregate });
+  }
   if (used === undefined) return;
   const providerID = stringField(info, "providerID");
   const modelID = stringField(info, "modelID");

@@ -1,4 +1,9 @@
-import type { Attachment, RuntimeMode, ToolPreview } from "../session";
+import type {
+  Attachment,
+  RuntimeMode,
+  ToolPreview,
+  TurnMetrics,
+} from "../session";
 import {
   attachmentPath,
   attachmentPathText,
@@ -389,6 +394,34 @@ export function contextUsedFromMessageInfo(
     num(cache, "read") +
     num(cache, "write");
   return used > 0 ? used : undefined;
+}
+
+export function turnMetricsFromMessageInfo(
+  info: Record<string, unknown> | null,
+): TurnMetrics | undefined {
+  const tokens = asRecord(info?.tokens);
+  if (!tokens) return undefined;
+  const cache = asRecord(tokens.cache);
+  const num = (rec: Record<string, unknown> | null, key: string): number => {
+    const value = rec?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  const inputTokens = num(tokens, "input");
+  const outputTokens = num(tokens, "output") + num(tokens, "reasoning");
+  const cacheReadTokens = num(cache, "read");
+  const cacheWriteTokens = num(cache, "write");
+  const cacheReported = cache !== null;
+  const cacheableInput = inputTokens + cacheReadTokens + cacheWriteTokens;
+  if (!inputTokens && !outputTokens && !cacheableInput) return undefined;
+  return {
+    ...(inputTokens ? { inputTokens } : {}),
+    ...(outputTokens ? { outputTokens } : {}),
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens ? { cacheWriteTokens } : {}),
+    ...(cacheReported && cacheableInput
+      ? { cacheHitPercent: (cacheReadTokens / cacheableInput) * 100 }
+      : {}),
+  };
 }
 
 /**
