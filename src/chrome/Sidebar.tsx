@@ -87,7 +87,7 @@ import {
   type SessionFolder,
   type SessionListDropTarget,
 } from "../lib/sessionFolders";
-import { SESSION_LIST_PAGE, sessionListWindow } from "../lib/sessionListWindow";
+import { LIST_PAGE_SIZE, listWindowSize } from "../lib/listWindow";
 import {
   filterSessionsByHarness,
   filterSessionsByStatus,
@@ -116,7 +116,6 @@ import {
 } from "../lib/tabGroups";
 import { useDragResize } from "../hooks/useDragResize";
 import { useGitFileStatuses } from "../hooks/useGitFileStatuses";
-import { useInboxUnseen } from "../hooks/useInboxUnseen";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useSortable } from "../hooks/useSortable";
@@ -256,6 +255,9 @@ type Props = {
   onToggleProjectRail?: () => void;
   projectRailOpen?: boolean;
   unseenFinishedIds?: Set<string>;
+  inboxUnseen?: boolean;
+  /** Linked GitHub work changed after the session last advanced. */
+  linkedSessionUpdateIds?: ReadonlySet<string>;
   settingsOpen?: boolean;
   settingsSection?: SettingsSectionId;
   onOpenSettings?: () => void;
@@ -333,6 +335,8 @@ function SidebarComponent({
   onToggleProjectRail,
   projectRailOpen = true,
   unseenFinishedIds: unseenFinishedIdsProp,
+  inboxUnseen = false,
+  linkedSessionUpdateIds = new Set(),
   settingsOpen = false,
   settingsSection = "general",
   onOpenSettings,
@@ -343,7 +347,6 @@ function SidebarComponent({
   onDismissUpdate,
 }: Props) {
   const gitRoot = gitCwd || cwd;
-  const inboxUnseen = useInboxUnseen(recents, cwd);
   const resize = useDragResize({
     min: MIN_WIDTH,
     max: () => Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)),
@@ -394,7 +397,7 @@ function SidebarComponent({
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
-  const [sessionListLimit, setSessionListLimit] = useState(SESSION_LIST_PAGE);
+  const [sessionListLimit, setSessionListLimit] = useState(LIST_PAGE_SIZE);
   const loadMoreRef = useRef<HTMLLIElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingFolderSessionIds = useRef(new Set<string>());
@@ -465,7 +468,7 @@ function SidebarComponent({
   const activeUngroupedIndex = ungroupedVisible.findIndex(
     (session) => session.id === activeSessionId,
   );
-  const shownUngroupedCount = sessionListWindow(
+  const shownUngroupedCount = listWindowSize(
     ungroupedVisible.length,
     sessionListLimit,
     activeUngroupedIndex,
@@ -549,7 +552,7 @@ function SidebarComponent({
   const changeStats = useProjectDiffStats(gitRoot, open);
 
   useEffect(() => {
-    setSessionListLimit(SESSION_LIST_PAGE);
+    setSessionListLimit(LIST_PAGE_SIZE);
     const scroller = sessionsScrollRef.current;
     if (scroller) scroller.scrollTop = 0;
   }, [sessionListKey]);
@@ -562,7 +565,7 @@ function SidebarComponent({
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry?.isIntersecting) return;
-        setSessionListLimit((current) => current + SESSION_LIST_PAGE);
+        setSessionListLimit((current) => current + LIST_PAGE_SIZE);
       },
       { root, rootMargin: "240px" },
     );
@@ -1009,6 +1012,7 @@ function SidebarComponent({
         isSelected={selectedSessionIds.has(session.id)}
         busy={busySessionIds.has(session.id)}
         done={unseenFinishedIds.has(session.id)}
+        linkedUpdate={linkedSessionUpdateIds.has(session.id)}
         needsApproval={approvalSessionIds.has(session.id)}
         dropTarget={isSessionDrop("session", session.id)}
         compact={compact}
@@ -2316,6 +2320,7 @@ function SessionCard({
   isSelected,
   busy,
   done,
+  linkedUpdate,
   needsApproval,
   dropTarget,
   compact = false,
@@ -2336,6 +2341,7 @@ function SessionCard({
   isSelected: boolean;
   busy: boolean;
   done: boolean;
+  linkedUpdate: boolean;
   needsApproval: boolean;
   dropTarget?: boolean;
   compact?: boolean;
@@ -2396,6 +2402,13 @@ function SessionCard({
   );
 
   const linkedWorkItem = session.linkedWorkItem;
+  const linkedUpdateDot = linkedUpdate ? (
+    <span
+      title={`Linked ${linkedWorkItem?.kind === "pr" ? "PR" : "issue"} updated since this session`}
+      aria-label="Linked work item updated"
+      className="size-1.5 shrink-0 rounded-full bg-accent"
+    />
+  ) : null;
   const workItemBadge = linkedWorkItem ? (
     <button
       type="button"
@@ -2553,15 +2566,11 @@ function SessionCard({
   };
 
   const archiveLabel = session.archived ? "Unarchive" : "Archive";
-  // The archive button sits outside the card, because a button cannot nest
-  // inside role="button". That puts it on the wrapper's coordinates, so its
-  // offset has to track the card's own padding to stay centred on the footer
-  // row beside the harness mark. Keep the pair together: bottom = padding - 1.
-  const [cardPaddingY, archiveInset] = orchestration
-    ? ["py-2.5", "bottom-[9px]"]
+  const cardPaddingY = orchestration
+    ? "py-2.5"
     : compact
-      ? ["py-1.5", "bottom-[5px]"]
-      : ["py-2", "bottom-[7px]"];
+      ? "py-1.5"
+      : "py-2";
 
   return (
     <div className="group relative">
@@ -2583,7 +2592,7 @@ function SessionCard({
         }}
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
-        className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${cardPaddingY} ${
+        className={`relative border flex w-full cursor-default select-none touch-none flex-col rounded-md px-2.5 text-left ${cardPaddingY} ${
           dragging ? "opacity-40" : ""
         } ${
           dropTarget
@@ -2618,7 +2627,7 @@ function SessionCard({
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
-              {workItemBadge}
+              {linkedUpdateDot}
               {status}
             </span>
           </span>
@@ -2639,7 +2648,7 @@ function SessionCard({
           </span>
           {compact && !orchestration ? (
             <span className="flex shrink-0 items-center gap-1.5">
-              {workItemBadge}
+              {linkedUpdateDot}
               {status}
             </span>
           ) : null}
@@ -2659,37 +2668,28 @@ function SessionCard({
           ) : (
             <span className="min-w-0 flex-1" />
           )}
-          <span
-            className={`flex shrink-0 items-center gap-1.5 ${
-              onArchive
-                ? "transition-[padding] group-focus-within:pl-5 group-hover:pl-5"
-                : ""
-            }`}
-          >
-            <HarnessIcon
-              harness={session.harness}
-              className="size-3.5 shrink-0"
-            />
+          <span className="flex shrink-0 items-center gap-1">
+            {onArchive ? (
+              <button
+                type="button"
+                data-no-drag
+                data-tauri-drag-region="false"
+                title={archiveLabel}
+                aria-label={`${archiveLabel} ${title}`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onArchive();
+                }}
+                className="pointer-events-none grid size-5 place-items-center rounded-md text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <Archive className="size-3 shrink-0" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {workItemBadge}
           </span>
         </span>
       </div>
-      {onArchive ? (
-        <button
-          type="button"
-          data-no-drag
-          data-tauri-drag-region="false"
-          title={archiveLabel}
-          aria-label={`${archiveLabel} ${title}`}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            onArchive();
-          }}
-          className={`pointer-events-none absolute right-7 grid size-5 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${archiveInset}`}
-        >
-          <Archive className="size-3.5" strokeWidth={1.75} />
-        </button>
-      ) : null}
     </div>
   );
 }

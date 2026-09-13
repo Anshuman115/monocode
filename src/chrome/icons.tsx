@@ -21,6 +21,7 @@ import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
 import CaseSensitiveIcon from "@hugeicons/core-free-icons/CaseSensitiveIcon";
 import CircleArrowDown01Icon from "@hugeicons/core-free-icons/CircleArrowDown01Icon";
 import CancelCircleIcon from "@hugeicons/core-free-icons/CancelCircleIcon";
+import ChartBreakoutSquareIcon from "@hugeicons/core-free-icons/ChartBreakoutSquareIcon";
 import CircleDashedIcon from "@hugeicons/core-free-icons/CircleDashedIcon";
 import CircleDotIcon from "@hugeicons/core-free-icons/CircleDotIcon";
 import CloudUploadIcon from "@hugeicons/core-free-icons/CloudUploadIcon";
@@ -88,6 +89,7 @@ import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon";
 import TickDouble02Icon from "@hugeicons/core-free-icons/TickDouble02Icon";
 import UndoIcon from "@hugeicons/core-free-icons/UndoIcon";
 import UngroupItemsIcon from "@hugeicons/core-free-icons/UngroupItemsIcon";
+import ViewIcon from "@hugeicons/core-free-icons/ViewIcon";
 import WholeWordIcon from "@hugeicons/core-free-icons/WholeWordIcon";
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon";
 import { forwardRef, type Ref } from "react";
@@ -173,9 +175,14 @@ export const FilePlusCorner = wrap(FilePlusCornerIcon, "FilePlusCorner");
 export const FoldVertical = wrap(FoldVerticalIcon, "FoldVertical");
 export const Folder = wrap(Folder01Icon, "Folder");
 export const FolderOpen = wrap(FolderOpenIcon, "FolderOpen");
+export const Eye = wrap(ViewIcon, "Eye");
 export const FolderPlus = wrap(FolderAddIcon, "FolderPlus");
 export const FolderTree = wrap(FolderTreeIcon, "FolderTree");
 export const Gauge = wrap(GaugeIcon, "Gauge");
+export const ChartBreakoutSquare = wrap(
+  ChartBreakoutSquareIcon,
+  "ChartBreakoutSquare",
+);
 export const GitBranch = wrap(GitBranchIcon, "GitBranch");
 export const GitCompare = wrap(GitCompareIcon, "GitCompare");
 export const GitMerge = wrap(GitMergeIcon, "GitMerge");

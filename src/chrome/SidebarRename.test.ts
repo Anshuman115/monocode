@@ -7,7 +7,6 @@ import { formatReminderTime } from "../lib/sessionReminders";
 import { Sidebar } from "./Sidebar";
 
 // Keep native services out of these menu/input interaction tests.
-vi.mock("../hooks/useInboxUnseen", () => ({ useInboxUnseen: () => false }));
 vi.mock("../hooks/useProjectDiffStats", () => ({
   useProjectDiffStats: () => null,
 }));
@@ -266,9 +265,17 @@ describe("sidebar orchestration card", () => {
   it.each([false, true])(
     "keeps agents inside a distinct lead card (pinned=%s)",
     (pinned) => {
+      props.onArchiveSession = vi.fn();
+      props.linkedSessionUpdateIds = new Set(["session-1"]);
       const lead = {
         ...props.sessions[0],
         pinned,
+        linkedWorkItem: {
+          kind: "pr" as const,
+          repo: "acme/app",
+          number: 42,
+          url: "https://github.com/acme/app/pull/42",
+        },
         orchestration: {
           status: "active" as const,
           live: true,
@@ -313,12 +320,30 @@ describe("sidebar orchestration card", () => {
       // The lead card carries the sidebar's ordinary active treatment.
       expect(card().className).toContain("bg-content/10");
       // The lead names its own model, like every agent row beneath it.
-    expect(card().textContent).toContain("Claude Sonnet 5");
-    expect(card().textContent).not.toContain("Orchestrator");
+      expect(card().textContent).toContain("Claude Sonnet 5");
+      expect(card().textContent).not.toContain("Orchestrator");
       expect(card().textContent).toContain("3 agents");
       expect(card().textContent).toContain("1/3 done");
       expect(card().textContent).toContain("Build settings");
       expect(card().textContent).toContain("Needs input");
+      expect(
+        card().querySelector('[aria-label="Linked work item updated"]'),
+      ).not.toBeNull();
+      const archive = card().querySelector<HTMLButtonElement>(
+        '[aria-label^="Archive "]',
+      )!;
+      const pullRequest = card().querySelector('[aria-label="Open PR #42"]');
+      expect(card().querySelectorAll('[aria-label^="Archive "]')).toHaveLength(
+        1,
+      );
+      expect(card().lastElementChild?.contains(pullRequest)).toBe(true);
+      expect(archive.nextElementSibling).toBe(pullRequest);
+      act(() => archive.click());
+      expect(props.onArchiveSession).toHaveBeenCalledExactlyOnceWith(
+        lead.id,
+        true,
+      );
+      expect(props.onSelectSession).not.toHaveBeenCalled();
       // A collapsed row stays one line; the model rides along in the tooltip.
       expect(
         card()
@@ -365,6 +390,71 @@ describe("sidebar orchestration card", () => {
     expect(card().textContent).toContain("Saved");
     expect(card().textContent).not.toContain("Working");
     expect(card().querySelector(".motion-safe\\:animate-pulse")).toBeNull();
+  });
+});
+
+describe("sidebar linked work item updates", () => {
+  it("uses the footer for the linked issue or PR instead of a second harness icon", () => {
+    props.busySessionIds = new Set();
+    props.onArchiveSession = vi.fn();
+    props.sessions = [
+      {
+        ...props.sessions[0],
+        branch: "feature/session-card",
+        repo: "acme/app",
+        linkedWorkItem: {
+          kind: "pr",
+          repo: "acme/app",
+          number: 42,
+          url: "https://github.com/acme/app/pull/42",
+        },
+      },
+    ];
+    act(() => render());
+
+    const rows = card().children;
+    const archive = card().querySelector('[aria-label^="Archive "]');
+    const pullRequest = card().querySelector('[aria-label="Open PR #42"]');
+    expect(card().querySelectorAll('img[alt=""]')).toHaveLength(1);
+    expect(rows.item(rows.length - 1)?.contains(pullRequest)).toBe(true);
+    expect(archive?.parentElement).toBe(pullRequest?.parentElement);
+    expect(archive?.nextElementSibling).toBe(pullRequest);
+  });
+
+  it("renders an unread dot without changing session order", () => {
+    props.busySessionIds = new Set();
+    props.activeSessionId = undefined;
+    props.sessions = [
+      {
+        ...props.sessions[0],
+        id: "session-2",
+        title: formatSessionTitle("codex", "Newer conversation"),
+        updatedAt: 200,
+      },
+      {
+        ...props.sessions[0],
+        id: "session-1",
+        title: formatSessionTitle("codex", "Updated PR conversation"),
+        updatedAt: 100,
+        linkedWorkItem: {
+          kind: "pr",
+          repo: "acme/app",
+          number: 42,
+          url: "https://github.com/acme/app/pull/42",
+        },
+      },
+    ];
+    props.linkedSessionUpdateIds = new Set(["session-1"]);
+    act(() => render());
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-session-card]"),
+      ).map((row) => row.dataset.sessionCard),
+    ).toEqual(["session-2", "session-1"]);
+    expect(
+      card().querySelector('[aria-label="Linked work item updated"]'),
+    ).not.toBeNull();
   });
 });
 

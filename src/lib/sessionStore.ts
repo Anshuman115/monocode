@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { recoverCursorSubagents } from "./harness/cursorSubagents";
 import { persistableAttachment } from "./attachments";
 import type { ContextUsage } from "./contextUsage";
 import { normalizeProjectPath } from "./recents";
 import type {
+  AgentRunMeta,
+  AgentStep,
   Block,
   HarnessId,
   HandoffMeta,
@@ -14,6 +17,7 @@ import type {
   TaskListMeta,
   PlanBlockMeta,
   TurnModel,
+  TurnMetrics,
 } from "./session";
 import { HARNESSES, RUNTIME_MODES } from "./session";
 import { restoreOrchestrationProposal } from "./orchestrationPlan";
@@ -287,7 +291,7 @@ export async function getSession(sessionId: string): Promise<Session | null> {
     sessionId,
   });
   if (!record) return null;
-  return recordToSession(record);
+  return recoverCursorSubagents(recordToSession(record));
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
@@ -402,6 +406,8 @@ function sanitizeBlock(block: Block): Block | null {
   // Without this the transcript would show the app's orchestration turns as
   // the user's own after a reload.
   if (block.role === "user" && block.internal) next.internal = true;
+  const turnMetrics = sanitizeTurnMetrics(block.turnMetrics);
+  if (block.role === "user" && turnMetrics) next.turnMetrics = turnMetrics;
   if (block.tool) next.tool = block.tool;
   if (block.approval?.decided) {
     next.approval = {
@@ -412,6 +418,8 @@ function sanitizeBlock(block: Block): Block | null {
     // Drop stale live approval prompts; request ids don't survive restarts.
     if (block.role === "approval") return null;
   }
+  const agentRun = sanitizeAgentRun(block.agentRun);
+  if (agentRun) next.agentRun = agentRun;
   const taskList = sanitizeTaskList(block.taskList);
   if (taskList) next.taskList = taskList;
   else if (block.role === "tasks") return null;
@@ -430,6 +438,39 @@ function sanitizeBlock(block: Block): Block | null {
   const noteCard = sanitizeNoteCard(block.noteCard);
   if (noteCard) next.noteCard = noteCard;
   return next;
+}
+
+function sanitizeTurnMetrics(value: unknown): TurnMetrics | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const rec = value as Record<string, unknown>;
+  const number = (key: keyof TurnMetrics): number | undefined => {
+    const candidate = rec[key];
+    return typeof candidate === "number" &&
+      Number.isFinite(candidate) &&
+      candidate >= 0
+      ? candidate
+      : undefined;
+  };
+  const metrics: TurnMetrics = {
+    ...(number("inputTokens") != null
+      ? { inputTokens: number("inputTokens") }
+      : {}),
+    ...(number("outputTokens") != null
+      ? { outputTokens: number("outputTokens") }
+      : {}),
+    ...(number("cacheReadTokens") != null
+      ? { cacheReadTokens: number("cacheReadTokens") }
+      : {}),
+    ...(number("cacheWriteTokens") != null
+      ? { cacheWriteTokens: number("cacheWriteTokens") }
+      : {}),
+    ...(number("cacheHitPercent") != null
+      ? { cacheHitPercent: number("cacheHitPercent") }
+      : {}),
+  };
+  return Object.keys(metrics).length > 0 ? metrics : undefined;
 }
 
 function sanitizeTurnModel(value: unknown): TurnModel | undefined {
@@ -475,6 +516,56 @@ function sanitizePlan(value: unknown, text: string): PlanBlockMeta | null {
     ...(originalText ? { originalText } : {}),
     ...(approvedText ? { approvedText } : {}),
     ...(record.edited === true ? { edited: true } : {}),
+  };
+}
+
+/**
+ * How much of a delegated run's trail a saved session keeps. Reopening a
+ * session is for reading what the subagent concluded, not for replaying every
+ * call it made, and a long run would otherwise dominate the snapshot.
+ */
+const PERSISTED_AGENT_STEPS = 100;
+
+function sanitizeAgentRun(value: unknown): AgentRunMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.steps)) return null;
+  const steps = record.steps.flatMap((entry): AgentStep[] => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const row = entry as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id : "";
+    const kind = row.kind;
+    if (
+      !id ||
+      (kind !== "tool" && kind !== "message" && kind !== "reasoning")
+    ) {
+      return [];
+    }
+    const text = typeof row.text === "string" ? row.text : "";
+    return [
+      {
+        id,
+        kind,
+        text,
+        ...(typeof row.toolKind === "string" ? { toolKind: row.toolKind } : {}),
+        ...(typeof row.status === "string" ? { status: row.status } : {}),
+        ...(row.preview && typeof row.preview === "object"
+          ? { preview: row.preview as AgentStep["preview"] }
+          : {}),
+      },
+    ];
+  });
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name && steps.length === 0) return null;
+  return {
+    name: name || "Subagent",
+    ...(typeof record.model === "string" && record.model.trim()
+      ? { model: record.model.trim() }
+      : {}),
+    ...(typeof record.agentType === "string" && record.agentType.trim()
+      ? { agentType: record.agentType.trim() }
+      : {}),
+    steps: steps.slice(-PERSISTED_AGENT_STEPS),
   };
 }
 

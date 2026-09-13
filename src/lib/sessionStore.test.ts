@@ -19,23 +19,107 @@ describe("isPersistableId", () => {
   });
 });
 
+describe("persisting a subagent's trail", () => {
+  const withRun = (steps: Block["agentRun"]) => {
+    const session = newSession("claude", "/tmp/project");
+    session.blocks = [
+      {
+        id: "a1",
+        role: "tool",
+        text: "Correctness review",
+        tool: { callId: "agent-1", kind: "agent", status: "completed" },
+        agentRun: steps,
+      },
+    ];
+    return sanitizeSessionForPersist(session)?.blocks[0].agentRun;
+  };
+
+  it("keeps the run so a reopened session can still be inspected", () => {
+    expect(
+      withRun({
+        name: "Correctness review",
+        agentType: "code-reviewer",
+        steps: [
+          {
+            id: "s1",
+            kind: "tool",
+            text: "Read src/App.tsx",
+            toolKind: "read",
+            status: "completed",
+          },
+          { id: "s2", kind: "message", text: "Nothing to flag." },
+        ],
+      }),
+    ).toEqual({
+      name: "Correctness review",
+      agentType: "code-reviewer",
+      steps: [
+        {
+          id: "s1",
+          kind: "tool",
+          text: "Read src/App.tsx",
+          toolKind: "read",
+          status: "completed",
+        },
+        { id: "s2", kind: "message", text: "Nothing to flag." },
+      ],
+    });
+  });
+
+  it("drops steps a provider left malformed", () => {
+    expect(
+      withRun({
+        name: "Correctness review",
+        steps: [
+          { id: "", kind: "tool", text: "Read" },
+          { id: "s2", kind: "bogus", text: "Read" },
+          { id: "s3", kind: "tool", text: "Read src/App.tsx" },
+        ] as never,
+      })?.steps,
+    ).toEqual([{ id: "s3", kind: "tool", text: "Read src/App.tsx" }]);
+  });
+
+  it("keeps only the tail of a long run", () => {
+    const steps = Array.from({ length: 260 }, (_, index) => ({
+      id: `s${index}`,
+      kind: "tool" as const,
+      text: `Read file-${index}.ts`,
+    }));
+    const saved = withRun({ name: "Correctness review", steps });
+    expect(saved?.steps).toHaveLength(100);
+    expect(saved?.steps[99].id).toBe("s259");
+  });
+});
+
 describe("sanitizeSessionForPersist", () => {
-  it("preserves an internal worker's lead in its saved transcript", () => {
+  it("preserves an internal worker's lead, hidden turns, and token metrics", () => {
     const session = {
       ...newSession("claude", "/repo"),
       orchestrationLeadId: "lead",
     };
-    session.blocks = [{ id: "u", role: "user", text: "Bounded assignment" }];
+    session.blocks = [
+      {
+        id: "u",
+        role: "user",
+        text: "Bounded assignment",
+        internal: true,
+        turnMetrics: { inputTokens: 100, outputTokens: 20 },
+      },
+    ];
     const saved = sanitizeSessionForPersist(session);
-    expect(saved.blocks[0].orchestrationLeadId).toBe("lead");
+    expect(saved.blocks[0]).toMatchObject({
+      orchestrationLeadId: "lead",
+      internal: true,
+      turnMetrics: { inputTokens: 100, outputTokens: 20 },
+    });
     expect(session.blocks[0].orchestrationLeadId).toBeUndefined();
     expect(
       sanitizeSessionForPersist({
         ...session,
         orchestrationLeadId: undefined,
         blocks: saved.blocks,
-      }).blocks[0].orchestrationLeadId,
-    ).toBe("lead");
+      }).blocks[0],
+    ).toEqual(saved.blocks[0]);
   });
   it("persists model provenance recorded on a user turn", () => {
     const session = newSession("claude", "/tmp/project", "claude:opus-5");
@@ -56,6 +140,30 @@ describe("sanitizeSessionForPersist", () => {
       harness: "claude",
       id: "claude:opus-5",
       name: "Claude Opus 5",
+    });
+  });
+
+  it("persists provider metrics recorded on a user turn", () => {
+    const session = newSession("claude", "/tmp/project");
+    session.blocks = [
+      {
+        id: "u1",
+        role: "user",
+        text: "remember this",
+        turnMetrics: {
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 80,
+          cacheHitPercent: 40,
+        },
+      },
+    ];
+
+    expect(sanitizeSessionForPersist(session).blocks[0]?.turnMetrics).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadTokens: 80,
+      cacheHitPercent: 40,
     });
   });
 
