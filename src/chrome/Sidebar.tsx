@@ -534,7 +534,6 @@ function SidebarComponent({
     },
     { axis: "y" },
   );
-  const canDragTabs = visibleTabs.length > 1;
   const showProjectRail = Boolean(onSelectProject && onOpenProject);
   // Settings live in the rail slot, so they keep it visible even when the
   // project rail itself is collapsed.
@@ -1098,7 +1097,7 @@ function SidebarComponent({
       <div
         key={itemId}
         ref={(el) => sortable.setItemRef(itemId, el)}
-        className={`reorder-item workspace-tab relative flex min-w-0 flex-1 touch-none items-stretch ${canDragTabs ? "cursor-grab active:cursor-grabbing" : ""}`}
+        className="reorder-item workspace-tab relative flex min-w-0 flex-1 touch-none items-stretch"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           sortable.onItemPointerDown(itemId, event);
@@ -1127,10 +1126,8 @@ function SidebarComponent({
             onTabPick(itemId);
           }}
           className={`flex h-6 min-w-0 flex-1 items-center justify-center self-center rounded-md px-2 text-[12px] leading-none ${
-            active
-              ? "bg-content/10 text-content"
-              : "text-content/50"
-          } ${canDragTabs ? "cursor-grab active:cursor-grabbing" : ""}`}
+            active ? "bg-content/10 text-content" : "text-content/50"
+          }`}
         >
           {isChangesTab && hasChangeStats ? (
             <DiffStat additions={changeAdditions} deletions={changeDeletions} />
@@ -1457,7 +1454,6 @@ function SidebarComponent({
                                   "folder",
                                   entry.folder.id,
                                 )}
-                                canReorder={visibleFolderIds.length > 1}
                                 busy={entry.sessions.some((session) =>
                                   busySessionIds.has(session.id),
                                 )}
@@ -2114,7 +2110,6 @@ function FolderRow({
   sessions,
   expanded,
   dropTarget,
-  canReorder = false,
   busy,
   done,
   needsApproval,
@@ -2128,7 +2123,6 @@ function FolderRow({
   sessions: SessionSummary[];
   expanded: boolean;
   dropTarget: boolean;
-  canReorder?: boolean;
   busy: boolean;
   done: boolean;
   needsApproval: boolean;
@@ -2157,7 +2151,7 @@ function FolderRow({
       }}
       className={`group relative flex w-full touch-none items-center gap-1.5 px-2 h-8 text-left ${
         expanded ? "rounded-md" : ""
-      } ${canReorder ? "cursor-grab active:cursor-grabbing" : ""} ${
+      } ${
         dropTarget
           ? "text-content"
           : expanded

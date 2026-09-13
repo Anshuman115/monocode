@@ -225,6 +225,53 @@ describe("sidebar session rename", () => {
   });
 });
 
+describe("sidebar reorder affordances", () => {
+  it("keeps the default cursor on reorderable tabs and folders", () => {
+    props.sessions = [
+      props.sessions[0],
+      {
+        ...props.sessions[0],
+        id: "session-2",
+        title: formatSessionTitle("codex", "Second conversation"),
+      },
+    ];
+    localStorage.setItem(
+      "monocode.sessionFolders",
+      JSON.stringify({
+        "/workspace/project": [
+          {
+            id: "folder-1",
+            name: "Folder one",
+            sessionIds: ["session-1"],
+            collapsed: false,
+          },
+          {
+            id: "folder-2",
+            name: "Folder two",
+            sessionIds: ["session-2"],
+            collapsed: false,
+          },
+        ],
+      }),
+    );
+
+    act(() => render());
+
+    const tabs = container.querySelectorAll<HTMLElement>('[role="tab"]');
+    expect(tabs).toHaveLength(3);
+    for (const tab of tabs) {
+      expect(tab.className).not.toContain("cursor-grab");
+      expect(tab.parentElement?.className).not.toContain("cursor-grab");
+    }
+    for (const name of ["Folder one", "Folder two"]) {
+      expect(
+        container.querySelector<HTMLButtonElement>(`button[title="${name}"]`)!
+          .className,
+      ).not.toContain("cursor-grab");
+    }
+  });
+});
+
 describe("sidebar pinned sessions", () => {
   it("renders them as a collapsible folder-style group without a divider", () => {
     props.sessions = [
