@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude Sonnet 5 appears only with Claude Code 2.1.197 or newer, preventing older CLI versions from receiving an unsupported model argument. In #199 by @nulljosh.
 - Claude model choices resolve consistently between the CLI's short live aliases and MonoCode's full startup model IDs, so relaunching no longer switches a saved session to a different model family.
 
+### Fixed
+
+- **Supervised** access now reaches Claude Code as a permission flag. It was the one mode MonoCode sent nothing for, so the CLI fell back to `permissions.defaultMode` from your settings files, and a session the picker labelled Supervised could run as `auto` or `bypassPermissions` without asking.
+
 ## [0.1.44] - 2026-09-12
 
 ### Added
