@@ -1720,6 +1720,7 @@ function SidebarProjectPicker({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [groupLabels] = useState(loadTabGroupLabels);
   const [groupColors] = useState(loadTabGroupColors);
   const [groupCustomColors] = useState(loadTabGroupCustomColors);
@@ -1761,6 +1762,15 @@ function SidebarProjectPicker({
     setQuery("");
     setActive(0);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    searchRef.current?.focus();
+    const frame = window.requestAnimationFrame(() => {
+      searchRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
   const pickProject = (path: string) => {
     closePicker();
@@ -1860,7 +1870,7 @@ function SidebarProjectPicker({
               <Search className="size-4 shrink-0" strokeWidth={1.75} />
               <span className="sr-only">Search projects</span>
               <input
-                autoFocus
+                ref={searchRef}
                 value={query}
                 onChange={(event) => {
                   setQuery(event.target.value);
