@@ -96,6 +96,7 @@ import {
   nextTerminalTitle,
   openChangesTab,
   openCommitTab,
+  newAgentTab,
   openEditorTab,
   openSessionChangesTab,
   openTerminalTab,
@@ -686,6 +687,13 @@ export default function App({
   const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(
     null,
   );
+  // Set while the lead's tab is still opening; the agent tab lands on the
+  // commit that brings it in.
+  const [workerDetailRequest, setWorkerDetailRequest] = useState<{
+    sessionId: string;
+    leadId: string;
+    title: string;
+  } | null>(null);
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
     orchestrator.snapshot,
@@ -5754,13 +5762,56 @@ export default function App({
   }, []);
 
   const confirmingOrchestration = useRef(new Set<string>());
+  const onOpenWorkerDetails = useCallback(
+    (worker: { sessionId: string; leadId: string; title: string }) => {
+      if (!worker.leadId || worker.leadId === worker.sessionId) return;
+      setInspectedWorkerId(worker.sessionId);
+      // A worker of a finished run is not open any more; the tab reads the
+      // stored transcript once this lands.
+      void ensureOpenSession(worker.sessionId);
+      if (!focusOpenSession(worker.leadId))
+        void onSelectHistorySession(worker.leadId);
+      setWorkerDetailRequest(worker);
+    },
+    [ensureOpenSession, focusOpenSession, onSelectHistorySession],
+  );
+  useEffect(() => {
+    if (!workerDetailRequest) return;
+    const { sessionId, leadId, title } = workerDetailRequest;
+    const tab = tabs.find((entry) => leafIds(entry.layout).includes(leadId));
+    if (!tab) {
+      // Still opening: this runs again on the commit that lands the lead. If
+      // the lead never arrived at all, drop the request rather than let it
+      // fire against some later tab change.
+      if (!sessionsRef.current.some((entry) => entry.id === leadId)) {
+        setWorkerDetailRequest(null);
+      }
+      return;
+    }
+    setWorkerDetailRequest(null);
+    // Every agent of a run shares one pane, the way files do: `openEditorTab`
+    // focuses an open tab, adds to the pane already beside the lead, or splits
+    // one off when there is none.
+    const cwd =
+      sessionsRef.current.find((entry) => entry.id === leadId)?.cwd ??
+      projectCwdRef.current;
+    const file = newAgentTab(title, cwd, { sessionId, leadId });
+    setTabs((prev) =>
+      prev.map((entry) =>
+        entry.id === tab.id ? openEditorTab(entry, file) : entry,
+      ),
+    );
+    setActiveTabId(tab.id);
+    setComposerFocused(false);
+  }, [tabs, workerDetailRequest]);
   const orchestrationWorkers = useMemo(
     () => ({
       sessions,
       selectedId: inspectedWorkerId,
       inspect: setInspectedWorkerId,
+      openDetails: onOpenWorkerDetails,
     }),
-    [sessions, inspectedWorkerId],
+    [sessions, inspectedWorkerId, onOpenWorkerDetails],
   );
   const updateOrchestrationCard = useCallback(
     (leadId: string, blockId: string, proposal: OrchestrationProposal) => {

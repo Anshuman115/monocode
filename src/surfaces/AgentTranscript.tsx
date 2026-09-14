@@ -136,6 +136,8 @@ type Props = {
   latestTurnAccessory?: ReactNode;
   /** False while another tab is in front; local transcript state is retained. */
   visible?: boolean;
+  /** A worker's transcript: show the orchestrator's turns instead of hiding them. */
+  managed?: boolean;
 };
 
 function AgentTranscriptComponent({
@@ -160,6 +162,7 @@ function AgentTranscriptComponent({
   onRevealReady,
   latestTurnAccessory,
   visible = true,
+  managed = false,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scroller = useRef<HTMLDivElement>(null);
@@ -185,7 +188,7 @@ function AgentTranscriptComponent({
   );
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
-  const lastUserId = lastUserBlockId(blocks);
+  const lastUserId = lastUserBlockId(blocks, managed);
   const seenUserId = useRef(lastUserId);
   if (lastUserId !== seenUserId.current) {
     seenUserId.current = lastUserId;
@@ -313,7 +316,7 @@ function AgentTranscriptComponent({
     return () => observer.disconnect();
   }, [scrollerEl, setShowJump, visible]);
 
-  const turns = groupTurns(blocks);
+  const turns = groupTurns(blocks, managed);
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
@@ -384,7 +387,7 @@ function AgentTranscriptComponent({
         ) : null}
         {visibleTurns.map((turn, turnIndex) => {
           const isLastTurn = firstVisibleTurn + turnIndex === turns.length - 1;
-          const userBlock = turnUserBlock(turn);
+          const userBlock = turnUserBlock(turn, managed);
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
           const proposals = turn.filter((block) => block.orchestration);
@@ -2784,13 +2787,14 @@ function InterjectionDivider({ block }: { block: Block }) {
   );
 }
 
-function lastUserBlockId(blocks: Block[]): string | undefined {
-  return turnUserBlock(blocks)?.id;
+function lastUserBlockId(blocks: Block[], managed = false): string | undefined {
+  return turnUserBlock(blocks, managed)?.id;
 }
 
-function turnUserBlock(blocks: Block[]): Block | undefined {
+function turnUserBlock(blocks: Block[], managed = false): Block | undefined {
   for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].role === "user" && !blocks[i].internal) return blocks[i];
+    const block = blocks[i];
+    if (block.role === "user" && (managed || !block.internal)) return block;
   }
   return undefined;
 }

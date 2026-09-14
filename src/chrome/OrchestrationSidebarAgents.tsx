@@ -117,6 +117,7 @@ export function OrchestrationSidebarAgents({
         aria-label="Orchestrated agents"
         className="-mx-2 flex touch-pan-y flex-col gap-px"
         onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
         {summary.tasks.map((task) => {
           const worker = workers.sessions.find(
@@ -249,20 +250,38 @@ export function OrchestrationSidebarAgents({
                       .
                     </p>
                   )}
-                  {live && ["queued", "running"].includes(live.status) && (
-                    <button
-                      type="button"
-                      className={solidAction}
-                      disabled={pending}
-                      onClick={() =>
-                        void perform(() =>
-                          orchestrator.cancelTask(leadId, live.id),
-                        )
-                      }
-                    >
-                      Cancel task
-                    </button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {live && ["queued", "running"].includes(live.status) && (
+                      <button
+                        type="button"
+                        className={solidAction}
+                        disabled={pending}
+                        onClick={() =>
+                          void perform(() =>
+                            orchestrator.cancelTask(leadId, live.id),
+                          )
+                        }
+                      >
+                        Cancel task
+                      </button>
+                    )}
+                    {workers.openDetails && (
+                      <button
+                        type="button"
+                        title="Open this agent beside the orchestrator"
+                        className={solidAction}
+                        onClick={() =>
+                          workers.openDetails?.({
+                            sessionId: task.sessionId,
+                            leadId,
+                            title: task.title,
+                          })
+                        }
+                      >
+                        See details
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -284,7 +303,11 @@ export function OrchestrationSidebarAgents({
             disabled={pending}
             onClick={() =>
               void perform(() =>
-                orchestrator.start(leadId, run.allowedHarnesses, run.maxWorkers),
+                orchestrator.start(
+                  leadId,
+                  run.allowedHarnesses,
+                  run.maxWorkers,
+                ),
               )
             }
           >

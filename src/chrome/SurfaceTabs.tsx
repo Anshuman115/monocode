@@ -1,10 +1,11 @@
 import { openPath } from "@tauri-apps/plugin-opener";
-import { GitCompare, GripVertical, Terminal, X } from "./icons";
+import { Bot, GitCompare, GripVertical, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
 import { basename, revealPath } from "../lib/fs";
 import {
+  isAgentTab,
   isChangesTab,
   isCommitTab,
   isFilesystemTab,
@@ -121,6 +122,16 @@ export function surfaceTabPresentation(
       label: "Session Changes",
       iconName: "CHANGES",
       tooltip: "Changes captured for this session only",
+    };
+  }
+
+  if (isAgentTab(file)) {
+    const name = file.path.trim() || "Agent";
+    return {
+      name,
+      label: name,
+      iconName: "AGENT",
+      tooltip: `${name} — orchestration agent`,
     };
   }
 
@@ -263,6 +274,7 @@ export function SurfaceTabs({
         const commit = isCommitTab(file);
         const review = isReviewTab(file) && !changes;
         const terminal = isTerminalTab(file);
+        const agent = isAgentTab(file);
         const { label, iconName, tooltip } = surfaceTabPresentation(file);
         return (
           <div
@@ -323,6 +335,8 @@ export function SurfaceTabs({
             >
               {terminal ? (
                 <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
+              ) : agent ? (
+                <Bot className="size-3.5 shrink-0" strokeWidth={1.75} />
               ) : changes || commit ? (
                 <GitCompare className="size-3.5 shrink-0" strokeWidth={1.75} />
               ) : (

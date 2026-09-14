@@ -573,6 +573,52 @@ describe("orchestration composer and card", () => {
     expect(container.textContent).not.toContain("Which check should I run?");
   });
 
+  it("inspects an agent without taking the card's click or its tab", async () => {
+    const summary: OrchestrationSummary = {
+      status: "active",
+      live: true,
+      tasks: [
+        {
+          sessionId: "worker",
+          title: "UI worker",
+          harness: "codex",
+          model: "codex:two",
+          status: "running",
+        },
+      ],
+    };
+    const selectCard = vi.fn();
+    const openDetails = vi.fn();
+    function Card() {
+      const [selectedId, inspect] = useState<string | null>(null);
+      return createElement(
+        "div",
+        { onClick: selectCard },
+        createElement(
+          OrchestrationWorkers.Provider,
+          { value: { sessions: [], selectedId, inspect, openDetails } },
+          createElement(OrchestrationSidebarAgents, {
+            leadId: "lead",
+            summary,
+          }),
+        ),
+      );
+    }
+    await act(async () => root.render(createElement(Card)));
+    await click(
+      container.querySelector('[aria-label="Agent details: UI worker"]')!,
+    );
+    // Expanding a row is not a request to open the lead's tab.
+    expect(selectCard).not.toHaveBeenCalled();
+    await click(button("See details"));
+    expect(openDetails).toHaveBeenCalledWith({
+      sessionId: "worker",
+      leadId: "lead",
+      title: "UI worker",
+    });
+    expect(selectCard).not.toHaveBeenCalled();
+  });
+
   it("expands any number of agents at once", async () => {
     const summary: OrchestrationSummary = {
       status: "active",

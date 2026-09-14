@@ -2,7 +2,11 @@ import { closeLeaf, leafIds, type WorkspaceTab } from "./layout";
 import type { OrchestrationRun } from "./orchestration";
 import type { Session } from "./session";
 
-/** Adopt worker tabs made by the earlier preview into an already-open lead. */
+/**
+ * Adopt worker tabs made by the earlier preview into an already-open lead.
+ * A worker the user asked to inspect is a tab inside an editor pane rather
+ * than a session leaf, so it never reaches this.
+ */
 export function consolidateOrchestrationTabs(
   tabs: WorkspaceTab[],
   activeTabId: string,

@@ -10,6 +10,16 @@ export const OrchestrationWorkers = createContext<{
   sessions: Session[];
   selectedId: string | null;
   inspect(sessionId: string | null): void;
+  /**
+   * The one exception to the rule above: open this worker's transcript as a
+   * tab beside its lead, for when the card's few lines are not enough. Absent
+   * wherever the card renders without a workspace behind it.
+   */
+  openDetails?(worker: {
+    sessionId: string;
+    leadId: string;
+    title: string;
+  }): void;
 }>({ sessions: [], selectedId: null, inspect: () => {} });
 
 // Shared by transcript cards in both ordinary and split session panes.

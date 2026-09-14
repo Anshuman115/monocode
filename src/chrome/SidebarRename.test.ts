@@ -471,12 +471,19 @@ describe("sidebar orchestration card", () => {
       )!;
       expect(normal.hasAttribute("data-orchestration-card")).toBe(false);
       expect(normal.querySelector("[data-orchestration-agent]")).toBeNull();
-      act(() =>
+      // Working the agents list is not a request to open the lead's tab: the
+      // row expands in place and the card stays where it is.
+      const agentRow = card().querySelector<HTMLButtonElement>(
+        '[data-orchestration-agent="worker-b"] button',
+      )!;
+      const wasOpen = agentRow.getAttribute("aria-expanded");
+      act(() => agentRow.click());
+      expect(props.onSelectSession).not.toHaveBeenCalled();
+      expect(
         card()
-          .querySelector<HTMLElement>('[data-orchestration-agent="worker-b"]')!
-          .click(),
-      );
-      expect(props.onSelectSession).toHaveBeenCalledExactlyOnceWith(lead.id);
+          .querySelector('[data-orchestration-agent="worker-b"] button')
+          ?.getAttribute("aria-expanded"),
+      ).not.toBe(wasOpen);
       props.approvalSessionIds = new Set([lead.id]);
       act(() => render());
       expect(card().className).toContain("border-dashed");
