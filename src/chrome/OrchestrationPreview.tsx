@@ -405,13 +405,11 @@ export function OrchestrationPreview({
           )}
         </div>
       </div>
-      {(planning || proposal.summary) && (
+      {planning && (
         <p className="px-3 pb-2.5 text-[12px] leading-5 text-content/50">
-          {planning
-            ? proposal.settings.choices.length
-              ? "Your lead is choosing tasks and worker models. Review the assignments here before starting."
-              : "Checking available harnesses and models…"
-            : proposal.summary}
+          {proposal.settings.choices.length
+            ? "Your lead is choosing tasks and worker models. Review the assignments here before starting."
+            : "Checking available harnesses and models…"}
         </p>
       )}
       {!!proposal.tasks.length && (

@@ -247,6 +247,8 @@ describe("orchestration composer and card", () => {
       container.querySelector("[data-orchestration-review]"),
     ).not.toBeNull();
     expect(container.textContent).not.toContain("Readable plan");
+    // The lead's summary stays out of the card; the task rows carry the plan.
+    expect(container.textContent).not.toContain("Split UI and persistence");
     expect(confirm).not.toHaveBeenCalled();
     await click(
       document.querySelector('[aria-label="Model for Settings UI"]')!,
