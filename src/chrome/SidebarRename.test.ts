@@ -474,16 +474,22 @@ describe("sidebar orchestration card", () => {
       // Working the agents list is not a request to open the lead's tab: the
       // row expands in place and the card stays where it is.
       const agentRow = card().querySelector<HTMLButtonElement>(
-        '[data-orchestration-agent="worker-b"] button',
+        '[data-orchestration-agent="worker-a"] button',
       )!;
       const wasOpen = agentRow.getAttribute("aria-expanded");
       act(() => agentRow.click());
       expect(props.onSelectSession).not.toHaveBeenCalled();
       expect(
         card()
-          .querySelector('[data-orchestration-agent="worker-b"] button')
+          .querySelector('[data-orchestration-agent="worker-a"] button')
           ?.getAttribute("aria-expanded"),
       ).not.toBe(wasOpen);
+      // A blocked agent stays expanded while it needs the lead's attention.
+      expect(
+        card()
+          .querySelector('[data-orchestration-agent="worker-b"] button')
+          ?.getAttribute("aria-expanded"),
+      ).toBe("true");
       props.approvalSessionIds = new Set([lead.id]);
       act(() => render());
       expect(card().className).toContain("border-dashed");
