@@ -1,5 +1,5 @@
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Bot, GitCompare, GripVertical, Terminal, X } from "./icons";
+import { GitCompare, GripVertical, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
@@ -24,6 +24,7 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useAnimatedReorder } from "../hooks/useAnimatedReorder";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { HarnessIcon } from "./HarnessIcon";
 
 type Props = {
   files: FilePaneTab[];
@@ -274,7 +275,7 @@ export function SurfaceTabs({
         const commit = isCommitTab(file);
         const review = isReviewTab(file) && !changes;
         const terminal = isTerminalTab(file);
-        const agent = isAgentTab(file);
+        const agent = isAgentTab(file) ? file.agent : null;
         const { label, iconName, tooltip } = surfaceTabPresentation(file);
         return (
           <div
@@ -336,7 +337,10 @@ export function SurfaceTabs({
               {terminal ? (
                 <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
               ) : agent ? (
-                <Bot className="size-3.5 shrink-0" strokeWidth={1.75} />
+                <HarnessIcon
+                  harness={agent.harness}
+                  className="size-3.5 shrink-0"
+                />
               ) : changes || commit ? (
                 <GitCompare className="size-3.5 shrink-0" strokeWidth={1.75} />
               ) : (

@@ -5,6 +5,7 @@ import {
   defaultTerminalTitle,
   type TerminalMetaPatch,
 } from "./terminalTab";
+import type { HarnessId } from "./session";
 
 /**
  * Split tree for a tab. Same-direction splits share a group so
@@ -46,6 +47,7 @@ export type CommitTabSource = {
 export type AgentTabSource = {
   sessionId: string;
   leadId: string;
+  harness: HarnessId;
 };
 
 export type SessionChangesSource = {

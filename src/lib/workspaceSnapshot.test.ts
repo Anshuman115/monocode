@@ -185,10 +185,12 @@ describe("collectWorkspaceSnapshot", () => {
     const agent = newAgentTab("Audit the UI", "/tmp/a", {
       sessionId: "worker",
       leadId: "s1",
+      harness: "codex",
     });
     const mixed = newAgentTab("Audit the engine", "/tmp/a", {
       sessionId: "worker-2",
       leadId: "s1",
+      harness: "codex",
     });
     const tab = {
       ...newTab("s1"),

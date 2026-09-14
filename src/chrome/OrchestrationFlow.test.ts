@@ -366,41 +366,9 @@ describe("orchestration composer and card", () => {
         },
       ],
     };
-    const worker = {
-      ...newSession("codex", "/repo", "codex:two"),
-      id: "worker",
-      orchestrationLeadId: "lead",
-      busy: true,
-      blocks: [
-        {
-          id: "approval",
-          role: "approval" as const,
-          text: "Run the UI check",
-          approval: { requestId: 42 },
-        },
-      ],
-    };
-    const second = {
-      ...worker,
-      id: "second",
-      blocks: [],
-      pendingQuestion: {
-        requestId: 43,
-        title: "Choose validation",
-        questions: [
-          {
-            id: "q",
-            prompt: "Which check should I run?",
-            multiSelect: false,
-            allowCustom: false,
-            options: [{ id: "unit", label: "Unit tests" }],
-          },
-        ],
-      },
-    };
     const task: OrchestrationTask = {
       id: "task",
-      sessionId: worker.id,
+      sessionId: "worker",
       title: "UI worker",
       harness: "codex",
       model: "codex:two",
@@ -426,7 +394,7 @@ describe("orchestration composer and card", () => {
         {
           ...task,
           id: "second-task",
-          sessionId: second.id,
+          sessionId: "second",
           title: "Check worker",
         },
       ],
@@ -445,7 +413,7 @@ describe("orchestration composer and card", () => {
         { value: { update: noop, confirm: async () => {}, retry: noop, open } },
         createElement(
           OrchestrationWorkers.Provider,
-          { value: { sessions: [lead, worker, second], selectedId, inspect } },
+          { value: { selectedId, inspect } },
           createElement(SessionPane, {
             session: lead,
             visible: true,
@@ -502,38 +470,6 @@ describe("orchestration composer and card", () => {
   });
 
   it("shows a blocked agent as the lead's to answer, not the user's", async () => {
-    const worker = {
-      ...newSession("codex", "/repo", "codex:two"),
-      id: "worker",
-      orchestrationLeadId: "lead",
-      busy: true,
-      blocks: [
-        {
-          id: "approval",
-          role: "approval" as const,
-          text: "Run the UI check",
-          approval: { requestId: 42 },
-        },
-      ],
-    };
-    const second = {
-      ...worker,
-      id: "second",
-      blocks: [],
-      pendingQuestion: {
-        requestId: 43,
-        title: "Choose validation",
-        questions: [
-          {
-            id: "q",
-            prompt: "Which check should I run?",
-            multiSelect: false,
-            allowCustom: false,
-            options: [{ id: "unit", label: "Unit tests" }],
-          },
-        ],
-      },
-    };
     const summary: OrchestrationSummary = {
       status: "active",
       live: true,
@@ -560,14 +496,20 @@ describe("orchestration composer and card", () => {
       const [selectedId, inspect] = useState<string | null>(null);
       return createElement(
         OrchestrationWorkers.Provider,
-        { value: { sessions: [worker, second], selectedId, inspect } },
+        { value: { selectedId, inspect } },
         createElement(OrchestrationSidebarAgents, { leadId: "lead", summary }),
       );
     }
     await act(async () => root.render(createElement(Card)));
     expect(container.textContent).toContain("UI worker");
-    // A blocked agent expands itself, but only to report who owes it an answer.
-    expect(container.textContent).toContain("Waiting on the orchestrator");
+    // A blocked agent expands itself so its model is visible, but the
+    // approval still belongs to the lead, not to this card.
+    expect(
+      container.querySelector(
+        '[data-orchestration-agent="worker"] [aria-expanded="true"]',
+      ),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Worker Two");
     expect(button("Allow")).toBeUndefined();
     expect(button("Deny")).toBeUndefined();
     expect(container.textContent).not.toContain("Which check should I run?");
@@ -596,7 +538,7 @@ describe("orchestration composer and card", () => {
         { onClick: selectCard },
         createElement(
           OrchestrationWorkers.Provider,
-          { value: { sessions: [], selectedId, inspect, openDetails } },
+          { value: { selectedId, inspect, openDetails } },
           createElement(OrchestrationSidebarAgents, {
             leadId: "lead",
             summary,
@@ -615,6 +557,7 @@ describe("orchestration composer and card", () => {
       sessionId: "worker",
       leadId: "lead",
       title: "UI worker",
+      harness: "codex",
     });
     expect(selectCard).not.toHaveBeenCalled();
   });
@@ -635,7 +578,7 @@ describe("orchestration composer and card", () => {
       const [selectedId, inspect] = useState<string | null>(null);
       return createElement(
         OrchestrationWorkers.Provider,
-        { value: { sessions: [], selectedId, inspect } },
+        { value: { selectedId, inspect } },
         createElement(OrchestrationSidebarAgents, { leadId: "lead", summary }),
       );
     }

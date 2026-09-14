@@ -693,6 +693,7 @@ export default function App({
     sessionId: string;
     leadId: string;
     title: string;
+    harness: HarnessId;
   } | null>(null);
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
@@ -5763,7 +5764,12 @@ export default function App({
 
   const confirmingOrchestration = useRef(new Set<string>());
   const onOpenWorkerDetails = useCallback(
-    (worker: { sessionId: string; leadId: string; title: string }) => {
+    (worker: {
+      sessionId: string;
+      leadId: string;
+      title: string;
+      harness: HarnessId;
+    }) => {
       if (!worker.leadId || worker.leadId === worker.sessionId) return;
       setInspectedWorkerId(worker.sessionId);
       // A worker of a finished run is not open any more; the tab reads the
@@ -5777,7 +5783,7 @@ export default function App({
   );
   useEffect(() => {
     if (!workerDetailRequest) return;
-    const { sessionId, leadId, title } = workerDetailRequest;
+    const { sessionId, leadId, title, harness } = workerDetailRequest;
     const tab = tabs.find((entry) => leafIds(entry.layout).includes(leadId));
     if (!tab) {
       // Still opening: this runs again on the commit that lands the lead. If
@@ -5795,7 +5801,7 @@ export default function App({
     const cwd =
       sessionsRef.current.find((entry) => entry.id === leadId)?.cwd ??
       projectCwdRef.current;
-    const file = newAgentTab(title, cwd, { sessionId, leadId });
+    const file = newAgentTab(title, cwd, { sessionId, leadId, harness });
     setTabs((prev) =>
       prev.map((entry) =>
         entry.id === tab.id ? openEditorTab(entry, file) : entry,
@@ -5806,12 +5812,11 @@ export default function App({
   }, [tabs, workerDetailRequest]);
   const orchestrationWorkers = useMemo(
     () => ({
-      sessions,
       selectedId: inspectedWorkerId,
       inspect: setInspectedWorkerId,
       openDetails: onOpenWorkerDetails,
     }),
-    [sessions, inspectedWorkerId, onOpenWorkerDetails],
+    [inspectedWorkerId, onOpenWorkerDetails],
   );
   const updateOrchestrationCard = useCallback(
     (leadId: string, blockId: string, proposal: OrchestrationProposal) => {

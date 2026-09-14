@@ -13,7 +13,11 @@ import { groupTurns } from "../surfaces/transcriptActivity";
 import type { Block } from "./session";
 
 const agent = (sessionId: string, title: string) =>
-  newAgentTab(title, "/repo", { sessionId, leadId: "lead" });
+  newAgentTab(title, "/repo", {
+    sessionId,
+    leadId: "lead",
+    harness: "codex",
+  });
 
 describe("agent tabs", () => {
   it("gathers every agent of a run into one pane beside the lead", () => {
@@ -48,6 +52,7 @@ describe("agent tabs", () => {
     const file = agent("worker-a", "Audit the engine");
     expect(editorTabKey(file)).toBe("agent:worker-a");
     expect(isAgentTab(file)).toBe(true);
+    expect(file.agent.harness).toBe("codex");
     expect(isFilesystemTab(file)).toBe(false);
     expect(isFilesystemTab(newFileTab("/repo/a.ts", "/repo"))).toBe(true);
   });

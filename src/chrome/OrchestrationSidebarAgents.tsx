@@ -5,36 +5,11 @@ import {
   orchestrationTaskLabel,
   type OrchestrationSummary,
 } from "../lib/orchestrationSummary";
-import { pendingApprovalForSession } from "../lib/approvalToast";
-import { HARNESS_TITLE, type Session } from "../lib/session";
+import { HARNESS_TITLE } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationWorkers } from "./OrchestrationActions";
 import { Check, ChevronDown, ChevronRight, CircleAlert } from "./icons";
 import { TerminalSpinner } from "./TerminalSpinner";
-
-const TICKER_LINES = 5;
-
-/**
- * What the agent actually said, newest last, one line each. Prose only: tool
- * calls and reasoning are the agent's mechanics, and in a card this narrow
- * they crowd out the reporting the sidebar exists to show. A rolling window,
- * so a long run never grows into a wall of text.
- */
-function recentWorkerLines(session: Session | undefined) {
-  if (!session) return [];
-  const lines: string[] = [];
-  for (
-    let index = session.blocks.length - 1;
-    index >= 0 && lines.length < TICKER_LINES;
-    index--
-  ) {
-    const block = session.blocks[index];
-    if (block.role !== "assistant" || block.tool) continue;
-    const text = block.text.replace(/\s+/g, " ").trim();
-    if (text) lines.unshift(text);
-  }
-  return lines;
-}
 
 export function OrchestrationSidebarAgents({
   leadId,
@@ -120,12 +95,8 @@ export function OrchestrationSidebarAgents({
         onClick={(event) => event.stopPropagation()}
       >
         {summary.tasks.map((task) => {
-          const worker = workers.sessions.find(
-            (entry) => entry.id === task.sessionId,
-          );
-          const approval = worker ? pendingApprovalForSession(worker) : null;
-          // Something waiting on the user opens itself; it cannot be missed.
-          const open = expanded.has(task.sessionId) || !!approval;
+          // Something waiting on an answer opens itself; it cannot be missed.
+          const open = expanded.has(task.sessionId) || !!task.needsInput;
           const live = run?.tasks.find(
             (entry) => entry.sessionId === task.sessionId,
           );
@@ -135,11 +106,6 @@ export function OrchestrationSidebarAgents({
           // A saved provider model may not be in this window's catalog yet.
           // Keep its identity instead of substituting the harness default.
           const model = findModel(task.model)?.name ?? task.model;
-          const lines = recentWorkerLines(worker);
-          // Why it is not moving, when that is not the agent's own doing.
-          const blockedOn =
-            approval?.label ??
-            (run && live ? orchestrator.waitingFor(run, live) : undefined);
           return (
             <div
               key={task.sessionId}
@@ -203,52 +169,18 @@ export function OrchestrationSidebarAgents({
               {/* Indented to the title's column: the icon slot and its gap. */}
               {open && (
                 <div className="space-y-1.5 pb-2 pl-7 pr-2 pt-0.5">
-                  <p className="truncate text-[11px] text-content/45">
-                    {model}
+                  <p
+                    className="flex min-w-0 items-center gap-1.5 text-[11px] text-content/45"
+                    title={`${model} · ${HARNESS_TITLE[task.harness]}`}
+                  >
+                    <HarnessIcon
+                      harness={task.harness}
+                      className="size-3.5 shrink-0"
+                    />
+                    <span className="min-w-0 truncate">{model}</span>
                   </p>
-                  {blockedOn && (
-                    <p
-                      className="truncate text-[11px] text-content/60"
-                      title={blockedOn}
-                    >
-                      {blockedOn}
-                    </p>
-                  )}
-                  {/* Bounded by line count rather than by a scrollbar: a
-                      chatty agent drops its oldest line instead of adding
-                      another scroll region to the sidebar. */}
-                  {lines.length > 0 && (
-                    <ul className="space-y-0.5 text-[11px] leading-4 text-content/60">
-                      {lines.map((line, index) => (
-                        <li
-                          key={`${index}:${line}`}
-                          className="truncate"
-                          title={line}
-                        >
-                          {line}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {live && (
-                    <p
-                      className="truncate font-mono text-[10px] text-content/40"
-                      title={live.files.join(", ")}
-                    >
-                      {live.files.join(", ")}
-                    </p>
-                  )}
                   {live?.error && (
                     <p className="text-[11px] text-red-400">{live.error}</p>
-                  )}
-                  {approval && (
-                    <p className="text-[11px] text-amber-400/80">
-                      Waiting on the orchestrator to
-                      {approval.kind === "approval"
-                        ? " approve this"
-                        : " answer this"}
-                      .
-                    </p>
                   )}
                   <div className="flex flex-wrap items-center gap-1">
                     {live && ["queued", "running"].includes(live.status) && (
@@ -275,6 +207,7 @@ export function OrchestrationSidebarAgents({
                             sessionId: task.sessionId,
                             leadId,
                             title: task.title,
+                            harness: task.harness,
                           })
                         }
                       >
