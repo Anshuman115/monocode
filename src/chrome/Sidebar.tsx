@@ -2594,8 +2594,13 @@ function SessionCard({
   };
 
   const archiveLabel = session.archived ? "Unarchive" : "Archive";
+  // Expanding an orchestration card must not move its existing header. Keep
+  // the collapsed top inset and give only the new detail area extra room at
+  // the bottom.
   const cardPaddingY = orchestrationExpanded
-    ? "py-2.5"
+    ? compact
+      ? "pb-2.5 pt-1.5"
+      : "pb-2.5 pt-2"
     : compact
       ? "py-1.5"
       : "py-2";
