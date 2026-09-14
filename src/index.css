@@ -31,10 +31,11 @@
   --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --theme-hue: 240;
   --theme-saturation: 0%;
+  --theme-dark-lightness: 9%;
   --sidebar-opacity: 0.85;
   --chat-background-empty-opacity: 0.24;
   --chat-background-session-opacity: 0.24;
-  --background-lightness: 9%;
+  --background-lightness: var(--theme-dark-lightness);
   --content-lightness: 92%;
   --link-color: #7dd3fc;
   --color-skill: #e8c547;
