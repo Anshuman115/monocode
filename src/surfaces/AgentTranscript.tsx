@@ -1182,7 +1182,7 @@ function UserMessageBlock({
       }
     >
       <div
-        className={`min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
+        className={`user-message-bubble min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
           chat
             ? `w-fit max-w-xl ${singleLine ? "rounded-full" : "rounded-xl"}`
             : "rounded-lg border border-content/10"

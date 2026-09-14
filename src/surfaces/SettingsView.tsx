@@ -21,6 +21,10 @@ import {
   type ReactNode,
 } from "react";
 import { HarnessIcon } from "../chrome/HarnessIcon";
+import {
+  ColorPickerPopover,
+  ColorSwatchRow,
+} from "../chrome/ColorPickerPopover";
 import { Popover } from "../chrome/Popover";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
@@ -32,6 +36,7 @@ import {
   applyChatBackgroundEmptyOpacity,
   applyChatBackgroundSessionOpacity,
   applyChatBackgroundScope,
+  applyAccentColor,
   applyBodyGlass,
   applySidebarBlur,
   applySidebarOpacity,
@@ -39,6 +44,7 @@ import {
   applyThemePreference,
   applyThemeTint,
   BODY_GLASS_DEFAULT,
+  ACCENT_COLOR_DEFAULT,
   CHAT_BACKGROUND_EMPTY_OPACITY_DEFAULT,
   CHAT_BACKGROUND_OPACITY_MAX,
   CHAT_BACKGROUND_OPACITY_MIN,
@@ -47,6 +53,7 @@ import {
   THEME_PREFERENCE_DEFAULT,
   chatBackgroundSrc,
   loadBodyGlass,
+  loadAccentColor,
   loadChatBackgroundEmptyOpacity,
   loadChatBackgroundPath,
   loadChatBackgroundSessionOpacity,
@@ -60,6 +67,7 @@ import {
   loadTranscriptLayout,
   loadTranscriptAnchor,
   saveBodyGlass,
+  saveAccentColor,
   saveChatBackgroundEmptyOpacity,
   saveChatBackgroundPath,
   saveChatBackgroundSessionOpacity,
@@ -1075,6 +1083,7 @@ type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 function useAppearanceSettings() {
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(loadThemePreference);
+  const [accentColor, setAccentColor] = useState(loadAccentColor);
   const [opacity, setOpacity] = useState(loadSidebarOpacity);
   const [blur, setBlur] = useState(loadSidebarBlur);
   const [themeHue, setThemeHue] = useState(loadThemeHue);
@@ -1105,6 +1114,12 @@ function useAppearanceSettings() {
     applyThemePreference(next);
     saveThemePreference(next);
     setThemePreference(next);
+  }, []);
+
+  const onAccentColor = useCallback((value: string | null) => {
+    const next = applyAccentColor(value);
+    saveAccentColor(next);
+    setAccentColor(next);
   }, []);
 
   const onOpacity = useCallback((percent: number) => {
@@ -1200,6 +1215,7 @@ function useAppearanceSettings() {
 
   const restoreDefaults = useCallback(() => {
     onThemePreference(THEME_PREFERENCE_DEFAULT);
+    onAccentColor(ACCENT_COLOR_DEFAULT);
     onOpacity(Math.round(SIDEBAR_OPACITY_DEFAULT * 100));
     onBlur(SIDEBAR_BLUR_DEFAULT);
     onTint(THEME_HUE_DEFAULT, THEME_SATURATION_DEFAULT);
@@ -1222,6 +1238,7 @@ function useAppearanceSettings() {
     onChatBackgroundSessionOpacity,
     onChatBackgroundScope,
     onClearChatBackground,
+    onAccentColor,
     onThemePreference,
     onOpacity,
     onTint,
@@ -1231,6 +1248,7 @@ function useAppearanceSettings() {
 
   return {
     themePreference,
+    accentColor,
     opacity,
     blur,
     themeHue,
@@ -1245,6 +1263,7 @@ function useAppearanceSettings() {
     chatBackgroundError,
     uiScale,
     onThemePreference,
+    onAccentColor,
     onOpacity,
     onBlur,
     onTint,
@@ -1279,6 +1298,15 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             { value: "light", label: "Light" },
           ]}
           onChange={appearance.onThemePreference}
+        />
+      </Row>
+      <Row
+        label="Accent color"
+        description="Used for the composer send button and your message bubbles."
+      >
+        <AccentColorPicker
+          value={appearance.accentColor}
+          onChange={appearance.onAccentColor}
         />
       </Row>
       <Row
@@ -2064,6 +2092,68 @@ function Slider({
       <span className="w-10 shrink-0 text-right text-[12px] text-content tabular-nums">
         {display}
       </span>
+    </div>
+  );
+}
+
+const ACCENT_COLOR_PRESETS = [
+  "#4da3f5",
+  "#8b5cf6",
+  "#ec4899",
+  "#ef4444",
+  "#f59e0b",
+  "#10b981",
+] as const;
+
+function AccentColorPicker({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (value: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const colorIndex = value
+    ? ACCENT_COLOR_PRESETS.indexOf(
+        value as (typeof ACCENT_COLOR_PRESETS)[number],
+      )
+    : -1;
+  const presetIndex = value == null ? 0 : colorIndex >= 0 ? colorIndex + 1 : -1;
+
+  return (
+    <div ref={root} className="w-48">
+      <ColorSwatchRow
+        colors={["var(--color-content)", ...ACCENT_COLOR_PRESETS]}
+        labels={["Default", "Blue", "Violet", "Pink", "Red", "Orange", "Green"]}
+        colorIndex={presetIndex >= 0 ? presetIndex : undefined}
+        customColor={presetIndex < 0 ? (value ?? undefined) : undefined}
+        customPickerOpen={open}
+        onPickIndex={(index) => {
+          setOpen(false);
+          onChange(
+            index === 0
+              ? ACCENT_COLOR_DEFAULT
+              : (ACCENT_COLOR_PRESETS[index - 1] ?? ACCENT_COLOR_PRESETS[0]),
+          );
+        }}
+        onToggleCustom={() => setOpen((current) => !current)}
+      />
+      {open ? (
+        <Popover
+          anchor={root}
+          side="bottom"
+          align="end"
+          width={248}
+          onDismiss={() => setOpen(false)}
+          className="px-2 pb-2"
+        >
+          <ColorPickerPopover
+            value={value ?? ACCENT_COLOR_PRESETS[0]}
+            onChange={onChange}
+          />
+        </Popover>
+      ) : null}
     </div>
   );
 }
