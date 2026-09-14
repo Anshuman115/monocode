@@ -463,6 +463,7 @@ export const SessionPane = memo(function SessionPane({
       <div ref={transcriptScope} className="@container relative min-h-0 flex-1">
         {visible && focused && !session.inboxAsk ? (
           <LinkedWorkItemUpdateNotice
+            sessionId={session.id}
             card={session.linkedWorkItemUpdateCard}
             onAcknowledge={() => {
               const updatedAt = session.linkedWorkItemUpdateCard?.updatedAt;

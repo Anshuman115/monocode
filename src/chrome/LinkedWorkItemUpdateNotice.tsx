@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   linkedWorkItemActivityPrompt,
   linkedWorkItemTerminalState,
@@ -8,7 +8,7 @@ import {
   type LinkedWorkItemUpdateCard,
 } from "../lib/linkedWorkItemActivity";
 import { formatRelativeTime } from "../lib/githubTasks";
-import { playCue } from "../lib/sounds";
+import { announceLinkedActivity } from "../lib/sounds";
 import {
   Archive,
   Check,
@@ -24,6 +24,7 @@ import {
 } from "./icons";
 
 type Props = {
+  sessionId: string;
   card?: LinkedWorkItemUpdateCard;
   onAcknowledge: () => void;
   onDismiss: () => void;
@@ -57,6 +58,7 @@ function ActivityIcon({ entry }: { entry: LinkedWorkItemActivityEntry }) {
 }
 
 export function LinkedWorkItemUpdateNotice({
+  sessionId,
   card,
   onAcknowledge,
   onDismiss,
@@ -65,17 +67,12 @@ export function LinkedWorkItemUpdateNotice({
   onArchiveSession,
   onDeleteSession,
 }: Props) {
-  const soundedCards = useRef(new Set<string>());
   const [cleanupAction, setCleanupAction] = useState<
     "archive" | "delete" | undefined
   >();
   useEffect(() => {
-    if (!card || card.status !== "ready") return;
-    const key = `${card.kind}:${card.repo}:${card.number}:${card.updatedAt}`;
-    if (soundedCards.current.has(key)) return;
-    soundedCards.current.add(key);
-    playCue("linkedActivity");
-  }, [card]);
+    announceLinkedActivity(sessionId, card);
+  }, [sessionId, card]);
   if (!card || card.status === "loading") return null;
 
   const KindIcon = card.kind === "pr" ? GitPullRequest : CircleDot;
