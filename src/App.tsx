@@ -6608,7 +6608,12 @@ export default function App({
       // Every window hears the click; only the one holding the session acts.
       listen<string>(NOTIFICATION_CLICK_EVENT, ({ payload: sessionId }) => {
         if (!sessionsRef.current.some((s) => s.id === sessionId)) return;
-        void getCurrentWindow().setFocus();
+        const win = getCurrentWindow();
+        // Windows leaves a minimized window minimized when it is only focused.
+        void win
+          .unminimize()
+          .then(() => win.setFocus())
+          .catch(() => {});
         actions.current.onOpenApprovalSession(sessionId);
       }),
       listen("zoom_in", () => {
