@@ -1499,7 +1499,12 @@ export function Composer({
                     >
                       <Share className="mt-0.5 size-4 shrink-0 text-fuchsia-300/65" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px]">Orchestrator</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-[13px]">Orchestrator</span>
+                          <span className="rounded-full bg-fuchsia-300/10 px-1.5 py-0.5 text-[9px] font-medium leading-none tracking-wide text-fuchsia-200/55 mb-px">
+                            v1
+                          </span>
+                        </span>
                         <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
                           Plan and coordinate agent work
                         </span>
