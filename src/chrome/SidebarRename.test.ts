@@ -32,6 +32,10 @@ function renameInput(): HTMLInputElement {
   return container.querySelector("input:not([placeholder])")!;
 }
 
+function projectSearchInput(): HTMLInputElement | null {
+  return document.querySelector('input[placeholder="Search projects..."]');
+}
+
 function pressKey(target: HTMLElement, key: string) {
   const event = new KeyboardEvent("keydown", {
     key,
@@ -124,6 +128,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   localStorage.clear();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -168,6 +173,37 @@ describe("sidebar session rename", () => {
       "session-1",
       "Keyboard rename",
     );
+  });
+
+  it("prefetches after a deliberate hover and immediately on press", () => {
+    vi.useFakeTimers();
+    props.onPrefetchSession = vi.fn();
+    act(() => render());
+
+    act(() => {
+      card().dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      vi.advanceTimersByTime(119);
+    });
+    expect(props.onPrefetchSession).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(props.onPrefetchSession).toHaveBeenCalledExactlyOnceWith(
+      "session-1",
+    );
+
+    act(() => {
+      card().dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      card().dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));
+      vi.advanceTimersByTime(120);
+    });
+    expect(props.onPrefetchSession).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      card().dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(props.onPrefetchSession).toHaveBeenCalledTimes(2);
   });
 
   it("cancels with Escape while the agent is working", () => {
@@ -222,6 +258,83 @@ describe("sidebar session rename", () => {
       "session-1",
       "My draft title",
     );
+  });
+});
+
+describe("sidebar project picker", () => {
+  it("focuses the project search input when opened", () => {
+    // Hold animation frames so the deferred focus retry runs on demand.
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    props.onSelectProject = vi.fn();
+    act(() => render());
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Switch project"]',
+    )!;
+    act(() => trigger.click());
+
+    const input = projectSearchInput();
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+
+    // Focus lost before the next frame is restored by the retry.
+    act(() => input!.blur());
+    expect(document.activeElement).not.toBe(input);
+    expect(frames).toHaveLength(1);
+    act(() => frames.forEach((frame) => frame(0)));
+    expect(document.activeElement).toBe(input);
+  });
+});
+
+describe("sidebar reorder affordances", () => {
+  it("keeps the default cursor on reorderable tabs and folders", () => {
+    props.sessions = [
+      props.sessions[0],
+      {
+        ...props.sessions[0],
+        id: "session-2",
+        title: formatSessionTitle("codex", "Second conversation"),
+      },
+    ];
+    localStorage.setItem(
+      "monocode.sessionFolders",
+      JSON.stringify({
+        "/workspace/project": [
+          {
+            id: "folder-1",
+            name: "Folder one",
+            sessionIds: ["session-1"],
+            collapsed: false,
+          },
+          {
+            id: "folder-2",
+            name: "Folder two",
+            sessionIds: ["session-2"],
+            collapsed: false,
+          },
+        ],
+      }),
+    );
+
+    act(() => render());
+
+    const tabs = container.querySelectorAll<HTMLElement>('[role="tab"]');
+    expect(tabs).toHaveLength(3);
+    for (const tab of tabs) {
+      expect(tab.className).not.toContain("cursor-grab");
+      expect(tab.parentElement?.className).not.toContain("cursor-grab");
+    }
+    for (const name of ["Folder one", "Folder two"]) {
+      expect(
+        container.querySelector<HTMLButtonElement>(`button[title="${name}"]`)!
+          .className,
+      ).not.toContain("cursor-grab");
+    }
   });
 });
 

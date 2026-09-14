@@ -12,6 +12,7 @@ import {
 import { Composer } from "../chrome/Composer";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
+import { LinkedWorkItemUpdateNotice } from "../chrome/LinkedWorkItemUpdateNotice";
 import { SessionReview } from "../chrome/SessionReview";
 import { PromptOutline } from "../chrome/PromptOutline";
 import {
@@ -26,6 +27,7 @@ import {
   type Attachment,
   type Block,
   type HarnessId,
+  type LinkedWorkItem,
   type PlanBuildTarget,
   type RuntimeMode,
   type Session,
@@ -57,6 +59,7 @@ import {
   subscribeChatBackgroundPath,
 } from "../lib/appearance";
 import type { SessionFolderTarget } from "../lib/sessionFolders";
+import { markLinkedSessionUpdateSeen } from "../lib/linkedSessionSeen";
 
 type Props = {
   session: Session;
@@ -100,8 +103,12 @@ type Props = {
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
   onResumeQueue: (sessionId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
+  onLinkedWorkItemUpdateCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
   onHandoffCardDismiss?: (sessionId: string) => void;
+  onOpenLinkedWorkItem?: (item: LinkedWorkItem) => void;
+  onArchiveSession?: (sessionId: string, archived: boolean) => Promise<boolean>;
+  onDeleteSession?: (sessionId: string) => Promise<boolean>;
   onApproval: (
     sessionId: string,
     requestId: number,
@@ -167,8 +174,12 @@ export const SessionPane = memo(function SessionPane({
   onSteerQueuedMessage,
   onResumeQueue,
   onInboxCardDismiss,
+  onLinkedWorkItemUpdateCardDismiss,
   onNoteCardDismiss,
   onHandoffCardDismiss,
+  onOpenLinkedWorkItem,
+  onArchiveSession,
+  onDeleteSession,
   onApproval,
   onQuestionReply,
   onQuestionInteraction,
@@ -470,6 +481,33 @@ export const SessionPane = memo(function SessionPane({
           ref={transcriptScope}
           className="@container relative min-h-0 flex-1"
         >
+          {visible && focused && !session.inboxAsk ? (
+            <LinkedWorkItemUpdateNotice
+              sessionId={session.id}
+              card={session.linkedWorkItemUpdateCard}
+              onAcknowledge={() => {
+                const updatedAt = session.linkedWorkItemUpdateCard?.updatedAt;
+                if (updatedAt != null) {
+                  markLinkedSessionUpdateSeen(session.id, updatedAt);
+                }
+              }}
+              onDismiss={() => onLinkedWorkItemUpdateCardDismiss?.(session.id)}
+              onOpenDiscussion={() => {
+                if (session.linkedWorkItem) {
+                  onOpenLinkedWorkItem?.(session.linkedWorkItem);
+                }
+              }}
+              onAddToChat={(text) => addSelectionToChat(text, "plain")}
+              onArchiveSession={
+                onArchiveSession
+                  ? () => onArchiveSession(session.id, true)
+                  : undefined
+              }
+              onDeleteSession={
+                onDeleteSession ? () => onDeleteSession(session.id) : undefined
+              }
+            />
+          ) : null}
           {isEmpty ? (
             session.inboxAsk ? (
               <div className="scrollbar-none h-full min-h-0 overflow-y-auto">

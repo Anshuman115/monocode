@@ -27,6 +27,7 @@ import {
   type Attachment,
   type Block,
   type HarnessId,
+  type LinkedWorkItem,
   type PlanBuildTarget,
   type RuntimeMode,
   type Session,
@@ -86,8 +87,12 @@ type Shared = {
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
   onResumeQueue: (sessionId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
+  onLinkedWorkItemUpdateCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
   onHandoffCardDismiss?: (sessionId: string) => void;
+  onOpenLinkedWorkItem?: (item: LinkedWorkItem) => void;
+  onArchiveSession?: (sessionId: string, archived: boolean) => Promise<boolean>;
+  onDeleteSession?: (sessionId: string) => Promise<boolean>;
   onApproval: (
     sessionId: string,
     requestId: number,
@@ -175,8 +180,12 @@ function PaneTreeComponent({
   onSteerQueuedMessage,
   onResumeQueue,
   onInboxCardDismiss,
+  onLinkedWorkItemUpdateCardDismiss,
   onNoteCardDismiss,
   onHandoffCardDismiss,
+  onOpenLinkedWorkItem,
+  onArchiveSession,
+  onDeleteSession,
   onApproval,
   onQuestionReply,
   onQuestionInteraction,
@@ -390,8 +399,14 @@ function PaneTreeComponent({
                 onSteerQueuedMessage={onSteerQueuedMessage}
                 onResumeQueue={onResumeQueue}
                 onInboxCardDismiss={onInboxCardDismiss}
+                onLinkedWorkItemUpdateCardDismiss={
+                  onLinkedWorkItemUpdateCardDismiss
+                }
                 onNoteCardDismiss={onNoteCardDismiss}
                 onHandoffCardDismiss={onHandoffCardDismiss}
+                onOpenLinkedWorkItem={onOpenLinkedWorkItem}
+                onArchiveSession={onArchiveSession}
+                onDeleteSession={onDeleteSession}
                 onApproval={onApproval}
                 onQuestionReply={onQuestionReply}
                 onQuestionInteraction={onQuestionInteraction}

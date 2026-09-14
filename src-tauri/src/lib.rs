@@ -10,6 +10,7 @@ mod gitlab;
 mod harness;
 mod inbox_media;
 mod linear;
+mod link_preview;
 #[cfg(target_os = "macos")]
 mod macos;
 mod menu;
@@ -80,10 +81,31 @@ pub(crate) fn hide_window_console(cmd: &mut std::process::Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.creation_flags(WINDOWS_BACKGROUND_CREATION_FLAGS);
     }
     let _ = cmd;
+}
+
+#[cfg(windows)]
+const WINDOWS_BACKGROUND_CREATION_FLAGS: u32 = 0x0800_0000; // CREATE_NO_WINDOW
+
+#[cfg(all(test, windows))]
+mod background_command_tests {
+    use super::*;
+
+    #[test]
+    fn background_commands_keep_piped_output_and_exit_status() {
+        assert_eq!(WINDOWS_BACKGROUND_CREATION_FLAGS, 0x0800_0000);
+
+        let mut cmd = std::process::Command::new("cmd.exe");
+        cmd.args(["/D", "/C", "(echo stdout)&(echo stderr 1>&2)&exit /b 7"]);
+        hide_window_console(&mut cmd);
+
+        let output = cmd.output().expect("background command should run");
+        assert_eq!(output.status.code(), Some(7));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("stdout"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("stderr"));
+    }
 }
 
 /// Finder-launched .app bundles often omit HOME/USER/SHELL. Fall back to the
@@ -272,6 +294,7 @@ pub fn run() {
             linear::linear_issue_details,
             linear::linear_issue_thread,
             linear::linear_issue_comment,
+            link_preview::fetch_link_preview,
             fs::git_branches,
             fs::git_checkout,
             fs::git_create_branch,
@@ -290,6 +313,8 @@ pub fn run() {
             fs::read_binary_file,
             fs::write_attachment,
             fs::read_text_file,
+            fs::omp_session_interjections,
+            fs::omp_active_assistant_texts,
             fs::write_text_file,
             skills::list_skills,
             search::search_project,

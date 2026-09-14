@@ -76,6 +76,7 @@ import {
 } from "./lib/fileIndex";
 import {
   closeLeaf,
+  closeSurfacePanes,
   findSurfacePane,
   firstLeafId,
   focusedFileTab,
@@ -99,6 +100,7 @@ import {
   openSessionChangesTab,
   openTerminalTab,
   removePane,
+  resetTabToSession,
   replaceLeafId,
   setSplitRatio,
   siblingLeafId,
@@ -244,6 +246,7 @@ import {
 import {
   applyPlaceSessionOnPane,
   filterTabsForProject,
+  findOpenSessionTab,
   planWorkspaceTabClose,
   workspaceTabCwd,
   focusedWorkspaceTabCwd,
@@ -293,12 +296,12 @@ import {
   upsertSession,
   type SessionSummary,
 } from "./lib/sessionStore";
+import { rememberLoadedSession } from "./lib/sessionCache";
 import { syncDockBadge } from "./lib/dockBadge";
 import { liveAgentsFromSessions } from "./lib/liveAgents";
 import { hiddenApprovalNotices } from "./lib/approvalToast";
 import { useSessionReminders } from "./hooks/useSessionReminders";
 import { ReminderNotices } from "./chrome/ReminderNotices";
-import { LinkedWorkItemUpdateNotice } from "./chrome/LinkedWorkItemUpdateNotice";
 import { nextUnseenFinishedSessions } from "./lib/sessionDone";
 import {
   loadNotificationsEnabled,
@@ -362,7 +365,6 @@ import type { ConnectableInboxSource } from "./lib/inboxFilters";
 import { InboxView } from "./surfaces/InboxView";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
-import { requestAddToChat } from "./lib/quoteDraft";
 import { NotesView } from "./surfaces/NotesView";
 import {
   githubWorkItemThread,
@@ -808,6 +810,11 @@ export default function App({
   const observedSessions = useRef(new Map<string, Session>());
   const pendingPersist = useRef(new Map<string, Session>());
   const removingSessionIds = useRef(new Set<string>());
+  const loadedSessionCache = useRef(new Map<string, Session>());
+  const sessionLoads = useRef(new Map<string, Promise<Session | null>>());
+  const sessionLoadEpochs = useRef(new Map<string, number>());
+  const openingSessionIds = useRef(new Set<string>());
+  const activeSessionPrefetch = useRef<Promise<Session | null> | null>(null);
   // Tokens arrive many times per frame; apply them once so React/markdown aren't
   // recomputed for every delta.
   const harnessQueued = useRef(new Map<string, HarnessEvent[]>());
@@ -1119,8 +1126,6 @@ export default function App({
     [sessions, activeTabId, tabs, composerFocused],
   );
   const [reminderNoticesHeight, setReminderNoticesHeight] = useState(0);
-  const [linkedActivityNoticeHeight, setLinkedActivityNoticeHeight] =
-    useState(0);
 
   useEffect(() => {
     syncDockBadge(sessions);
@@ -1429,16 +1434,24 @@ export default function App({
       )
         visibleIds.add(session.id);
     }
+    for (const sessionId of visibleIds) {
+      openingSessionIds.current.delete(sessionId);
+      loadedSessionCache.current.delete(sessionId);
+    }
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
       (session) =>
         !visibleIds.has(session.id) &&
         !session.busy &&
+        !openingSessionIds.current.has(session.id) &&
         !(keepUnseen && unseenFinishedRef.current.has(session.id)),
     );
     if (idleDetached.length === 0) return;
     for (const session of idleDetached) {
       if (skipForgetSessionIds.current.has(session.id)) continue;
+      if (shouldPersistSession(session)) {
+        rememberLoadedSession(loadedSessionCache.current, session);
+      }
       persistSession(session);
       for (const harness of sessionChildHarnesses(session)) {
         void forgetHarnessSession(harness, session.id);
@@ -1449,6 +1462,7 @@ export default function App({
         (session) =>
           visibleIds.has(session.id) ||
           session.busy ||
+          openingSessionIds.current.has(session.id) ||
           (keepUnseen && unseenFinishedRef.current.has(session.id)) ||
           skipForgetSessionIds.current.has(session.id),
       ),
@@ -2105,7 +2119,7 @@ export default function App({
   );
 
   const onCloseTabs = useCallback(
-    (ids: string[], fallbackId: string) => {
+    (ids: string[], fallbackId: string, opts?: { confirmed?: boolean }) => {
       const current = tabsRef.current;
       const closingIds = new Set(ids);
       const closing = current.filter((tab) => closingIds.has(tab.id));
@@ -2145,6 +2159,12 @@ export default function App({
         if (closingIds.has(activeTabIdRef.current)) activateTab(fallback.id);
         void refreshHistory(sidebarCwd);
       };
+
+      // The caller already confirmed unsaved files and terminals.
+      if (opts?.confirmed) {
+        finishClose();
+        return;
+      }
 
       void (async () => {
         if (unsaved.length > 0) {
@@ -2430,6 +2450,139 @@ export default function App({
     },
     [tabs, persistSession, refreshHistory, sidebarCwd],
   );
+
+  const onCloseAllTabs = useCallback(() => {
+    const tab = tabsRef.current.find(
+      (entry) => entry.id === activeTabIdRef.current,
+    );
+    if (!tab) return;
+
+    const seedSession = (cwd: string) => {
+      const seed = sessionsRef.current[0];
+      return newSession(
+        seed?.harness ?? "claude",
+        cwd,
+        seed?.model,
+        seed?.runtimeMode,
+        seed?.modelSettings,
+      );
+    };
+
+    // Stage one: files open in the active tab's editor panes close first.
+    // Only when none are open does the command close every workspace tab.
+    const editorFiles = tab.editorPanes.flatMap((pane) => pane.files);
+    if (editorFiles.length > 0) {
+      const remaining = closeSurfacePanes(tab, "editor");
+      if (!remaining) {
+        const closePlan = planWorkspaceTabClose({
+          tabs: tabsRef.current,
+          sessions: sessionsRef.current,
+          closingTabId: tab.id,
+          scope: tabCloseScope,
+        });
+        if (closePlan.action === "close") {
+          onCloseTab(tab.id);
+          return;
+        }
+      }
+      const unsaved = editorFiles.filter(
+        (file) => isFilesystemTab(file) && dirtyFilesRef.current.has(file.id),
+      );
+
+      const finishClose = () => {
+        let nextTab: WorkspaceTab;
+        let focusesSession: boolean;
+        if (remaining) {
+          nextTab = remaining;
+          focusesSession = sessionsRef.current.some(
+            (session) => session.id === remaining.focusedId,
+          );
+        } else {
+          // The tab held only editor panes and must stay: seed a session.
+          const session = seedSession(editorFiles[0].cwd || projectCwd);
+          setSessions((prev) => [...prev, session]);
+          nextTab = resetTabToSession(tab, session.id);
+          focusesSession = true;
+        }
+        setTabs((prev) =>
+          prev.map((entry) => (entry.id === tab.id ? nextTab : entry)),
+        );
+        setDirtyFiles((prev) => {
+          const updated = new Set(prev);
+          for (const file of editorFiles) updated.delete(file.id);
+          return updated;
+        });
+        setComposerFocused(focusesSession);
+      };
+
+      void (async () => {
+        if (unsaved.length > 0) {
+          const ok = await confirmDiscardUnsaved(
+            "Close all open files with unsaved changes?",
+          );
+          if (!ok) return;
+        }
+        finishClose();
+      })();
+      return;
+    }
+
+    // Stage two: the workspace always keeps one tab, so close every other
+    // tab and reset the active one to a blank session. Every confirmation
+    // runs before any tab changes, so a cancelled prompt leaves all tabs.
+    const otherIds = tabsRef.current
+      .filter((entry) => entry.id !== tab.id)
+      .map((entry) => entry.id);
+    const terminalFiles = (tab.terminalPanes ?? []).flatMap(
+      (pane) => pane.files,
+    );
+    const closingFiles = [
+      ...tabsRef.current
+        .filter((entry) => otherIds.includes(entry.id))
+        .flatMap((entry) => [
+          ...entry.editorPanes.flatMap((pane) => pane.files),
+          ...(entry.terminalPanes ?? []).flatMap((pane) => pane.files),
+        ]),
+      ...terminalFiles,
+    ];
+    const unsaved = closingFiles.filter(
+      (file) => isFilesystemTab(file) && dirtyFilesRef.current.has(file.id),
+    );
+    const terminals = closingFiles.filter((file) => file.terminal);
+
+    void (async () => {
+      if (unsaved.length > 0) {
+        const ok = await confirmDiscardUnsaved(
+          "Close all tabs with unsaved files?",
+        );
+        if (!ok) return;
+      }
+      if (terminals.length > 0) {
+        const ok = await confirmCloseTerminals(terminals);
+        if (!ok) return;
+      }
+      if (otherIds.length > 0) {
+        onCloseTabs(otherIds, tab.id, { confirmed: true });
+      }
+      const hasSession = leafIds(tab.layout).some((paneId) =>
+        sessionsRef.current.some((session) => session.id === paneId),
+      );
+      if (hasSession) {
+        // No editor files remain, so this commits without a prompt.
+        onClearTabSession(tab.id);
+        return;
+      }
+      // The tab held no session: seed one so the workspace stays usable.
+      const session = seedSession(terminalFiles[0]?.cwd || projectCwd);
+      setSessions((prev) => [...prev, session]);
+      setTabs((prev) =>
+        prev.map((entry) =>
+          entry.id === tab.id ? resetTabToSession(entry, session.id) : entry,
+        ),
+      );
+      setComposerFocused(true);
+    })();
+  }, [onCloseTab, onCloseTabs, onClearTabSession, projectCwd, tabCloseScope]);
 
   const onClosePane = useCallback(
     (sessionId?: string) => {
@@ -2736,10 +2889,13 @@ export default function App({
   );
 
   const focusOpenSession = useCallback((sessionId: string) => {
-    const tab = tabsRef.current.find((entry) =>
-      leafIds(entry.layout).includes(sessionId),
+    const tab = findOpenSessionTab(
+      tabsRef.current,
+      sessionsRef.current,
+      sessionId,
     );
     if (!tab) return false;
+    loadedSessionCache.current.delete(sessionId);
     setActiveTabId(tab.id);
     setTabs((prev) =>
       prev.map((entry) =>
@@ -2792,6 +2948,54 @@ export default function App({
     return true;
   }, []);
 
+  const invalidateLoadedSession = useCallback((sessionId: string) => {
+    openingSessionIds.current.delete(sessionId);
+    loadedSessionCache.current.delete(sessionId);
+    sessionLoads.current.delete(sessionId);
+    sessionLoadEpochs.current.set(
+      sessionId,
+      (sessionLoadEpochs.current.get(sessionId) ?? 0) + 1,
+    );
+  }, []);
+
+  const loadStoredSession = useCallback(
+    (sessionId: string): Promise<Session | null> => {
+      const cached = loadedSessionCache.current.get(sessionId);
+      if (cached) {
+        // The cache owns closed sessions only. Transfer this reference into
+        // live state instead of retaining a stale duplicate while it changes.
+        loadedSessionCache.current.delete(sessionId);
+        return Promise.resolve(cached);
+      }
+
+      const pending = sessionLoads.current.get(sessionId);
+      if (pending) return pending;
+
+      const epoch = sessionLoadEpochs.current.get(sessionId) ?? 0;
+      const loading = getSession(sessionId)
+        .then((loaded) => {
+          if (
+            !loaded ||
+            removingSessionIds.current.has(sessionId) ||
+            (sessionLoadEpochs.current.get(sessionId) ?? 0) !== epoch
+          ) {
+            return null;
+          }
+          const restored = restoreSessionCheckout(loaded);
+          return restored;
+        })
+        .catch(() => null);
+      sessionLoads.current.set(sessionId, loading);
+      void loading.then(() => {
+        if (sessionLoads.current.get(sessionId) === loading) {
+          sessionLoads.current.delete(sessionId);
+        }
+      });
+      return loading;
+    },
+    [],
+  );
+
   const ensureOpenSession = useCallback(
     async (sessionId: string): Promise<Session | null> => {
       const open = sessionsRef.current.find(
@@ -2799,12 +3003,18 @@ export default function App({
       );
       if (open) return open;
 
-      const loaded = await getSession(sessionId).catch(() => null);
-      if (!loaded) {
+      openingSessionIds.current.add(sessionId);
+      const restored = await loadStoredSession(sessionId);
+      if (!restored || removingSessionIds.current.has(sessionId)) {
+        openingSessionIds.current.delete(sessionId);
         void refreshHistory(sidebarCwd);
         return null;
       }
-      const restored = await restoreSessionCheckout(loaded);
+      loadedSessionCache.current.delete(sessionId);
+      const appeared = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (appeared) return appeared;
       if (restored.providerSessionId && isLiveHarness(restored.harness)) {
         bindHarnessSession(
           restored.harness,
@@ -2821,7 +3031,36 @@ export default function App({
       }
       return restored;
     },
-    [refreshHistory, sidebarCwd],
+    [loadStoredSession, refreshHistory, sidebarCwd],
+  );
+
+  const onPrefetchHistorySession = useCallback(
+    (sessionId: string) => {
+      if (
+        removingSessionIds.current.has(sessionId) ||
+        sessionsRef.current.some((session) => session.id === sessionId) ||
+        loadedSessionCache.current.has(sessionId) ||
+        sessionLoads.current.has(sessionId) ||
+        activeSessionPrefetch.current
+      ) {
+        return;
+      }
+      const loading = loadStoredSession(sessionId);
+      activeSessionPrefetch.current = loading;
+      void loading.then((loaded) => {
+        if (
+          loaded &&
+          !removingSessionIds.current.has(sessionId) &&
+          !sessionsRef.current.some((session) => session.id === sessionId)
+        ) {
+          rememberLoadedSession(loadedSessionCache.current, loaded);
+        }
+        if (activeSessionPrefetch.current === loading) {
+          activeSessionPrefetch.current = null;
+        }
+      });
+    },
+    [loadStoredSession],
   );
 
   const revealLinkedSessionUpdate = useCallback(
@@ -3086,6 +3325,21 @@ export default function App({
       .map((session) => session.id),
   );
 
+  const dismissNoticesForContinuedSession = useCallback(
+    (sessionId: string) => {
+      void sessionReminders.dismissDue(sessionId);
+      const updatedAt = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      )?.linkedWorkItemUpdateCard?.updatedAt;
+      if (updatedAt == null) return;
+      markLinkedSessionUpdateSeen(sessionId, updatedAt);
+      setLinkedWorkItemUpdateCard(sessionId, (card) =>
+        card?.updatedAt === updatedAt ? undefined : card,
+      );
+    },
+    [sessionReminders.dismissDue, setLinkedWorkItemUpdateCard],
+  );
+
   const onPlaceSessionOnPane = useCallback(
     async (sessionId: string, targetId: string, edge: PaneEdge) => {
       if (sessionId === targetId) return;
@@ -3148,6 +3402,7 @@ export default function App({
     async (sessionId: string, displayTitle: string) => {
       const trimmed = displayTitle.trim();
       if (!trimmed) return;
+      invalidateLoadedSession(sessionId);
 
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
@@ -3158,6 +3413,7 @@ export default function App({
         setSessions((prev) =>
           prev.map((session) => (session.id === sessionId ? updated : session)),
         );
+        loadedSessionCache.current.delete(sessionId);
         persistSession(updated);
       } else {
         const restored = await getSession(sessionId).catch(() => null);
@@ -3169,12 +3425,16 @@ export default function App({
           ...restored,
           title: formatSessionTitle(restored.harness, trimmed),
         };
-        await upsertSession(updated).catch(() => undefined);
-        lastPersisted.current.set(sessionId, persistFingerprint(updated));
+        const saved = await upsertSession(updated).catch(() => null);
+        if (saved) {
+          const cached = restoreSessionCheckout(updated);
+          rememberLoadedSession(loadedSessionCache.current, cached);
+          lastPersisted.current.set(sessionId, persistFingerprint(updated));
+        }
       }
       void refreshHistory(sidebarCwd);
     },
-    [persistSession, refreshHistory, sidebarCwd],
+    [invalidateLoadedSession, persistSession, refreshHistory, sidebarCwd],
   );
 
   const onRemoveHistorySession = useCallback(
@@ -3200,6 +3460,7 @@ export default function App({
         return false;
 
       removingSessionIds.current.add(sessionId);
+      invalidateLoadedSession(sessionId);
       pendingPersist.current.delete(sessionId);
       let savedSummary: SessionSummary | undefined;
       try {
@@ -3296,6 +3557,9 @@ export default function App({
               ),
             );
             if (mode === "archive") {
+              if (latest && shouldPersistSession(latest)) {
+                rememberLoadedSession(loadedSessionCache.current, latest);
+              }
               const archived =
                 savedSummary ??
                 summary ??
@@ -3327,6 +3591,7 @@ export default function App({
     [
       activateTab,
       history,
+      invalidateLoadedSession,
       refreshHistory,
       sidebarCwd,
       stopSessionForRemoval,
@@ -3676,6 +3941,13 @@ export default function App({
       );
 
       if (options.purgeData) {
+        const cachedOrLoading = new Set([
+          ...loadedSessionCache.current.keys(),
+          ...sessionLoads.current.keys(),
+        ]);
+        for (const sessionId of cachedOrLoading) {
+          invalidateLoadedSession(sessionId);
+        }
         for (const session of projectSessions) {
           pendingPersist.current.delete(session.id);
           if (session.busy) {
@@ -3696,6 +3968,9 @@ export default function App({
       } else {
         for (const session of projectSessions) {
           if (session.busy) continue;
+          if (shouldPersistSession(session)) {
+            rememberLoadedSession(loadedSessionCache.current, session);
+          }
           persistSession(session);
           pendingPersist.current.delete(session.id);
           for (const id of sessionChildHarnesses(session)) {
@@ -3757,7 +4032,7 @@ export default function App({
         }
       }
     },
-    [activeTabId, onSelectProject, persistSession],
+    [activeTabId, invalidateLoadedSession, onSelectProject, persistSession],
   );
 
   const onRestoreProject = useCallback(
@@ -4116,6 +4391,7 @@ export default function App({
                 : s,
             ),
           );
+          dismissNoticesForContinuedSession(sessionId);
           return;
         }
         if (
@@ -4131,6 +4407,7 @@ export default function App({
           flushHarnessEvents();
           return;
         }
+        dismissNoticesForContinuedSession(sessionId);
         const visible = displayAttachments(attachments);
         const cards = userTurnCards(noteCard);
         setSessions((prev) =>
@@ -4241,6 +4518,7 @@ export default function App({
         void cancelHarnessTurn(pendingSwitch.from, sessionId);
       }
 
+      dismissNoticesForContinuedSession(sessionId);
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== sessionId) return s;
@@ -4516,8 +4794,7 @@ export default function App({
             intent: intent === "orchestrate" ? "plan" : intent,
             // A lead drives the control CLI over loopback; without this the
             // harness sandbox denies the socket and it cannot supervise.
-            controlsAgents:
-              orchestrator.run(sessionId)?.status === "active",
+            controlsAgents: orchestrator.run(sessionId)?.status === "active",
             text: orchestrator.prompt(
               sessionId,
               inboxAskPrompt(
@@ -4700,7 +4977,11 @@ export default function App({
           );
         });
     },
-    [enqueueHarnessEvent, flushHarnessEvents],
+    [
+      dismissNoticesForContinuedSession,
+      enqueueHarnessEvent,
+      flushHarnessEvents,
+    ],
   );
 
   const onUpdatePlan = useCallback(
@@ -5378,7 +5659,10 @@ export default function App({
           throw new Error(
             "This agent is not running a turn; send it a fresh one with message.",
           );
-        if (!isLiveHarness(session.harness) || !canSteerHarness(session.harness))
+        if (
+          !isLiveHarness(session.harness) ||
+          !canSteerHarness(session.harness)
+        )
           throw new Error(
             `${session.harness} cannot take guidance mid-turn. Wait for the turn to finish, then use message.`,
           );
@@ -5400,11 +5684,13 @@ export default function App({
       },
       respondApproval: (id, requestId, decision) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
-        if (session) respondHarnessApproval(session.harness, id, requestId, decision);
+        if (session)
+          respondHarnessApproval(session.harness, id, requestId, decision);
       },
       answerQuestion: (id, requestId, reply) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
-        if (session) respondHarnessQuestion(session.harness, id, requestId, reply);
+        if (session)
+          respondHarnessQuestion(session.harness, id, requestId, reply);
       },
       stop: async (id) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
@@ -5915,6 +6201,7 @@ export default function App({
     onNew,
     onArchiveFocusedSession,
     onCloseOtherTabs,
+    onCloseAllTabs,
     onClosePane,
     onNext,
     onPrev,
@@ -5942,6 +6229,7 @@ export default function App({
     onNew,
     onArchiveFocusedSession,
     onCloseOtherTabs,
+    onCloseAllTabs,
     onClosePane,
     onNext,
     onPrev,
@@ -6065,6 +6353,7 @@ export default function App({
         if (cmd === "new") run("new", a.onNew);
         else if (cmd === "close-others")
           run("close-others", a.onCloseOtherTabs);
+        else if (cmd === "close-all") run("close-all", a.onCloseAllTabs);
         else if (cmd === "close") run("close", a.onClosePane);
         else if (cmd === "next") run("next", a.onNext);
         else if (cmd === "prev") run("prev", a.onPrev);
@@ -6145,6 +6434,9 @@ export default function App({
       listen("new_tab", () => run("new", actions.current.onNew)),
       listen("close_other_tabs", () =>
         run("close-others", actions.current.onCloseOtherTabs),
+      ),
+      listen("close_all_tabs", () =>
+        run("close-all", actions.current.onCloseAllTabs),
       ),
       listen("close_tab", () => run("close", actions.current.onClosePane)),
       listen("next_tab", () => run("next", actions.current.onNext)),
@@ -6280,8 +6572,12 @@ export default function App({
     onSteerQueuedMessage,
     onResumeQueue,
     onInboxCardDismiss,
+    onLinkedWorkItemUpdateCardDismiss,
     onNoteCardDismiss,
     onHandoffCardDismiss,
+    onOpenLinkedWorkItem,
+    onArchiveSession: onArchiveHistorySession,
+    onDeleteSession: onDeleteHistorySession,
     onApproval,
     onQuestionReply,
     onQuestionInteraction,
@@ -6319,6 +6615,7 @@ export default function App({
             status={historyFailed ? "error" : "idle"}
             pending={historyPending}
             onSelectSession={onSelectHistorySession}
+            onPrefetchSession={onPrefetchHistorySession}
             onSessionNavigationOrder={onSessionNavigationOrder}
             onPlaceSessionOnPane={onPlaceSessionOnPane}
             onRenameSession={onRenameHistorySession}
@@ -6425,6 +6722,7 @@ export default function App({
                     activeTabId ? () => onCloseTab(activeTabId) : undefined
                   }
                   onCloseOtherTabs={onCloseOtherTabs}
+                  onCloseAllTabs={onCloseAllTabs}
                   onPickProject={pickProject}
                   onFindInProject={onFindInProject}
                   onSearch={onOpenSearch}
@@ -6682,60 +6980,10 @@ export default function App({
           <ApprovalToasts
             notices={hiddenApprovalToasts}
             topOffset={
-              12 +
-              (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0) +
-              (linkedActivityNoticeHeight ? linkedActivityNoticeHeight + 8 : 0)
+              12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)
             }
             onFocusSession={onOpenApprovalSession}
             onApproval={onApproval}
-          />
-          <LinkedWorkItemUpdateNotice
-            card={
-              searchViewOpen || inboxViewOpen || notesViewOpen || settingsOpen
-                ? undefined
-                : sessions.find((session) => session.id === activeTab?.focusedId)
-                    ?.linkedWorkItemUpdateCard
-            }
-            topOffset={12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)}
-            onAcknowledge={() => {
-              const session = sessions.find(
-                (entry) => entry.id === activeTab?.focusedId,
-              );
-              const updatedAt = session?.linkedWorkItemUpdateCard?.updatedAt;
-              if (session && updatedAt != null) {
-                markLinkedSessionUpdateSeen(session.id, updatedAt);
-              }
-            }}
-            onDismiss={() => {
-              if (activeTab?.focusedId) {
-                onLinkedWorkItemUpdateCardDismiss(activeTab.focusedId);
-              }
-            }}
-            onOpenDiscussion={() => {
-              const session = sessions.find(
-                (entry) => entry.id === activeTab?.focusedId,
-              );
-              if (session?.linkedWorkItem) {
-                onOpenLinkedWorkItem(session.linkedWorkItem);
-              }
-            }}
-            onAddToChat={(text) => {
-              requestAddToChat(text, "plain");
-              setComposerFocused(true);
-            }}
-            onArchiveSession={() => {
-              const sessionId = activeTab?.focusedId;
-              return sessionId
-                ? onArchiveHistorySession(sessionId, true)
-                : Promise.resolve(false);
-            }}
-            onDeleteSession={() => {
-              const sessionId = activeTab?.focusedId;
-              return sessionId
-                ? onDeleteHistorySession(sessionId)
-                : Promise.resolve(false);
-            }}
-            onHeightChange={setLinkedActivityNoticeHeight}
           />
           <ReminderNotices
             reminders={sessionReminders.due}
@@ -6758,7 +7006,6 @@ export default function App({
     </OrchestrationActions.Provider>
   );
 }
-
 function conversationTitle(session: Session): string {
   const title = sessionDisplayTitle(session.title, session.harness);
   return title === "New session" ? "" : title;

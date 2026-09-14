@@ -76,6 +76,34 @@ describe("AgentTranscript collapsed work", () => {
     card.orchestration!.status = "planning";
     expect(render(blocks)).not.toContain("data-orchestration-review");
   });
+  it("renders a standalone user URL as a compact link preview", () => {
+    const markup = render([
+      { id: "user", role: "user", text: "https://www.example.com/docs" },
+    ]);
+
+    expect(markup).toContain("data-user-link-preview");
+    expect(markup).toContain("example.com/docs");
+    expect(markup).toContain("Open example.com");
+    expect(markup).toContain("user-link-preview-title");
+    expect(markup).toContain("user-message-with-link");
+    expect(markup).not.toContain("text-ellipsis");
+  });
+
+  it("keeps surrounding prose and previews its first URL", () => {
+    const markup = render([
+      {
+        id: "user",
+        role: "user",
+        text: "Please check https://example.com/docs",
+      },
+    ]);
+
+    expect(markup).toContain("data-user-link-preview");
+    expect(markup).toContain("Please check");
+    expect(markup).toContain("Open example.com");
+    expect(markup).not.toContain("Please check https://example.com/docs");
+  });
+
   it("keeps each completed turn's recorded model label", () => {
     const blocks: Block[] = [
       {
@@ -374,5 +402,26 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup.indexOf("Changed files")).toBeLessThan(
       markup.indexOf('aria-label="Worked for 1s"'),
     );
+  });
+
+  it("renders an advisor interjection between answered work phases", () => {
+    const markup = render([
+      tool("before"),
+      { id: "answer", role: "assistant", text: "Complete answer." },
+      {
+        id: "advisor",
+        role: "system",
+        text: "Check the fallback.",
+        interjection: { customType: "advisor", severity: "concern" },
+      },
+      tool("after"),
+      { id: "ack", role: "assistant", text: "Checked." },
+    ]);
+
+    expect(markup).toContain("Complete answer.");
+    expect(markup).toContain('aria-label="Interjection: Advisor"');
+    expect(markup).toContain("Concern");
+    expect(markup).toContain("Check the fallback.");
+    expect(markup).toContain("Checked.");
   });
 });

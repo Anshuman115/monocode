@@ -119,6 +119,7 @@ import { useGitFileStatuses } from "../hooks/useGitFileStatuses";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useSortable } from "../hooks/useSortable";
+import { useAnimatedReorder } from "../hooks/useAnimatedReorder";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { normalizeHex } from "../lib/colorUtils";
 import {
@@ -510,11 +511,14 @@ function SidebarComponent({
   const sessionListKey = `${cwd}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
   const sessionHarnesses = harnessesInSessions(sessions);
   const narrowedByUser = searchNarrowed || filtersActive;
-  const sortable = useSortable(tabOrder, (ids) => {
-    const next = ids as SidebarTab[];
+  const visibleTabs = tabOrder.filter((itemId) => itemId !== "inbox");
+  const sortable = useAnimatedReorder(visibleTabs, (ids) => {
+    let index = 0;
+    const next = tabOrder.map((itemId) =>
+      itemId === "inbox" ? itemId : ids[index++],
+    );
     setTabOrder(next);
     saveSidebarTabOrder(next);
-    if (next[0]) onTabChange(next[0]);
   });
   const visibleFolderIds = sessionListEntries.flatMap((entry) =>
     entry.kind === "folder" ? [entry.folder.id] : [],
@@ -531,8 +535,6 @@ function SidebarComponent({
     },
     { axis: "y" },
   );
-  const visibleTabs = tabOrder.filter((itemId) => itemId !== "inbox");
-  const canDragTabs = visibleTabs.length > 1;
   const showProjectRail = Boolean(onSelectProject && onOpenProject);
   // Settings live in the rail slot, so they keep it visible even when the
   // project rail itself is collapsed.
@@ -1089,39 +1091,19 @@ function SidebarComponent({
   const changeDeletions = changeStats?.deletions ?? 0;
   const hasChangeStats = changeAdditions > 0 || changeDeletions > 0;
 
-  const workspaceTabItems = visibleTabs.map((itemId, index) => {
+  const workspaceTabItems = visibleTabs.map((itemId) => {
     const active = tab === itemId;
     const isChangesTab = itemId === "changes";
-    const draggingTab = sortable.draggingId === itemId;
-    const showStart =
-      sortable.draggingId &&
-      sortable.toIndex === index &&
-      sortable.fromIndex !== null &&
-      sortable.toIndex < sortable.fromIndex;
-    const showEnd =
-      sortable.draggingId &&
-      sortable.toIndex === index &&
-      sortable.fromIndex !== null &&
-      sortable.toIndex > sortable.fromIndex;
     return (
       <div
         key={itemId}
         ref={(el) => sortable.setItemRef(itemId, el)}
-        className={`relative flex min-w-0 flex-1 touch-none items-stretch ${
-          draggingTab ? "opacity-40" : ""
-        } ${canDragTabs ? "cursor-grab active:cursor-grabbing" : ""}`}
+        className="reorder-item workspace-tab relative flex min-w-0 flex-1 touch-none items-stretch"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
-          onTabPick(itemId);
           sortable.onItemPointerDown(itemId, event);
         }}
       >
-        {showStart ? (
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-accent" />
-        ) : null}
-        {showEnd ? (
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-0.5 bg-accent" />
-        ) : null}
         <button
           type="button"
           role="tab"
@@ -1145,10 +1127,8 @@ function SidebarComponent({
             onTabPick(itemId);
           }}
           className={`flex h-6 min-w-0 flex-1 items-center justify-center self-center rounded-md px-2 text-[12px] leading-none ${
-            active
-              ? "bg-content/10 text-content"
-              : "text-content/50 hover:bg-content/5 hover:text-content"
-          } ${canDragTabs ? "cursor-grab active:cursor-grabbing" : ""}`}
+            active ? "bg-content/10 text-content" : "text-content/50"
+          }`}
         >
           {isChangesTab && hasChangeStats ? (
             <DiffStat additions={changeAdditions} deletions={changeDeletions} />
@@ -1165,7 +1145,7 @@ function SidebarComponent({
   const sidebarContent = (
     <aside
       ref={resize.setPaneRef}
-      className="sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
+      className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
     >
       {railVisible ? (
         <>
@@ -1475,7 +1455,6 @@ function SidebarComponent({
                                   "folder",
                                   entry.folder.id,
                                 )}
-                                canReorder={visibleFolderIds.length > 1}
                                 busy={entry.sessions.some((session) =>
                                   busySessionIds.has(session.id),
                                 )}
@@ -1742,6 +1721,7 @@ function SidebarProjectPicker({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [groupLabels] = useState(loadTabGroupLabels);
   const [groupColors] = useState(loadTabGroupColors);
   const [groupCustomColors] = useState(loadTabGroupCustomColors);
@@ -1783,6 +1763,15 @@ function SidebarProjectPicker({
     setQuery("");
     setActive(0);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    searchRef.current?.focus();
+    const frame = window.requestAnimationFrame(() => {
+      searchRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
   const pickProject = (path: string) => {
     closePicker();
@@ -1882,7 +1871,7 @@ function SidebarProjectPicker({
               <Search className="size-4 shrink-0" strokeWidth={1.75} />
               <span className="sr-only">Search projects</span>
               <input
-                autoFocus
+                ref={searchRef}
                 value={query}
                 onChange={(event) => {
                   setQuery(event.target.value);
@@ -2132,7 +2121,6 @@ function FolderRow({
   sessions,
   expanded,
   dropTarget,
-  canReorder = false,
   busy,
   done,
   needsApproval,
@@ -2146,7 +2134,6 @@ function FolderRow({
   sessions: SessionSummary[];
   expanded: boolean;
   dropTarget: boolean;
-  canReorder?: boolean;
   busy: boolean;
   done: boolean;
   needsApproval: boolean;
@@ -2175,7 +2162,7 @@ function FolderRow({
       }}
       className={`group relative flex w-full touch-none items-center gap-1.5 px-2 h-8 text-left ${
         expanded ? "rounded-md" : ""
-      } ${canReorder ? "cursor-grab active:cursor-grabbing" : ""} ${
+      } ${
         dropTarget
           ? "text-content"
           : expanded
@@ -2314,6 +2301,8 @@ function FolderRenameRow({
   );
 }
 
+const SESSION_PREFETCH_DELAY_MS = 120;
+
 function SessionCard({
   session,
   isActive,
@@ -2358,6 +2347,7 @@ function SessionCard({
   onDelete?: () => void;
 }) {
   const skipClickUntil = useRef(0);
+  const prefetchTimer = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const orchestration = session.orchestration;
   const title = sessionDisplayTitle(session.title, session.harness);
@@ -2466,6 +2456,10 @@ function SessionCard({
     if (event.button !== 0) return;
     // Warm the transcript during the press. Opening stays on click so a
     // drag-to-pane gesture does not switch conversations.
+    if (prefetchTimer.current != null) {
+      window.clearTimeout(prefetchTimer.current);
+      prefetchTimer.current = null;
+    }
     onPrefetch?.(session.id);
     if (!onPlaceOnPane && !onListDrop) return;
     const handle = event.currentTarget;
@@ -2565,6 +2559,30 @@ function SessionCard({
     window.addEventListener("keydown", onKey);
   };
 
+  useEffect(
+    () => () => {
+      if (prefetchTimer.current != null) {
+        window.clearTimeout(prefetchTimer.current);
+        prefetchTimer.current = null;
+      }
+    },
+    [onPrefetch, session.id],
+  );
+
+  const schedulePrefetch = () => {
+    if (!onPrefetch || prefetchTimer.current != null) return;
+    prefetchTimer.current = window.setTimeout(() => {
+      prefetchTimer.current = null;
+      onPrefetch(session.id);
+    }, SESSION_PREFETCH_DELAY_MS);
+  };
+
+  const cancelScheduledPrefetch = () => {
+    if (prefetchTimer.current == null) return;
+    window.clearTimeout(prefetchTimer.current);
+    prefetchTimer.current = null;
+  };
+
   const archiveLabel = session.archived ? "Unarchive" : "Archive";
   const cardPaddingY = orchestration
     ? "py-2.5"
@@ -2585,7 +2603,8 @@ function SessionCard({
         data-session-selected={isSelected ? "true" : undefined}
         data-tauri-drag-region="false"
         onPointerDown={onPointerDown}
-        onPointerEnter={() => onPrefetch?.(session.id)}
+        onPointerEnter={schedulePrefetch}
+        onPointerLeave={cancelScheduledPrefetch}
         onClick={(event) => {
           if (performance.now() < skipClickUntil.current) return;
           onSelect(session.id, event);
