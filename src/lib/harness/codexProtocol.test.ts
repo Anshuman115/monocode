@@ -21,6 +21,21 @@ describe("runtimeModeToCodexConfig", () => {
     });
   });
 
+  it("opens loopback for a lead, since every sandbox denies network by default", () => {
+    // Without this an orchestration lead cannot reach its own control CLI.
+    for (const mode of ["supervised", "auto-accept-edits", "auto"] as const)
+      expect(
+        runtimeModeToCodexConfig(mode, true).sandboxPolicy,
+      ).toMatchObject({ networkAccess: true });
+    // Ordinary sessions keep the default, and full access needs no flag.
+    expect(runtimeModeToCodexConfig("auto").sandboxPolicy).not.toHaveProperty(
+      "networkAccess",
+    );
+    expect(runtimeModeToCodexConfig("full-access", true).sandboxPolicy).toEqual({
+      type: "dangerFullAccess",
+    });
+  });
+
   it("maps auto-accept-edits to workspace-write with user reviewer", () => {
     expect(runtimeModeToCodexConfig("auto-accept-edits")).toMatchObject({
       approvalPolicy: "on-request",
@@ -36,6 +51,45 @@ describe("runtimeModeToCodexConfig", () => {
       approvalsReviewer: "auto_review",
       sandboxPolicy: { type: "workspaceWrite" },
     });
+  });
+
+  it("opens the sandbox network only for a lead, which needs the control socket", () => {
+    // Both sandboxed policies default networkAccess to false, which denies
+    // loopback too, so the control CLI cannot reach MonoCode without this.
+    for (const mode of ["supervised", "auto-accept-edits", "auto"] as const) {
+      expect(runtimeModeToCodexConfig(mode).sandboxPolicy).not.toHaveProperty(
+        "networkAccess",
+      );
+      expect(runtimeModeToCodexConfig(mode, true).sandboxPolicy).toMatchObject({
+        networkAccess: true,
+      });
+    }
+    // full-access already permits it, and its policy takes no such field.
+    expect(runtimeModeToCodexConfig("full-access", true).sandboxPolicy).toEqual({
+      type: "dangerFullAccess",
+    });
+  });
+
+  it("carries the lead's network grant onto the turn, including a plan turn", () => {
+    expect(
+      buildTurnStartParams({
+        threadId: "t",
+        runtimeMode: "auto",
+        controlsAgents: true,
+      }).sandboxPolicy,
+    ).toMatchObject({ type: "workspaceWrite", networkAccess: true });
+    expect(
+      buildTurnStartParams({
+        threadId: "t",
+        runtimeMode: "auto",
+        controlsAgents: true,
+        intent: "plan",
+      }).sandboxPolicy,
+    ).toMatchObject({ type: "readOnly", networkAccess: true });
+    expect(
+      buildTurnStartParams({ threadId: "t", runtimeMode: "auto" })
+        .sandboxPolicy,
+    ).not.toHaveProperty("networkAccess");
   });
 
   it("allows explicit escalation requests in full-access", () => {

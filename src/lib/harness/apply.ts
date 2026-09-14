@@ -354,12 +354,14 @@ function lastMatchingBlock(
 type UserTurnExtra = {
   secondOpinion?: Block["secondOpinion"];
   noteCard?: Block["noteCard"];
+  internal?: boolean;
 };
 
 function userTurnFields(extra?: UserTurnExtra) {
   return {
     ...(extra?.secondOpinion ? { secondOpinion: extra.secondOpinion } : {}),
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
+    ...(extra?.internal ? { internal: true } : {}),
   };
 }
 
@@ -521,6 +523,16 @@ export function promoteLastAssistantToPlan(
 
 function stopBlockProgress(block: Block): Block {
   let stopped = block.streaming ? { ...block, streaming: false } : block;
+  if (stopped.orchestration?.status === "planning") {
+    stopped = {
+      ...stopped,
+      orchestration: {
+        ...stopped.orchestration,
+        status: "invalid",
+        error: "Planning was interrupted. Generate the assignments again.",
+      },
+    };
+  }
   if (stopped.role === "plan" && stopped.plan?.status === "streaming") {
     stopped = {
       ...stopped,

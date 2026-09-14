@@ -2238,6 +2238,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "ureq",
  "url",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

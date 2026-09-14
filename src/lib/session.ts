@@ -4,6 +4,7 @@ import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "./githubTasks";
 import type { InboxAskContext } from "./inboxAsk";
 import type { NoteCardMeta, NoteComposerCard } from "./notes";
+import type { OrchestrationProposal } from "./orchestrationPlan";
 import type { LinkedWorkItemUpdateCard } from "./linkedWorkItemActivity";
 import {
   defaultSessionChoice,
@@ -55,7 +56,8 @@ export type TaskListMeta = {
 };
 
 /** One-shot behavior selected in the composer for the next harness turn. */
-export type TurnIntent = "default" | "plan" | "build";
+export type TurnIntent = "default" | "plan" | "build" | "orchestrate";
+export type ComposerTurnOptions = { intent?: TurnIntent };
 
 export type PlanStatus = "streaming" | "ready" | "building" | "built";
 
@@ -232,6 +234,15 @@ export type Block = {
   agentRun?: AgentRunMeta;
   taskList?: TaskListMeta;
   plan?: PlanBlockMeta;
+  orchestration?: OrchestrationProposal;
+  /** Parent conversation for an internal orchestration worker. */
+  orchestrationLeadId?: string;
+  /**
+   * A turn the app wrote on the user's behalf to keep an orchestration moving.
+   * The harness needs it; the transcript hides it, so a run reads as one
+   * conversation rather than the user narrating their own agents.
+   */
+  internal?: boolean;
   handoff?: HandoffMeta;
   secondOpinion?: SecondOpinionMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
@@ -275,6 +286,8 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
 };
 
 export type Session = {
+  /** Internal worker: displayed in its lead's panel rather than a workspace tab. */
+  orchestrationLeadId?: string;
   /** Temporary Inbox conversation: shares the runtime, never saved as a session. */
   inboxAsk?: InboxAskContext;
   id: string;

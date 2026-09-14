@@ -1,3 +1,4 @@
+import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Archive,
@@ -426,7 +427,7 @@ function SidebarComponent({
     sessions,
     openSessions,
     sessionFolders,
-  );
+  ).filter((session) => !session.orchestrationLeadId);
   const visibleSessions = [
     ...filterSessionsByQuery(
       filterSessionsByStatus(
@@ -2348,12 +2349,16 @@ function SessionCard({
   const skipClickUntil = useRef(0);
   const prefetchTimer = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  const orchestration = session.orchestration;
   const title = sessionDisplayTitle(session.title, session.harness);
   const gitLabel = formatGitLabel(session.repo, session.branch);
   const time = formatRelative(session.updatedAt, now);
-  const model = compact
-    ? null
-    : resolveModel(session.harness, session.model).name;
+  // A lead card always shows its model, even compact: it heads a group of
+  // agents that each name theirs, so the row naming none reads as a gap.
+  const model =
+    compact && !orchestration
+      ? null
+      : resolveModel(session.harness, session.model).name;
   const statusClass = needsApproval
     ? "text-amber-400"
     : busy
@@ -2368,7 +2373,7 @@ function SessionCard({
       {needsApproval ? (
         <>
           <CircleAlert className="size-3" strokeWidth={1.75} />
-          <span>Need approval</span>
+          <span>{orchestration ? "Needs input" : "Need approval"}</span>
         </>
       ) : busy ? (
         <>
@@ -2579,16 +2584,18 @@ function SessionCard({
   };
 
   const archiveLabel = session.archived ? "Unarchive" : "Archive";
+  const cardPaddingY = orchestration
+    ? "py-2.5"
+    : compact
+      ? "py-1.5"
+      : "py-2";
 
   return (
     <div className="group relative">
       <div
-        role="button"
-        tabIndex={0}
         title={title}
-        aria-current={isActive ? "true" : undefined}
-        aria-pressed={isSelected}
         data-session-card={session.id}
+        data-orchestration-card={orchestration ? "true" : undefined}
         data-session-selected={isSelected ? "true" : undefined}
         data-tauri-drag-region="false"
         onPointerDown={onPointerDown}
@@ -2599,10 +2606,9 @@ function SessionCard({
           onSelect(session.id, event);
         }}
         onContextMenu={onContextMenu}
-        onKeyDown={onKeyDown}
-        className={`relative border flex w-full cursor-default select-none touch-none flex-col rounded-md px-2.5 text-left ${
-          compact ? "py-1.5" : "py-2"
-        } ${dragging ? "opacity-40" : ""} ${
+        className={`relative border flex w-full cursor-default select-none touch-none flex-col rounded-md px-2.5 text-left ${cardPaddingY} ${
+          dragging ? "opacity-40" : ""
+        } ${
           dropTarget
             ? "text-content border-transparent"
             : isSelected
@@ -2611,50 +2617,71 @@ function SessionCard({
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
                   ? "bg-content/10 text-content border-transparent"
-                  : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
+                  : // A lead rests at the tone others only reach on hover, so
+                    // its card reads as a group even when nothing is selected.
+                    `text-content/80 hover:text-content border-transparent ${
+                      orchestration
+                        ? "bg-content/5 hover:bg-content/10"
+                        : "hover:bg-content/5"
+                    }`
         }`}
       >
         {dropTarget ? (
           <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
         ) : null}
-        {compact ? null : (
-          <span className="relative flex items-center gap-2">
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <HarnessIcon
-                harness={session.harness}
-                className="size-3.5 shrink-0"
-              />
-              <span className="min-w-0 truncate text-[11px] text-content/50">
-                {model}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-current={isActive ? "true" : undefined}
+          aria-pressed={isSelected}
+          data-session-select={session.id}
+          onKeyDown={onKeyDown}
+        >
+          {compact && !orchestration ? null : (
+            <span className="relative flex items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <HarnessIcon
+                  harness={session.harness}
+                  className="size-3.5 shrink-0"
+                />
+                <span className="min-w-0 truncate text-[11px] text-content/50">
+                  {model}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {linkedUpdateDot}
+                {status}
               </span>
             </span>
-            <span className="flex shrink-0 items-center gap-1.5">
-              {linkedUpdateDot}
-              {status}
+          )}
+          <span
+            className={`relative flex min-w-0 items-center gap-1.5 ${
+              compact && !orchestration ? "" : "mt-1"
+            }`}
+          >
+            {session.pinned ? (
+              <Pin
+                className="size-3 shrink-0 text-content/45"
+                strokeWidth={1.75}
+              />
+            ) : null}
+            <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+              {title}
             </span>
+            {compact && !orchestration ? (
+              <span className="flex shrink-0 items-center gap-1.5">
+                {linkedUpdateDot}
+                {status}
+              </span>
+            ) : null}
           </span>
-        )}
-        <span
-          className={`relative flex min-w-0 items-center gap-1.5 ${
-            compact ? "" : "mt-1"
-          }`}
-        >
-          {session.pinned ? (
-            <Pin
-              className="size-3 shrink-0 text-content/45"
-              strokeWidth={1.75}
-            />
-          ) : null}
-          <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
-            {title}
-          </span>
-          {compact ? (
-            <span className="flex shrink-0 items-center gap-1.5">
-              {linkedUpdateDot}
-              {status}
-            </span>
-          ) : null}
-        </span>
+        </div>
+        {orchestration ? (
+          <OrchestrationSidebarAgents
+            leadId={session.id}
+            summary={orchestration}
+          />
+        ) : null}
         <span className="relative mt-1 flex items-center gap-2">
           {gitLabel ? (
             <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
