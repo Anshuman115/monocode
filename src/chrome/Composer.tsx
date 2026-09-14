@@ -1,7 +1,6 @@
 import {
   ArrowUp,
   AiIdea,
-  MessageMultiple,
   Check,
   CornerDownRight,
   FilePlus,
@@ -10,6 +9,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Share,
   Square,
   StickyNote,
   Trash2,
@@ -1454,9 +1454,9 @@ export function Composer({
                     <FilePlus className="mt-0.5 size-4 shrink-0" />
                     <span className="min-w-0">
                       <span className="block text-[13px]">Upload file</span>
-                      <span className="block text-[11px] leading-4 text-content/45">
+                      <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
                         {attachmentsSupported
-                          ? "Attach files or images to this message"
+                          ? "Attach files or images"
                           : `${HARNESS_TITLE[harness]} does not support attachments`}
                       </span>
                     </span>
@@ -1476,8 +1476,8 @@ export function Composer({
                     <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px]">Plan mode</span>
-                      <span className="block text-[11px] leading-4 text-content/45">
-                        Create a plan to review before building
+                      <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                        Review a plan before building
                       </span>
                     </span>
                     {planSelected ? (
@@ -1497,15 +1497,15 @@ export function Composer({
                       }}
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
-                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                      <Share className="mt-0.5 size-4 shrink-0 text-fuchsia-300/65" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px]">Orchestrator</span>
-                        <span className="block text-[11px] leading-4 text-content/45">
-                          Let this agent plan and coordinate the work
+                        <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                          Plan and coordinate agent work
                         </span>
                       </span>
                       {orchestrationSelected && (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-fuchsia-300/80" />
                       )}
                     </button>
                   )}
@@ -1522,9 +1522,9 @@ export function Composer({
                   setOrchestrationSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-[11px] text-yellow-200/90 hover:bg-yellow-300/18"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-fuchsia-400/10 px-1.5 text-[11px] text-fuchsia-200/80 hover:bg-fuchsia-400/15"
               >
-                <MessageMultiple className="size-3.5" />
+                <Share className="size-3.5" />
                 Orchestrator
                 <X className="size-3" />
               </button>
