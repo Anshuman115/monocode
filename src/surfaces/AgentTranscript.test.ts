@@ -25,6 +25,34 @@ function render(
 }
 
 describe("AgentTranscript collapsed work", () => {
+  it("renders a standalone user URL as a compact link preview", () => {
+    const markup = render([
+      { id: "user", role: "user", text: "https://www.example.com/docs" },
+    ]);
+
+    expect(markup).toContain("data-user-link-preview");
+    expect(markup).toContain("example.com/docs");
+    expect(markup).toContain("Open example.com");
+    expect(markup).toContain("user-link-preview-title");
+    expect(markup).toContain("user-message-with-link");
+    expect(markup).not.toContain("text-ellipsis");
+  });
+
+  it("keeps surrounding prose and previews its first URL", () => {
+    const markup = render([
+      {
+        id: "user",
+        role: "user",
+        text: "Please check https://example.com/docs",
+      },
+    ]);
+
+    expect(markup).toContain("data-user-link-preview");
+    expect(markup).toContain("Please check");
+    expect(markup).toContain("Open example.com");
+    expect(markup).not.toContain("Please check https://example.com/docs");
+  });
+
   it("keeps each completed turn's recorded model label", () => {
     const blocks: Block[] = [
       {

@@ -230,6 +230,21 @@ html.chat-background-empty-only
   content-visibility: visible;
 }
 
+.user-message-with-link {
+  display: block;
+}
+
+.user-link-preview {
+  display: inline;
+  white-space: normal;
+}
+
+.user-link-preview-title {
+  display: inline;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /*
  * After a send, the live turn fills the transcript viewport so the prompt sits
  * at the top. Switching tabs keeps this. Closing the tab drops it, so opening
