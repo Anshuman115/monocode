@@ -397,7 +397,14 @@ export function OrchestrationPreview({
             <button
               className={secondary}
               onClick={() =>
-                run.tasks[0] && actions?.open(run.tasks[0].sessionId)
+                actions?.openAgents?.(
+                  run.tasks.map((task) => ({
+                    sessionId: task.sessionId,
+                    leadId: run.leadId,
+                    title: task.title,
+                    harness: task.harness,
+                  })),
+                )
               }
             >
               View agents

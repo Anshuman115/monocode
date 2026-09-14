@@ -425,3 +425,26 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).toContain("Checked.");
   });
 });
+
+describe("worker assignment prompts", () => {
+  it("hides the assignment envelope and keeps the task text", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentTranscript, {
+        managed: true,
+        blocks: [
+          {
+            id: "u1",
+            role: "user",
+            internal: true,
+            text: "Review the current branch against main.\n\n<monocode_assignment>\nYou are a worker managed by a MonoCode lead. Your assigned write scope is: src/App.tsx.\n</monocode_assignment>",
+          },
+          { id: "a1", role: "assistant", text: "Looking now" },
+        ],
+      }),
+    );
+    expect(markup).toContain("Review the current branch against main.");
+    expect(markup).toContain("Looking now");
+    expect(markup).not.toContain("monocode_assignment");
+    expect(markup).not.toContain("You are a worker managed by a MonoCode lead");
+  });
+});

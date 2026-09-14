@@ -168,7 +168,7 @@ export function OrchestrationSidebarAgents({
               </button>
               {/* Indented to the title's column: the icon slot and its gap. */}
               {open && (
-                <div className="space-y-1.5 pb-2 pl-7 pr-2 pt-0.5">
+                <div className="space-y-2 pb-3 pl-6.5 pr-2">
                   <p
                     className="flex min-w-0 items-center gap-1.5 text-[11px] text-content/45"
                     title={`${model} · ${HARNESS_TITLE[task.harness]}`}
@@ -183,20 +183,6 @@ export function OrchestrationSidebarAgents({
                     <p className="text-[11px] text-red-400">{live.error}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-1">
-                    {live && ["queued", "running"].includes(live.status) && (
-                      <button
-                        type="button"
-                        className={solidAction}
-                        disabled={pending}
-                        onClick={() =>
-                          void perform(() =>
-                            orchestrator.cancelTask(leadId, live.id),
-                          )
-                        }
-                      >
-                        Cancel task
-                      </button>
-                    )}
                     {workers.openDetails && (
                       <button
                         type="button"
@@ -212,6 +198,20 @@ export function OrchestrationSidebarAgents({
                         }
                       >
                         See details
+                      </button>
+                    )}
+                    {live && ["queued", "running"].includes(live.status) && (
+                      <button
+                        type="button"
+                        className={solidAction}
+                        disabled={pending}
+                        onClick={() =>
+                          void perform(() =>
+                            orchestrator.cancelTask(leadId, live.id),
+                          )
+                        }
+                      >
+                        Cancel task
                       </button>
                     )}
                   </div>

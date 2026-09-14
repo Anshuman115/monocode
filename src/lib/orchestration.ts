@@ -111,6 +111,20 @@ export const sameCheckout = (a: string, b: string) =>
   b.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+
+const ASSIGNMENT_BLOCK =
+  /(?:\r?\n[ \t]*)*<monocode_assignment\b[^>]*>[\s\S]*?<\/monocode_assignment>/gi;
+
+/** Prompt the worker receives, including the envelope the transcript hides. */
+export function workerTurnPrompt(prompt: string, files: string[]): string {
+  return `${prompt}\n\n<monocode_assignment>\nYou are a worker managed by a MonoCode lead. Work in this shared checkout. Your assigned write scope is: ${files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</monocode_assignment>`;
+}
+
+/** Task text a person should see: the assignment envelope stays in the send. */
+export function visibleUserPrompt(text: string): string {
+  return text.replace(ASSIGNMENT_BLOCK, "").trimEnd();
+}
+
 function text(value: unknown, label: string, max = 30_000): string {
   if (typeof value !== "string" || !value.trim())
     throw new Error(`Invalid ${label}: provide a non-empty string`);
@@ -1023,7 +1037,7 @@ export class Orchestrator {
                 ?.status !== "running"
             )
               continue;
-            const prompt = `${task.prompt}\n\n<monocode_assignment>\nYou are a worker managed by a MonoCode lead. Work in this shared checkout. Your assigned write scope is: ${task.files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</monocode_assignment>`;
+            const prompt = workerTurnPrompt(task.prompt, task.files);
             this.host.submit(task.sessionId, prompt, (outcome) => {
               void this.settle(run.leadId, task.id, outcome).catch(
                 console.error,

@@ -18,6 +18,7 @@ import {
 import {
   OrchestrationActions,
   OrchestrationWorkers,
+  type OrchestrationWorkerDetail,
 } from "./chrome/OrchestrationActions";
 import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
@@ -690,10 +691,8 @@ export default function App({
   // Set while the lead's tab is still opening; the agent tab lands on the
   // commit that brings it in.
   const [workerDetailRequest, setWorkerDetailRequest] = useState<{
-    sessionId: string;
     leadId: string;
-    title: string;
-    harness: HarnessId;
+    workers: OrchestrationWorkerDetail[];
   } | null>(null);
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
@@ -5763,27 +5762,32 @@ export default function App({
   }, []);
 
   const confirmingOrchestration = useRef(new Set<string>());
-  const onOpenWorkerDetails = useCallback(
-    (worker: {
-      sessionId: string;
-      leadId: string;
-      title: string;
-      harness: HarnessId;
-    }) => {
-      if (!worker.leadId || worker.leadId === worker.sessionId) return;
-      setInspectedWorkerId(worker.sessionId);
-      // A worker of a finished run is not open any more; the tab reads the
-      // stored transcript once this lands.
-      void ensureOpenSession(worker.sessionId);
-      if (!focusOpenSession(worker.leadId))
-        void onSelectHistorySession(worker.leadId);
-      setWorkerDetailRequest(worker);
+  const queueWorkerPanes = useCallback(
+    (workers: OrchestrationWorkerDetail[]) => {
+      const list = workers.filter(
+        (worker) => worker.leadId && worker.leadId !== worker.sessionId,
+      );
+      if (!list.length) return;
+      const leadId = list[0].leadId;
+      if (!focusOpenSession(leadId)) void onSelectHistorySession(leadId);
+      // Finished workers are not open; load stored transcripts before the
+      // tabs appear so the pane does not flash the empty state.
+      void Promise.all(
+        list.map((worker) => ensureOpenSession(worker.sessionId)),
+      ).then(() => setWorkerDetailRequest({ leadId, workers: list }));
     },
     [ensureOpenSession, focusOpenSession, onSelectHistorySession],
   );
+  const onOpenWorkerDetails = useCallback(
+    (worker: OrchestrationWorkerDetail) => {
+      setInspectedWorkerId(worker.sessionId);
+      queueWorkerPanes([worker]);
+    },
+    [queueWorkerPanes],
+  );
   useEffect(() => {
     if (!workerDetailRequest) return;
-    const { sessionId, leadId, title, harness } = workerDetailRequest;
+    const { leadId, workers } = workerDetailRequest;
     const tab = tabs.find((entry) => leafIds(entry.layout).includes(leadId));
     if (!tab) {
       // Still opening: this runs again on the commit that lands the lead. If
@@ -5801,11 +5805,24 @@ export default function App({
     const cwd =
       sessionsRef.current.find((entry) => entry.id === leadId)?.cwd ??
       projectCwdRef.current;
-    const file = newAgentTab(title, cwd, { sessionId, leadId, harness });
+    const files = workers.map((worker) =>
+      newAgentTab(worker.title, cwd, {
+        sessionId: worker.sessionId,
+        leadId,
+        harness: worker.harness,
+      }),
+    );
     setTabs((prev) =>
-      prev.map((entry) =>
-        entry.id === tab.id ? openEditorTab(entry, file) : entry,
-      ),
+      prev.map((entry) => {
+        if (entry.id !== tab.id) return entry;
+        const opened = files.reduce(
+          (next, file) => openEditorTab(next, file),
+          entry,
+        );
+        // Leave the first worker focused so View agents lands on the start
+        // of the run rather than the last tab added.
+        return files[0] ? openEditorTab(opened, files[0]) : opened;
+      }),
     );
     setActiveTabId(tab.id);
     setComposerFocused(false);
@@ -5834,6 +5851,7 @@ export default function App({
   const orchestrationActions = useMemo(
     () => ({
       open: onOpenApprovalSession,
+      openAgents: queueWorkerPanes,
       update: (
         leadId: string,
         blockId: string,
@@ -5919,7 +5937,7 @@ export default function App({
         onSubmit(leadId, proposal.request, [], { intent: "orchestrate" });
       },
     }),
-    [onOpenApprovalSession, onSubmit, updateOrchestrationCard],
+    [onOpenApprovalSession, queueWorkerPanes, onSubmit, updateOrchestrationCard],
   );
 
   const onSelectLiveAgent = useCallback(

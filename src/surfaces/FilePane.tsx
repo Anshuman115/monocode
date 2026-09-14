@@ -234,7 +234,8 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
   }
 
   for (const file of next.pane.files) {
-    const sessionId = file.plan?.sessionId;
+    // Plans and agent tabs both read a live session object from this pane.
+    const sessionId = file.plan?.sessionId ?? file.agent?.sessionId;
     if (!sessionId) continue;
     const before = previous.sessions.find(
       (session) => session.id === sessionId,

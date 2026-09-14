@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   Orchestrator,
   scopesOverlap,
+  visibleUserPrompt,
+  workerTurnPrompt,
   type ControlOutcome,
   type OrchestrationHost,
   type OrchestrationRun,
@@ -98,6 +100,16 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("worker assignment prompts", () => {
+  it("keeps the task text and wraps it in the assignment envelope", () => {
+    const sent = workerTurnPrompt("Review the branch.", ["src/App.tsx"]);
+    expect(sent.startsWith("Review the branch.")).toBe(true);
+    expect(sent).toContain("<monocode_assignment>");
+    expect(sent).toContain("src/App.tsx");
+    expect(visibleUserPrompt(sent)).toBe("Review the branch.");
+  });
+});
+
 describe("local orchestration", () => {
   const proposal = (): OrchestrationProposal => ({
     version: 1,
@@ -146,6 +158,14 @@ describe("local orchestration", () => {
     expect(f.tasks()[0].dependsOn).toEqual([f.tasks()[1].id]);
     expect(f.manager.run("lead")?.proposalId).toBe("card");
     expect(f.saved.get("lead")?.tasks).toHaveLength(2);
+    const workerPrompt = vi
+      .mocked(f.host.submit)
+      .mock.calls.find(
+        ([id, prompt]) =>
+          id !== "lead" && String(prompt).includes("<monocode_assignment>"),
+      )?.[1];
+    expect(workerPrompt).toContain("Define the types");
+    expect(workerPrompt).toContain("<monocode_assignment>");
     expect(
       vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
     ).toContain("do not delegate duplicates");

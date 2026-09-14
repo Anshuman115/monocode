@@ -353,6 +353,125 @@ describe("orchestration composer and card", () => {
     expect(container.querySelector("[data-orchestration-review]")).toBeNull();
     expect(container.textContent).not.toContain("Confirm & start");
   });
+  it("opens worker panes from View agents instead of the sidebar", async () => {
+    const open = vi.fn();
+    const openAgents = vi.fn();
+    const task: OrchestrationTask = {
+      id: "engine",
+      sessionId: "worker-a",
+      title: "Audit engine",
+      harness: "codex",
+      model: "codex:two",
+      prompt: "Review the engine",
+      files: [],
+      scopes: [],
+      dependsOn: [],
+      status: "cancelled",
+      accepted: false,
+      delivered: false,
+      result: "",
+    };
+    emptyRuns.push({
+      version: 1,
+      leadId: "lead",
+      cwd: "/repo",
+      status: "stopped",
+      allowedHarnesses: ["codex", "cursor"],
+      proposalId: "card",
+      maxWorkers: 2,
+      cli: "monocode",
+      tasks: [
+        task,
+        {
+          ...task,
+          id: "ui",
+          sessionId: "worker-b",
+          title: "Audit UI",
+          harness: "cursor",
+          model: "cursor:composer-2.5",
+          status: "completed",
+        },
+      ],
+      continuations: 0,
+      requests: {},
+    });
+    await act(async () =>
+      root.render(
+        createElement(
+          OrchestrationActions.Provider,
+          {
+            value: {
+              update: () => {},
+              confirm: async () => {},
+              retry: () => {},
+              open,
+              openAgents,
+            },
+          },
+          createElement(AgentTranscript, {
+            blocks: [
+              {
+                id: "card",
+                role: "plan",
+                text: "",
+                orchestration: {
+                  version: 1,
+                  leadId: "lead",
+                  cwd: "/repo",
+                  request: "Review",
+                  author: {
+                    harness: "codex",
+                    model: "codex:one",
+                    name: "Lead",
+                  },
+                  settings: { choices: [], maxWorkers: 2 },
+                  status: "approved",
+                  title: "Review local-agent orchestration branch",
+                  summary: "",
+                  tasks: [
+                    {
+                      id: "engine",
+                      title: "Audit engine",
+                      prompt: "Review the engine",
+                      harness: "codex",
+                      model: "codex:two",
+                      files: [],
+                      dependsOn: [],
+                    },
+                    {
+                      id: "ui",
+                      title: "Audit UI",
+                      prompt: "Review the UI",
+                      harness: "cursor",
+                      model: "cursor:composer-2.5",
+                      files: [],
+                      dependsOn: [],
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    await click(button("View agents"));
+    expect(open).not.toHaveBeenCalled();
+    expect(openAgents).toHaveBeenCalledWith([
+      {
+        sessionId: "worker-a",
+        leadId: "lead",
+        title: "Audit engine",
+        harness: "codex",
+      },
+      {
+        sessionId: "worker-b",
+        leadId: "lead",
+        title: "Audit UI",
+        harness: "cursor",
+      },
+    ]);
+  });
   it("gives the lead's transcript and composer the whole pane", async () => {
     const lead = {
       ...newSession("codex", "/repo", "codex:one"),
