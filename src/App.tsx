@@ -223,6 +223,7 @@ import {
 import {
   applyPlaceSessionOnPane,
   filterTabsForProject,
+  findOpenSessionTab,
   planWorkspaceTabClose,
   workspaceTabCwd,
   focusedWorkspaceTabCwd,
@@ -271,6 +272,7 @@ import {
   upsertSession,
   type SessionSummary,
 } from "./lib/sessionStore";
+import { rememberLoadedSession } from "./lib/sessionCache";
 import { syncDockBadge } from "./lib/dockBadge";
 import { liveAgentsFromSessions } from "./lib/liveAgents";
 import { hiddenApprovalNotices } from "./lib/approvalToast";
@@ -778,6 +780,11 @@ export default function App({
   const observedSessions = useRef(new Map<string, Session>());
   const pendingPersist = useRef(new Map<string, Session>());
   const removingSessionIds = useRef(new Set<string>());
+  const loadedSessionCache = useRef(new Map<string, Session>());
+  const sessionLoads = useRef(new Map<string, Promise<Session | null>>());
+  const sessionLoadEpochs = useRef(new Map<string, number>());
+  const openingSessionIds = useRef(new Set<string>());
+  const activeSessionPrefetch = useRef<Promise<Session | null> | null>(null);
   // Tokens arrive many times per frame; apply them once so React/markdown aren't
   // recomputed for every delta.
   const harnessQueued = useRef(new Map<string, HarnessEvent[]>());
@@ -1378,16 +1385,24 @@ export default function App({
     for (const session of sessions) {
       if (session.inboxAsk) visibleIds.add(session.id);
     }
+    for (const sessionId of visibleIds) {
+      openingSessionIds.current.delete(sessionId);
+      loadedSessionCache.current.delete(sessionId);
+    }
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
       (session) =>
         !visibleIds.has(session.id) &&
         !session.busy &&
+        !openingSessionIds.current.has(session.id) &&
         !(keepUnseen && unseenFinishedRef.current.has(session.id)),
     );
     if (idleDetached.length === 0) return;
     for (const session of idleDetached) {
       if (skipForgetSessionIds.current.has(session.id)) continue;
+      if (shouldPersistSession(session)) {
+        rememberLoadedSession(loadedSessionCache.current, session);
+      }
       persistSession(session);
       for (const harness of sessionChildHarnesses(session)) {
         void forgetHarnessSession(harness, session.id);
@@ -1398,6 +1413,7 @@ export default function App({
         (session) =>
           visibleIds.has(session.id) ||
           session.busy ||
+          openingSessionIds.current.has(session.id) ||
           (keepUnseen && unseenFinishedRef.current.has(session.id)) ||
           skipForgetSessionIds.current.has(session.id),
       ),
@@ -2684,10 +2700,13 @@ export default function App({
   );
 
   const focusOpenSession = useCallback((sessionId: string) => {
-    const tab = tabsRef.current.find((entry) =>
-      leafIds(entry.layout).includes(sessionId),
+    const tab = findOpenSessionTab(
+      tabsRef.current,
+      sessionsRef.current,
+      sessionId,
     );
     if (!tab) return false;
+    loadedSessionCache.current.delete(sessionId);
     setActiveTabId(tab.id);
     setTabs((prev) =>
       prev.map((entry) =>
@@ -2740,6 +2759,54 @@ export default function App({
     return true;
   }, []);
 
+  const invalidateLoadedSession = useCallback((sessionId: string) => {
+    openingSessionIds.current.delete(sessionId);
+    loadedSessionCache.current.delete(sessionId);
+    sessionLoads.current.delete(sessionId);
+    sessionLoadEpochs.current.set(
+      sessionId,
+      (sessionLoadEpochs.current.get(sessionId) ?? 0) + 1,
+    );
+  }, []);
+
+  const loadStoredSession = useCallback(
+    (sessionId: string): Promise<Session | null> => {
+      const cached = loadedSessionCache.current.get(sessionId);
+      if (cached) {
+        // The cache owns closed sessions only. Transfer this reference into
+        // live state instead of retaining a stale duplicate while it changes.
+        loadedSessionCache.current.delete(sessionId);
+        return Promise.resolve(cached);
+      }
+
+      const pending = sessionLoads.current.get(sessionId);
+      if (pending) return pending;
+
+      const epoch = sessionLoadEpochs.current.get(sessionId) ?? 0;
+      const loading = getSession(sessionId)
+        .then((loaded) => {
+          if (
+            !loaded ||
+            removingSessionIds.current.has(sessionId) ||
+            (sessionLoadEpochs.current.get(sessionId) ?? 0) !== epoch
+          ) {
+            return null;
+          }
+          const restored = restoreSessionCheckout(loaded);
+          return restored;
+        })
+        .catch(() => null);
+      sessionLoads.current.set(sessionId, loading);
+      void loading.then(() => {
+        if (sessionLoads.current.get(sessionId) === loading) {
+          sessionLoads.current.delete(sessionId);
+        }
+      });
+      return loading;
+    },
+    [],
+  );
+
   const ensureOpenSession = useCallback(
     async (sessionId: string): Promise<Session | null> => {
       const open = sessionsRef.current.find(
@@ -2747,12 +2814,18 @@ export default function App({
       );
       if (open) return open;
 
-      const loaded = await getSession(sessionId).catch(() => null);
-      if (!loaded) {
+      openingSessionIds.current.add(sessionId);
+      const restored = await loadStoredSession(sessionId);
+      if (!restored || removingSessionIds.current.has(sessionId)) {
+        openingSessionIds.current.delete(sessionId);
         void refreshHistory(sidebarCwd);
         return null;
       }
-      const restored = await restoreSessionCheckout(loaded);
+      loadedSessionCache.current.delete(sessionId);
+      const appeared = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (appeared) return appeared;
       if (restored.providerSessionId && isLiveHarness(restored.harness)) {
         bindHarnessSession(
           restored.harness,
@@ -2769,7 +2842,36 @@ export default function App({
       }
       return restored;
     },
-    [refreshHistory, sidebarCwd],
+    [loadStoredSession, refreshHistory, sidebarCwd],
+  );
+
+  const onPrefetchHistorySession = useCallback(
+    (sessionId: string) => {
+      if (
+        removingSessionIds.current.has(sessionId) ||
+        sessionsRef.current.some((session) => session.id === sessionId) ||
+        loadedSessionCache.current.has(sessionId) ||
+        sessionLoads.current.has(sessionId) ||
+        activeSessionPrefetch.current
+      ) {
+        return;
+      }
+      const loading = loadStoredSession(sessionId);
+      activeSessionPrefetch.current = loading;
+      void loading.then((loaded) => {
+        if (
+          loaded &&
+          !removingSessionIds.current.has(sessionId) &&
+          !sessionsRef.current.some((session) => session.id === sessionId)
+        ) {
+          rememberLoadedSession(loadedSessionCache.current, loaded);
+        }
+        if (activeSessionPrefetch.current === loading) {
+          activeSessionPrefetch.current = null;
+        }
+      });
+    },
+    [loadStoredSession],
   );
 
   const revealLinkedSessionUpdate = useCallback(
@@ -2965,6 +3067,13 @@ export default function App({
       }
       const session = await ensureOpenSession(sessionId);
       if (!session || session.inboxAsk) return;
+      // A previous race may have left this tab pointing at a parked session.
+      // Once the session is restored, reuse that tab instead of creating a
+      // duplicate and leave the broken pane behind.
+      if (focusOpenSession(sessionId)) {
+        if (linkedUpdate) revealLinkedSessionUpdate(sessionId, linkedUpdate);
+        return;
+      }
       if (replaceBlankPaneWithSession(session)) {
         if (linkedUpdate) revealLinkedSessionUpdate(sessionId, linkedUpdate);
         return;
@@ -3101,6 +3210,7 @@ export default function App({
     async (sessionId: string, displayTitle: string) => {
       const trimmed = displayTitle.trim();
       if (!trimmed) return;
+      invalidateLoadedSession(sessionId);
 
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
@@ -3111,6 +3221,7 @@ export default function App({
         setSessions((prev) =>
           prev.map((session) => (session.id === sessionId ? updated : session)),
         );
+        loadedSessionCache.current.delete(sessionId);
         persistSession(updated);
       } else {
         const restored = await getSession(sessionId).catch(() => null);
@@ -3122,12 +3233,16 @@ export default function App({
           ...restored,
           title: formatSessionTitle(restored.harness, trimmed),
         };
-        await upsertSession(updated).catch(() => undefined);
-        lastPersisted.current.set(sessionId, persistFingerprint(updated));
+        const saved = await upsertSession(updated).catch(() => null);
+        if (saved) {
+          const cached = restoreSessionCheckout(updated);
+          rememberLoadedSession(loadedSessionCache.current, cached);
+          lastPersisted.current.set(sessionId, persistFingerprint(updated));
+        }
       }
       void refreshHistory(sidebarCwd);
     },
-    [persistSession, refreshHistory, sidebarCwd],
+    [invalidateLoadedSession, persistSession, refreshHistory, sidebarCwd],
   );
 
   const onRemoveHistorySession = useCallback(
@@ -3153,6 +3268,7 @@ export default function App({
         return false;
 
       removingSessionIds.current.add(sessionId);
+      invalidateLoadedSession(sessionId);
       pendingPersist.current.delete(sessionId);
       let savedSummary: SessionSummary | undefined;
       try {
@@ -3249,6 +3365,9 @@ export default function App({
               ),
             );
             if (mode === "archive") {
+              if (latest && shouldPersistSession(latest)) {
+                rememberLoadedSession(loadedSessionCache.current, latest);
+              }
               const archived =
                 savedSummary ??
                 summary ??
@@ -3280,6 +3399,7 @@ export default function App({
     [
       activateTab,
       history,
+      invalidateLoadedSession,
       refreshHistory,
       sidebarCwd,
       stopSessionForRemoval,
@@ -3629,6 +3749,13 @@ export default function App({
       );
 
       if (options.purgeData) {
+        const cachedOrLoading = new Set([
+          ...loadedSessionCache.current.keys(),
+          ...sessionLoads.current.keys(),
+        ]);
+        for (const sessionId of cachedOrLoading) {
+          invalidateLoadedSession(sessionId);
+        }
         for (const session of projectSessions) {
           pendingPersist.current.delete(session.id);
           if (session.busy) {
@@ -3649,6 +3776,9 @@ export default function App({
       } else {
         for (const session of projectSessions) {
           if (session.busy) continue;
+          if (shouldPersistSession(session)) {
+            rememberLoadedSession(loadedSessionCache.current, session);
+          }
           persistSession(session);
           pendingPersist.current.delete(session.id);
           for (const id of sessionChildHarnesses(session)) {
@@ -3710,7 +3840,7 @@ export default function App({
         }
       }
     },
-    [activeTabId, onSelectProject, persistSession],
+    [activeTabId, invalidateLoadedSession, onSelectProject, persistSession],
   );
 
   const onRestoreProject = useCallback(
@@ -5728,6 +5858,7 @@ export default function App({
         status={historyFailed ? "error" : "idle"}
         pending={historyPending}
         onSelectSession={onSelectHistorySession}
+        onPrefetchSession={onPrefetchHistorySession}
         onSessionNavigationOrder={onSessionNavigationOrder}
         onPlaceSessionOnPane={onPlaceSessionOnPane}
         onRenameSession={onRenameHistorySession}

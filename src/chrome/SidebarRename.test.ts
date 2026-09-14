@@ -124,6 +124,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   localStorage.clear();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -168,6 +169,37 @@ describe("sidebar session rename", () => {
       "session-1",
       "Keyboard rename",
     );
+  });
+
+  it("prefetches after a deliberate hover and immediately on press", () => {
+    vi.useFakeTimers();
+    props.onPrefetchSession = vi.fn();
+    act(() => render());
+
+    act(() => {
+      card().dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      vi.advanceTimersByTime(119);
+    });
+    expect(props.onPrefetchSession).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(props.onPrefetchSession).toHaveBeenCalledExactlyOnceWith(
+      "session-1",
+    );
+
+    act(() => {
+      card().dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      card().dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));
+      vi.advanceTimersByTime(120);
+    });
+    expect(props.onPrefetchSession).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      card().dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(props.onPrefetchSession).toHaveBeenCalledTimes(2);
   });
 
   it("cancels with Escape while the agent is working", () => {
