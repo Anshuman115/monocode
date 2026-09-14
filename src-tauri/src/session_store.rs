@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const MIGRATION_V1: &str = r#"
@@ -1211,8 +1211,114 @@ fn optional_json(raw: Option<String>) -> Option<Value> {
 }
 
 fn delete_session(conn: &Connection, session_id: &str) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
-    Ok(())
+    let tx = conn.unchecked_transaction()?;
+    let parent = worker_parent(&tx, session_id)?;
+    // Ownership is also carried in transcripts for older clients. Release
+    // that metadata along with the index so reopening a worker stays detached.
+    let workers = tx.prepare("SELECT id, blocks_json FROM sessions WHERE id IN (SELECT session_id FROM orchestration_workers WHERE lead_id = ?1)")?
+        .query_map([session_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (id, raw) in workers {
+        let mut blocks: Value = serde_json::from_str(&raw).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+        })?;
+        if let Some(blocks) = blocks.as_array_mut() {
+            for block in blocks {
+                if block["orchestrationLeadId"] == session_id {
+                    if let Some(block) = block.as_object_mut() {
+                        block.remove("orchestrationLeadId");
+                    }
+                }
+            }
+        }
+        tx.execute(
+            "UPDATE sessions SET blocks_json = ?1 WHERE id = ?2",
+            params![blocks.to_string(), id],
+        )?;
+    }
+    tx.execute(
+        "DELETE FROM orchestration_runs WHERE lead_id = ?1",
+        [session_id],
+    )?;
+    tx.execute(
+        "DELETE FROM orchestration_sidebar WHERE lead_id = ?1",
+        [session_id],
+    )?;
+    if let Some(parent) = parent.filter(|id| id != session_id) {
+        let raw: Option<String> = tx
+            .query_row(
+                "SELECT state FROM orchestration_runs WHERE lead_id = ?1",
+                [&parent],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(raw) = raw {
+            let mut run: Value = serde_json::from_str(&raw).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
+            let mut removed = false;
+            if let Some(tasks) = run["tasks"].as_array_mut() {
+                let ids: Vec<String> = tasks
+                    .iter()
+                    .filter(|task| task["sessionId"] == session_id)
+                    .filter_map(|task| task["id"].as_str().map(str::to_string))
+                    .collect();
+                let before = tasks.len();
+                tasks.retain(|task| task["sessionId"] != session_id);
+                removed = before != tasks.len();
+                if removed {
+                    for task in tasks {
+                        if let Some(deps) = task["dependsOn"].as_array_mut() {
+                            deps.retain(|dep| !ids.iter().any(|id| dep == id));
+                        }
+                        // Removing a prerequisite must not release queued work.
+                        // The app stops the run before deleting any current member.
+                        if matches!(
+                            task["status"].as_str(),
+                            Some("queued" | "running" | "cancelling")
+                        ) {
+                            task["status"] = json!("cancelled");
+                            task["accepted"] = json!(false);
+                            task["delivered"] = json!(true);
+                        }
+                    }
+                }
+            }
+            if removed {
+                if matches!(run["status"].as_str(), Some("active" | "paused")) {
+                    run["status"] = json!("stopped");
+                    run["error"] =
+                        json!("A worker conversation was deleted. Start a new run to continue.");
+                }
+                run["requests"] = json!({});
+                tx.execute(
+                    "UPDATE orchestration_runs SET state = ?1 WHERE lead_id = ?2",
+                    params![run.to_string(), parent],
+                )?;
+                index_orchestration(&tx, &parent, &run)?;
+            }
+        }
+        // Also handle summaries left by an older client without a run record.
+        if let Some(mut summary) = orchestration_summary(&tx, &parent)? {
+            if let Some(tasks) = summary["tasks"].as_array_mut() {
+                tasks.retain(|task| task["sessionId"] != session_id);
+            }
+            tx.execute(
+                "UPDATE orchestration_sidebar SET summary = ?1 WHERE lead_id = ?2",
+                params![summary.to_string(), parent],
+            )?;
+        }
+    }
+    tx.execute(
+        "DELETE FROM orchestration_workers WHERE session_id = ?1 OR lead_id = ?1",
+        [session_id],
+    )?;
+    tx.execute("DELETE FROM sessions WHERE id = ?1", [session_id])?;
+    tx.commit()
 }
 
 fn set_archived(conn: &Connection, session_id: &str, archived: bool) -> rusqlite::Result<()> {
@@ -1754,6 +1860,137 @@ mod tests {
         delete_session(&conn, "s1").unwrap();
         assert!(get_session(&conn, "s1").unwrap().is_none());
         assert!(list_by_project(&conn, "/tmp/a").unwrap().is_empty());
+    }
+
+    #[test]
+    fn deleting_a_lead_releases_current_and_earlier_workers() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        for id in ["lead", "earlier", "current", "other-lead", "other-worker"] {
+            let mut session = sample(id, "/tmp/a", id);
+            session.linked_work_item = Some(json!({"kind": "pr", "number": 1}));
+            if ["earlier", "current"].contains(&id) {
+                session.blocks = json!([{"id":"u","role":"user","text":"Keep this transcript","orchestrationLeadId":"lead"}]);
+            }
+            upsert_session(&conn, &session).unwrap();
+        }
+        save_orchestration(
+            &conn,
+            "lead",
+            &json!({"status":"stopped","tasks":[{"id":"task","sessionId":"current"}]}),
+        )
+        .unwrap();
+        let other =
+            json!({"status":"active","tasks":[{"id":"other-task","sessionId":"other-worker"}]});
+        save_orchestration(&conn, "other-lead", &other).unwrap();
+        delete_session(&conn, "lead").unwrap();
+
+        for id in ["earlier", "current"] {
+            let worker = get_session(&conn, id).unwrap().unwrap();
+            assert!(worker.orchestration_lead_id.is_none());
+            assert!(worker.blocks[0].get("orchestrationLeadId").is_none());
+            assert_eq!(worker.blocks[0]["text"], "Keep this transcript");
+            assert!(list_by_project(&conn, "/tmp/a")
+                .unwrap()
+                .iter()
+                .any(|row| row.id == id));
+            assert!(list_linked(&conn).unwrap().iter().any(|row| row.id == id));
+        }
+        assert!(orchestration_summary(&conn, "lead").unwrap().is_none());
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM orchestration_runs WHERE lead_id = 'lead'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(
+            worker_parent(&conn, "other-worker").unwrap().as_deref(),
+            Some("other-lead")
+        );
+        let raw: String = conn
+            .query_row(
+                "SELECT state FROM orchestration_runs WHERE lead_id = 'other-lead'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&raw).unwrap(), other);
+        migrate(&conn).unwrap();
+        assert!(worker_parent(&conn, "current").unwrap().is_none());
+    }
+
+    #[test]
+    fn deleting_a_worker_prunes_parent_state_and_does_not_release_dependencies() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        for id in ["lead", "worker", "dependent", "earlier"] {
+            upsert_session(&conn, &sample(id, "/tmp/a", id)).unwrap();
+        }
+        remember_worker(&conn, "earlier", "lead").unwrap();
+        save_orchestration(
+            &conn,
+            "lead",
+            &json!({"status":"active", "requests":{"old":{"result":"worker"}}, "tasks":[
+                {"id":"task", "sessionId":"worker", "status":"running", "dependsOn":[]},
+                {"id":"next", "sessionId":"dependent", "status":"queued", "dependsOn":["task"]}
+            ]}),
+        )
+        .unwrap();
+        delete_session(&conn, "worker").unwrap();
+        assert!(get_session(&conn, "worker").unwrap().is_none());
+        assert!(worker_parent(&conn, "worker").unwrap().is_none());
+        assert_eq!(
+            worker_parent(&conn, "earlier").unwrap().as_deref(),
+            Some("lead")
+        );
+        let raw: String = conn
+            .query_row(
+                "SELECT state FROM orchestration_runs WHERE lead_id = 'lead'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let run: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(run["status"], "stopped");
+        assert_eq!(run["requests"], json!({}));
+        assert_eq!(run["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(run["tasks"][0]["sessionId"], "dependent");
+        assert_eq!(run["tasks"][0]["status"], "cancelled");
+        assert_eq!(run["tasks"][0]["dependsOn"], json!([]));
+        let summary = orchestration_summary(&conn, "lead").unwrap().unwrap();
+        assert_eq!(summary["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(summary["tasks"][0]["sessionId"], "dependent");
+        assert_eq!(summary["tasks"][0]["status"], "cancelled");
+    }
+
+    #[test]
+    fn failed_session_deletion_rolls_back_orchestration_cleanup() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        for id in ["lead", "worker"] {
+            upsert_session(&conn, &sample(id, "/tmp/a", id)).unwrap();
+        }
+        save_orchestration(
+            &conn,
+            "lead",
+            &json!({"status":"stopped", "tasks":[{"id":"task", "sessionId":"worker"}]}),
+        )
+        .unwrap();
+        conn.execute_batch("CREATE TRIGGER reject_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+        for id in ["lead", "worker"] {
+            assert!(delete_session(&conn, id).is_err());
+            assert!(get_session(&conn, id).unwrap().is_some());
+            assert_eq!(
+                worker_parent(&conn, "worker").unwrap().as_deref(),
+                Some("lead")
+            );
+            assert_eq!(
+                orchestration_summary(&conn, "lead").unwrap().unwrap()["tasks"][0]["sessionId"],
+                "worker"
+            );
+        }
     }
 
     #[test]

@@ -2593,11 +2593,7 @@ function SessionCard({
   return (
     <div className="group relative">
       <div
-        role="button"
-        tabIndex={0}
         title={title}
-        aria-current={isActive ? "true" : undefined}
-        aria-pressed={isSelected}
         data-session-card={session.id}
         data-orchestration-card={orchestration ? "true" : undefined}
         data-session-selected={isSelected ? "true" : undefined}
@@ -2610,7 +2606,6 @@ function SessionCard({
           onSelect(session.id, event);
         }}
         onContextMenu={onContextMenu}
-        onKeyDown={onKeyDown}
         className={`relative border flex w-full cursor-default select-none touch-none flex-col rounded-md px-2.5 text-left ${cardPaddingY} ${
           dragging ? "opacity-40" : ""
         } ${
@@ -2634,44 +2629,53 @@ function SessionCard({
         {dropTarget ? (
           <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
         ) : null}
-        {compact && !orchestration ? null : (
-          <span className="relative flex items-center gap-2">
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <HarnessIcon
-                harness={session.harness}
-                className="size-3.5 shrink-0"
-              />
-              <span className="min-w-0 truncate text-[11px] text-content/50">
-                {model}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-current={isActive ? "true" : undefined}
+          aria-pressed={isSelected}
+          data-session-select={session.id}
+          onKeyDown={onKeyDown}
+        >
+          {compact && !orchestration ? null : (
+            <span className="relative flex items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <HarnessIcon
+                  harness={session.harness}
+                  className="size-3.5 shrink-0"
+                />
+                <span className="min-w-0 truncate text-[11px] text-content/50">
+                  {model}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {linkedUpdateDot}
+                {status}
               </span>
             </span>
-            <span className="flex shrink-0 items-center gap-1.5">
-              {linkedUpdateDot}
-              {status}
+          )}
+          <span
+            className={`relative flex min-w-0 items-center gap-1.5 ${
+              compact && !orchestration ? "" : "mt-1"
+            }`}
+          >
+            {session.pinned ? (
+              <Pin
+                className="size-3 shrink-0 text-content/45"
+                strokeWidth={1.75}
+              />
+            ) : null}
+            <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+              {title}
             </span>
+            {compact && !orchestration ? (
+              <span className="flex shrink-0 items-center gap-1.5">
+                {linkedUpdateDot}
+                {status}
+              </span>
+            ) : null}
           </span>
-        )}
-        <span
-          className={`relative flex min-w-0 items-center gap-1.5 ${
-            compact && !orchestration ? "" : "mt-1"
-          }`}
-        >
-          {session.pinned ? (
-            <Pin
-              className="size-3 shrink-0 text-content/45"
-              strokeWidth={1.75}
-            />
-          ) : null}
-          <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
-            {title}
-          </span>
-          {compact && !orchestration ? (
-            <span className="flex shrink-0 items-center gap-1.5">
-              {linkedUpdateDot}
-              {status}
-            </span>
-          ) : null}
-        </span>
+        </div>
         {orchestration ? (
           <OrchestrationSidebarAgents
             leadId={session.id}

@@ -29,7 +29,10 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
   isLiveHarness: () => true,
 }));
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
-vi.mock("./SessionReview", () => ({ SessionReview: () => null }));
+vi.mock("./SessionReview", () => ({
+  SessionReview: ({ undoLocked }: { undoLocked: boolean }) =>
+    createElement("div", { "data-review-undo-locked": String(undoLocked) }),
+}));
 vi.mock("../lib/orchestration", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/orchestration")>()),
   orchestrator: {
@@ -525,7 +528,7 @@ describe("orchestration composer and card", () => {
     const reply = vi.fn();
     const open = vi.fn();
     const noop = () => {};
-    function LeadPane() {
+    function LeadPane({ id = lead.id, undoLocked = false } = {}) {
       const [selectedId, inspect] = useState<string | null>(null);
       return createElement(
         OrchestrationActions.Provider,
@@ -534,7 +537,8 @@ describe("orchestration composer and card", () => {
           OrchestrationWorkers.Provider,
           { value: { selectedId, inspect } },
           createElement(SessionPane, {
-            session: lead,
+            session: { ...lead, id },
+            reviewUndoLocked: undoLocked,
             visible: true,
             focused: true,
             inSplit: false,
@@ -586,6 +590,29 @@ describe("orchestration composer and card", () => {
       [],
       { intent: "default" },
     );
+    for (const status of ["active", "paused", "finished", "stopped"] as const) {
+      emptyRuns[0] = { ...emptyRuns[0], status };
+      for (const id of ["lead", "worker", "unrelated"]) {
+        await act(async () => root.render(createElement(LeadPane, { id })));
+        expect(
+          container
+            .querySelector("[data-review-undo-locked]")
+            ?.getAttribute("data-review-undo-locked"),
+        ).toBe(
+          String(
+            id !== "unrelated" && (status === "active" || status === "paused"),
+          ),
+        );
+      }
+    }
+    await act(async () =>
+      root.render(createElement(LeadPane, { undoLocked: true })),
+    );
+    expect(
+      container
+        .querySelector("[data-review-undo-locked]")
+        ?.getAttribute("data-review-undo-locked"),
+    ).toBe("true");
   });
 
   it("shows a blocked agent as the lead's to answer, not the user's", async () => {

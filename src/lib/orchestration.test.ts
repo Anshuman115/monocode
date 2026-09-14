@@ -111,6 +111,55 @@ describe("worker assignment prompts", () => {
 });
 
 describe("local orchestration", () => {
+  it("stops and forgets a deleted lead without persisting it again", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["src"]);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("running"));
+    const task = f.tasks()[0];
+    const remove = vi.fn(async () => {
+      expect(f.lead.busy).toBe(false);
+      expect(f.manager.run("lead")?.status).toBe("stopped");
+      f.saved.delete("lead");
+    });
+    await f.manager.deleteSession("lead", remove);
+    expect(remove).toHaveBeenCalledOnce();
+    expect(f.host.stop).toHaveBeenCalledWith(task.sessionId);
+    expect(f.manager.snapshot()).toEqual([]);
+    f.store.save.mockClear();
+    f.completions.get(task.sessionId)?.({
+      status: "completed",
+      text: "Late result",
+    });
+    await f.manager.hydrate("lead");
+    f.manager.sync();
+    await Promise.resolve();
+    expect(f.manager.snapshot()).toEqual([]);
+    expect(f.store.save).not.toHaveBeenCalled();
+  });
+
+  it("reloads a deleted worker's pruned run and preserves state if deletion fails", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["src"]);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("running"));
+    const task = f.tasks()[0];
+    await expect(
+      f.manager.deleteSession(task.sessionId, async () => {
+        throw new Error("Delete failed");
+      }),
+    ).rejects.toThrow("Delete failed");
+    expect(f.tasks()).toHaveLength(1);
+    expect(f.manager.run("lead")?.status).toBe("stopped");
+    await f.manager.deleteSession(task.sessionId, async () => {
+      f.saved.set("lead", { ...f.saved.get("lead")!, tasks: [], requests: {} });
+      f.store.save.mockClear();
+    });
+    expect(f.tasks()).toEqual([]);
+    expect(f.manager.forSession(task.sessionId)).toBeUndefined();
+    expect(f.store.save).not.toHaveBeenCalled();
+  });
+
   const proposal = (): OrchestrationProposal => ({
     version: 1,
     leadId: "lead",

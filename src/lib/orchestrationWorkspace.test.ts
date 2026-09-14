@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   attachOrchestrationWorkers,
   consolidateOrchestrationTabs,
+  prepareOrchestrationWorkerDetails,
+  releaseOrchestrationWorker,
 } from "./orchestrationWorkspace";
 import { leafIds, newTab, splitPane } from "./layout";
 import { newSession } from "./session";
@@ -38,6 +40,68 @@ const run: OrchestrationRun = {
 };
 
 describe("orchestration workspace", () => {
+  it("releases both live and transcript ownership when a lead is deleted", () => {
+    const worker = {
+      ...newSession("claude", "/repo"),
+      orchestrationLeadId: "lead",
+      blocks: [
+        {
+          id: "u",
+          role: "user" as const,
+          text: "Task",
+          orchestrationLeadId: "lead",
+        },
+      ],
+    };
+    const released = releaseOrchestrationWorker(worker, "lead");
+    expect(released.orchestrationLeadId).toBeUndefined();
+    expect(released.blocks[0].orchestrationLeadId).toBeUndefined();
+    expect(released.blocks[0].text).toBe("Task");
+    expect(releaseOrchestrationWorker(worker, "other")).toBe(worker);
+  });
+  it("waits for a slow lead load before opening fast worker transcripts", async () => {
+    const sessions = new Set<string>();
+    let finishLead!: () => void;
+    const host = {
+      openLead: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            finishLead = () => {
+              sessions.add("lead");
+              resolve();
+            };
+          }),
+      ),
+      openWorker: vi.fn(async (id: string) => {
+        sessions.add(id);
+      }),
+      hasSession: (id: string) => sessions.has(id),
+    };
+    const worker = { leadId: "lead", sessionId: "worker-a" };
+    const opening = prepareOrchestrationWorkerDetails([worker], host);
+    await Promise.resolve();
+    expect(host.openWorker).not.toHaveBeenCalled();
+    finishLead();
+    expect(await opening).toEqual({ leadId: "lead", workers: [worker] });
+    expect(host.openWorker).toHaveBeenCalledExactlyOnceWith("worker-a");
+  });
+
+  it("does not publish worker panes when their lead is missing or closed during loading", async () => {
+    const worker = { leadId: "lead", sessionId: "worker-a" };
+    const sessions = new Set<string>();
+    const host = {
+      openLead: vi.fn(async () => {}),
+      openWorker: vi.fn(async () => {
+        sessions.delete("lead");
+      }),
+      hasSession: (id: string) => sessions.has(id),
+    };
+    expect(await prepareOrchestrationWorkerDetails([worker], host)).toBeNull();
+    expect(host.openWorker).not.toHaveBeenCalled();
+    sessions.add("lead");
+    expect(await prepareOrchestrationWorkerDetails([worker], host)).toBeNull();
+  });
+
   it("folds earlier worker tabs into the lead and moves focus back to it", () => {
     const tabs = [
       newTab("lead"),

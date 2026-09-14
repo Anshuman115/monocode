@@ -2,6 +2,55 @@ import { closeLeaf, leafIds, type WorkspaceTab } from "./layout";
 import type { OrchestrationRun } from "./orchestration";
 import type { Session } from "./session";
 
+export function releaseOrchestrationWorker(
+  session: Session,
+  leadId: string,
+): Session {
+  if (
+    session.orchestrationLeadId !== leadId &&
+    !session.blocks.some((block) => block.orchestrationLeadId === leadId)
+  )
+    return session;
+  return {
+    ...session,
+    orchestrationLeadId:
+      session.orchestrationLeadId === leadId
+        ? undefined
+        : session.orchestrationLeadId,
+    blocks: session.blocks.map((block) =>
+      block.orchestrationLeadId === leadId
+        ? { ...block, orchestrationLeadId: undefined }
+        : block,
+    ),
+  };
+}
+
+/** Load the lead first so a fast worker read cannot publish panes without a tab. */
+export async function prepareOrchestrationWorkerDetails<
+  T extends { leadId: string; sessionId: string },
+>(
+  workers: T[],
+  host: {
+    openLead: (id: string) => Promise<void>;
+    openWorker: (id: string) => Promise<unknown>;
+    hasSession: (id: string) => boolean;
+  },
+) {
+  const list = workers.filter(
+    (worker) => worker.leadId && worker.leadId !== worker.sessionId,
+  );
+  if (!list.length) return null;
+  const leadId = list[0].leadId;
+  await host.openLead(leadId);
+  if (!host.hasSession(leadId)) return null;
+  await Promise.all(list.map((worker) => host.openWorker(worker.sessionId)));
+  if (!host.hasSession(leadId)) return null;
+  return {
+    leadId,
+    workers: list.filter((worker) => host.hasSession(worker.sessionId)),
+  };
+}
+
 /**
  * Adopt worker tabs made by the earlier preview into an already-open lead.
  * A worker the user asked to inspect is a tab inside an editor pane rather

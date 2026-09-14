@@ -206,7 +206,17 @@ export async function upsertSession(
   const payload = sanitizeSessionForPersist(session);
   const summary = await enqueueSessionWrite(session.id, async () => {
     if (deletedSessionIds.has(session.id)) return null;
-    return invoke<SessionSummary>("session_upsert", { session: payload });
+    return invoke<SessionSummary>("session_upsert", {
+      session: {
+        ...payload,
+        blocks: payload.blocks.map((block) =>
+          block.orchestrationLeadId &&
+          deletedSessionIds.has(block.orchestrationLeadId)
+            ? { ...block, orchestrationLeadId: undefined }
+            : block,
+        ),
+      },
+    });
   });
   return summary ? normalizeSummary(summary) : null;
 }
@@ -322,6 +332,9 @@ export async function getSession(sessionId: string): Promise<Session | null> {
 export async function deleteSession(sessionId: string): Promise<void> {
   deletedSessionIds.add(sessionId);
   try {
+    // A lead's workers may still have writes in flight. Finish those before
+    // the deletion transaction strips their ownership metadata.
+    await Promise.all([...sessionWriteQueues.values()]);
     await enqueueSessionWrite(sessionId, () =>
       invoke<void>("session_delete", { sessionId }),
     );

@@ -163,7 +163,7 @@ describe("sidebar session rename", () => {
 
   it("allows F2 to rename a working conversation", () => {
     act(() => render());
-    pressKey(card(), "F2");
+    pressKey(card().querySelector('[data-session-select]')!, "F2");
     const input = renameInput();
     expect(input.disabled).toBe(false);
     expect(document.activeElement === input).toBe(true);
@@ -476,6 +476,22 @@ describe("sidebar orchestration card", () => {
       const agentRow = card().querySelector<HTMLButtonElement>(
         '[data-orchestration-agent="worker-a"] button',
       )!;
+      expect(card().hasAttribute("role")).toBe(false);
+      for (const action of card().querySelectorAll('button, [role="button"]')) {
+        expect(
+          action.parentElement?.closest('button, [role="button"]'),
+        ).toBeNull();
+      }
+      const selection = card().querySelector<HTMLElement>(
+        '[data-session-select]',
+      )!;
+      act(() => selection.focus());
+      expect(document.activeElement).toBe(selection);
+      expect(pressKey(selection, "Enter").defaultPrevented).toBe(true);
+      expect(props.onSelectSession).toHaveBeenCalledWith(lead.id);
+      vi.mocked(props.onSelectSession).mockClear();
+      expect(pressKey(agentRow, "Enter").defaultPrevented).toBe(false);
+      expect(props.onSelectSession).not.toHaveBeenCalled();
       const wasOpen = agentRow.getAttribute("aria-expanded");
       act(() => agentRow.click());
       expect(props.onSelectSession).not.toHaveBeenCalled();

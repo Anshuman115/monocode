@@ -25,6 +25,112 @@ function sized(el: HTMLElement, sizes: Record<string, number>) {
 }
 
 describe("useLockOverscroll wheel guard", () => {
+  it.each(["svg", "path"])(
+    "allows scrolling a nested container through an SVG %s target",
+    (tag) => {
+      const outer = sized(
+        document.createElement("div"),
+        box({ scrollTop: 400 }),
+      );
+      const inner = sized(document.createElement("div"), box());
+      inner.style.overflowY = "auto";
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const path = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "path",
+      );
+      svg.append(path);
+      inner.append(svg);
+      outer.append(inner);
+      document.body.append(outer);
+      const detach = lockOverscroll(outer);
+      const wheel = new WheelEvent("wheel", {
+        deltaY: 40,
+        bubbles: true,
+        cancelable: true,
+      });
+      (tag === "svg" ? svg : path).dispatchEvent(wheel);
+      expect(wheel.defaultPrevented).toBe(false);
+      detach();
+      outer.remove();
+    },
+  );
+
+  it.each([
+    {
+      overflowX: "auto",
+      overflowY: "hidden",
+      deltaX: 0,
+      deltaY: 40,
+      blocked: true,
+    },
+    {
+      overflowX: "hidden",
+      overflowY: "auto",
+      deltaX: 40,
+      deltaY: 0,
+      blocked: true,
+    },
+    {
+      overflowX: "auto",
+      overflowY: "hidden",
+      deltaX: 0,
+      deltaY: -40,
+      blocked: true,
+    },
+    {
+      overflowX: "hidden",
+      overflowY: "auto",
+      deltaX: -40,
+      deltaY: 0,
+      blocked: true,
+    },
+    {
+      overflowX: "auto",
+      overflowY: "hidden",
+      deltaX: 40,
+      deltaY: 40,
+      blocked: false,
+    },
+    {
+      overflowX: "hidden",
+      overflowY: "auto",
+      deltaX: 40,
+      deltaY: 40,
+      blocked: false,
+    },
+  ])(
+    "matches nested overflow to the gesture's axis ($overflowX, $overflowY, $deltaX, $deltaY)",
+    ({ overflowX, overflowY, deltaX, deltaY, blocked }) => {
+      const outer = sized(
+        document.createElement("div"),
+        box({
+          scrollTop: deltaY < 0 ? 0 : 400,
+          scrollLeft: deltaX < 0 ? 0 : 400,
+          scrollWidth: 800,
+        }),
+      );
+      const inner = sized(
+        document.createElement("div"),
+        box({ scrollTop: 100, scrollLeft: 100, scrollWidth: 800 }),
+      );
+      Object.assign(inner.style, { overflowX, overflowY });
+      outer.append(inner);
+      document.body.append(outer);
+      const detach = lockOverscroll(outer);
+      const wheel = new WheelEvent("wheel", {
+        deltaX,
+        deltaY,
+        bubbles: true,
+        cancelable: true,
+      });
+      inner.dispatchEvent(wheel);
+      expect(wheel.defaultPrevented).toBe(blocked);
+      detach();
+      outer.remove();
+    },
+  );
+
   it("does not block horizontal wheel on vertically scrolling containers", () => {
     expect(atScrollEdge(box(), { deltaX: 40, deltaY: 0 })).toBe(false);
     expect(atScrollEdge(box(), { deltaX: -40, deltaY: 0 })).toBe(false);

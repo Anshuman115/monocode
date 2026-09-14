@@ -38,9 +38,12 @@ export function hasScrollRoom(el: Edges, e: Delta): boolean {
   return e.deltaX > 0 && el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
 }
 
-function scrollable(node: HTMLElement): boolean {
+function scrollable(node: HTMLElement, e: Delta): boolean {
   const style = getComputedStyle(node);
-  return /auto|scroll|overlay/.test(`${style.overflowY} ${style.overflowX}`);
+  return hasScrollRoom(node, {
+    deltaX: /auto|scroll|overlay/.test(style.overflowX) ? e.deltaX : 0,
+    deltaY: /auto|scroll|overlay/.test(style.overflowY) ? e.deltaY : 0,
+  });
 }
 
 /**
@@ -49,11 +52,16 @@ function scrollable(node: HTMLElement): boolean {
  * browser picks what to scroll only after the event has finished dispatching.
  */
 function innerScrollerTakes(el: HTMLElement, e: WheelEvent): boolean {
-  let node = e.target instanceof HTMLElement ? e.target : null;
+  let node = e.target instanceof Element ? e.target : null;
   while (node && node !== el) {
     // Geometry first: it is free, and it rules out most of the ancestry
     // before anything has to resolve style.
-    if (hasScrollRoom(node, e) && scrollable(node)) return true;
+    if (
+      node instanceof HTMLElement &&
+      hasScrollRoom(node, e) &&
+      scrollable(node, e)
+    )
+      return true;
     node = node.parentElement;
   }
   return false;

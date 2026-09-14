@@ -23,11 +23,58 @@ struct Pending {
     window: String,
     reply: mpsc::Sender<Value>,
 }
+struct ActiveTurn {
+    window: String,
+    cwd: String,
+}
+#[derive(Default)]
 struct Inner {
     grants: HashMap<String, Grant>,
     pending: HashMap<String, Pending>,
     workers: HashMap<String, String>,
-    active: HashMap<String, String>,
+    active: HashMap<String, ActiveTurn>,
+}
+impl Inner {
+    fn window_sessions(&self, label: &str) -> Vec<String> {
+        let leads: Vec<String> = self
+            .grants
+            .values()
+            .filter(|grant| grant.window == label)
+            .map(|grant| grant.session.clone())
+            .collect();
+        let mut ids = leads.clone();
+        ids.extend(
+            self.workers
+                .iter()
+                .filter(|(_, lead)| leads.contains(lead))
+                .map(|(id, _)| id.clone()),
+        );
+        ids.extend(
+            self.active
+                .iter()
+                .filter(|(_, turn)| turn.window == label)
+                .map(|(id, _)| id.clone()),
+        );
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+    fn close_window(&mut self, label: &str) -> Vec<String> {
+        let ids = self.window_sessions(label);
+        self.grants.retain(|id, _| !ids.contains(id));
+        self.workers.retain(|id, _| !ids.contains(id));
+        self.active.retain(|id, _| !ids.contains(id));
+        self.pending.retain(|_, pending| {
+            if pending.window != label {
+                return true;
+            }
+            let _ = pending
+                .reply
+                .send(json!({"ok":false,"error":"MonoCode window closed"}));
+            false
+        });
+        ids
+    }
 }
 pub struct ControlHost {
     endpoint: String,
@@ -63,12 +110,7 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
         .local_addr()
         .map_err(|e| e.to_string())?
         .to_string();
-    let inner = Arc::new(Mutex::new(Inner {
-        grants: HashMap::new(),
-        pending: HashMap::new(),
-        workers: HashMap::new(),
-        active: HashMap::new(),
-    }));
+    let inner = Arc::new(Mutex::new(Inner::default()));
     app.manage(ControlHost {
         endpoint,
         inner: inner.clone(),
@@ -181,7 +223,7 @@ pub fn control_enable(
     if inner
         .active
         .iter()
-        .any(|(id, path)| id != &session_id && paths_overlap(path, &cwd))
+        .any(|(id, turn)| id != &session_id && paths_overlap(&turn.cwd, &cwd))
     {
         return Err(
             "Another session is running in this checkout. Stop it before enabling orchestration."
@@ -280,7 +322,13 @@ pub fn control_authorize_turn(
             return Err("This checkout is controlled by an orchestrator. Stop that run before starting independent work.".into());
         }
     }
-    inner.active.insert(session_id, cwd);
+    inner.active.insert(
+        session_id,
+        ActiveTurn {
+            window: window.label().to_string(),
+            cwd,
+        },
+    );
     Ok(())
 }
 
@@ -295,38 +343,13 @@ pub fn window_closed(app: &AppHandle, label: &str) {
     let host = app.state::<ControlHost>();
     let ids = {
         let Ok(inner) = host.inner.lock() else { return };
-        let leads: Vec<String> = inner
-            .grants
-            .values()
-            .filter(|grant| grant.window == label)
-            .map(|grant| grant.session.clone())
-            .collect();
-        let mut ids = leads.clone();
-        ids.extend(
-            inner
-                .workers
-                .iter()
-                .filter(|(_, lead)| leads.contains(lead))
-                .map(|(id, _)| id.clone()),
-        );
-        ids
+        inner.window_sessions(label)
     };
     for id in &ids {
         let _ = crate::harness::harness_kill(app.state(), id.clone());
     }
     if let Ok(mut inner) = host.inner.lock() {
-        inner.grants.retain(|id, _| !ids.contains(id));
-        inner.workers.retain(|id, _| !ids.contains(id));
-        inner.active.retain(|id, _| !ids.contains(id));
-        inner.pending.retain(|_, pending| {
-            if pending.window != label {
-                return true;
-            }
-            let _ = pending
-                .reply
-                .send(json!({"ok":false,"error":"MonoCode window closed"}));
-            false
-        });
+        inner.close_window(label);
     };
 }
 
@@ -442,6 +465,68 @@ pub fn control_scopes(cwd: String, files: Vec<String>) -> Result<Vec<String>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn closing_a_window_releases_ordinary_turns_and_owned_orchestration() {
+        let mut inner = Inner::default();
+        for (id, window) in [
+            ("ordinary", "closing"),
+            ("lead", "closing"),
+            ("other", "open"),
+        ] {
+            inner.active.insert(
+                id.into(),
+                ActiveTurn {
+                    window: window.into(),
+                    cwd: format!("/{id}"),
+                },
+            );
+        }
+        for (id, window) in [("lead", "closing"), ("other", "open")] {
+            inner.grants.insert(
+                id.into(),
+                Grant {
+                    window: window.into(),
+                    session: id.into(),
+                    cwd: format!("/{id}"),
+                    token: id.into(),
+                },
+            );
+        }
+        inner.workers.insert("worker".into(), "lead".into());
+        inner.workers.insert("other-worker".into(), "other".into());
+        let (reply, response) = mpsc::channel();
+        inner.pending.insert(
+            "pending".into(),
+            Pending {
+                window: "closing".into(),
+                reply,
+            },
+        );
+        let (reply, other_response) = mpsc::channel();
+        inner.pending.insert(
+            "other-pending".into(),
+            Pending {
+                window: "open".into(),
+                reply,
+            },
+        );
+
+        assert_eq!(
+            inner.close_window("closing"),
+            ["lead", "ordinary", "worker"]
+        );
+        assert_eq!(inner.active.len(), 1);
+        assert_eq!(inner.active["other"].window, "open");
+        assert_eq!(inner.grants.len(), 1);
+        assert!(inner.grants.contains_key("other"));
+        assert_eq!(inner.workers.len(), 1);
+        assert_eq!(inner.workers["other-worker"], "other");
+        assert_eq!(response.try_recv().unwrap()["ok"], false);
+        assert!(other_response.try_recv().is_err());
+        assert!(inner.pending.contains_key("other-pending"));
+        assert!(inner.close_window("closing").is_empty());
+    }
+
     #[test]
     fn scopes_reject_escape_and_resolve_new_files() {
         let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());

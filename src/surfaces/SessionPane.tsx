@@ -568,10 +568,12 @@ export const SessionPane = memo(function SessionPane({
                         reviewUndoLocked ||
                         orchestrationRuns.some(
                           (run) =>
-                            run.leadId === session.id ||
-                            run.tasks.some(
-                              (task) => task.sessionId === session.id,
-                            ),
+                            (run.status === "active" ||
+                              run.status === "paused") &&
+                            (run.leadId === session.id ||
+                              run.tasks.some(
+                                (task) => task.sessionId === session.id,
+                              )),
                         )
                       }
                       onOpenDiff={onOpenDiff}

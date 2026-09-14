@@ -14,6 +14,8 @@ import { discoverOrchestrationSettings } from "./lib/orchestrationCatalog";
 import {
   attachOrchestrationWorkers,
   consolidateOrchestrationTabs,
+  prepareOrchestrationWorkerDetails,
+  releaseOrchestrationWorker,
 } from "./lib/orchestrationWorkspace";
 import {
   OrchestrationActions,
@@ -3508,6 +3510,10 @@ export default function App({
             );
           },
           stop: async () => {
+            const run =
+              mode === "delete" ? orchestrator.forSession(sessionId) : undefined;
+            if (run && (run.status === "active" || run.status === "paused"))
+              await orchestrator.stopRun(run.leadId);
             await stopSessionForRemoval(sessionId);
           },
           updateSession: (stopped) => {
@@ -3520,7 +3526,33 @@ export default function App({
           persist: async (latest) => {
             if (latest) await flushSessionCheckpoint(sessionId);
             if (mode === "delete") {
-              await deleteSession(sessionId);
+              await orchestrator.deleteSession(sessionId, () =>
+                deleteSession(sessionId),
+              );
+              const released = sessionsRef.current.map((session) =>
+                releaseOrchestrationWorker(session, sessionId),
+              );
+              sessionsRef.current = released;
+              setSessions(released);
+              for (const [id, cached] of loadedSessionCache.current) {
+                if (releaseOrchestrationWorker(cached, sessionId) !== cached)
+                  invalidateLoadedSession(id);
+              }
+              // Pending reads may still carry the deleted lead's ownership.
+              for (const id of sessionLoads.current.keys())
+                invalidateLoadedSession(id);
+              for (const [id, pending] of pendingPersist.current) {
+                pendingPersist.current.set(
+                  id,
+                  releaseOrchestrationWorker(pending, sessionId),
+                );
+              }
+              const releaseSummary = (entry: SessionSummary) =>
+                entry.orchestrationLeadId === sessionId
+                  ? { ...entry, orchestrationLeadId: undefined }
+                  : entry;
+              setHistory((current) => current.map(releaseSummary));
+              setStoredLinkedSessions((current) => current.map(releaseSummary));
               return;
             }
             if (latest && shouldPersistSession(latest)) {
@@ -5764,17 +5796,20 @@ export default function App({
   const confirmingOrchestration = useRef(new Set<string>());
   const queueWorkerPanes = useCallback(
     (workers: OrchestrationWorkerDetail[]) => {
-      const list = workers.filter(
-        (worker) => worker.leadId && worker.leadId !== worker.sessionId,
-      );
-      if (!list.length) return;
-      const leadId = list[0].leadId;
-      if (!focusOpenSession(leadId)) void onSelectHistorySession(leadId);
       // Finished workers are not open; load stored transcripts before the
       // tabs appear so the pane does not flash the empty state.
-      void Promise.all(
-        list.map((worker) => ensureOpenSession(worker.sessionId)),
-      ).then(() => setWorkerDetailRequest({ leadId, workers: list }));
+      void prepareOrchestrationWorkerDetails(workers, {
+        openLead: async (leadId) => {
+          if (!focusOpenSession(leadId)) await onSelectHistorySession(leadId);
+        },
+        openWorker: ensureOpenSession,
+        hasSession: (id) =>
+          sessionsRef.current.some((session) => session.id === id),
+      })
+        .then((request) => {
+          if (request?.workers.length) setWorkerDetailRequest(request);
+        })
+        .catch(console.error);
     },
     [ensureOpenSession, focusOpenSession, onSelectHistorySession],
   );

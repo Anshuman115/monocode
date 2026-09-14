@@ -219,6 +219,7 @@ export class Orchestrator {
   private runs: OrchestrationRun[] = [];
   private listeners = new Set<() => void>();
   private loaded = new Set<string>();
+  private deleted = new Set<string>();
   private persisted = new Map<string, OrchestrationRun>();
   private saves = Promise.resolve();
   private actions = Promise.resolve();
@@ -339,7 +340,7 @@ export class Orchestrator {
     this.loaded.add(id);
     try {
       const run = await this.store.load(id);
-      if (!run || this.run(id)) return;
+      if (!run || this.run(id) || this.deleted.has(id)) return;
       if (run.status === "active" || run.tasks.some(activeTask)) {
         await Promise.all(
           [
@@ -988,17 +989,19 @@ export class Orchestrator {
     this.pumping = true;
     try {
       for (const initial of this.runs) {
-        let run = this.run(initial.leadId)!;
-        if (run.status !== "active") continue;
-        for (const initialTask of run.tasks) {
-          run = this.run(run.leadId)!;
-          const task = run.tasks.find((entry) => entry.id === initialTask.id)!;
+        const initialRun = this.run(initial.leadId);
+        if (!initialRun || initialRun.status !== "active") continue;
+        for (const initialTask of initialRun.tasks) {
+          const run = this.run(initial.leadId);
           if (
+            !run ||
             run.status !== "active" ||
             run.tasks.filter(activeTask).length >= run.maxWorkers
           )
             break;
+          const task = run.tasks.find((entry) => entry.id === initialTask.id);
           if (
+            !task ||
             task.status !== "queued" ||
             task.dependsOn.some(
               (id) => !run.tasks.find((entry) => entry.id === id)?.accepted,
@@ -1164,6 +1167,44 @@ export class Orchestrator {
     if (run.leadId === id) return this.stopRun(id);
     const task = run.tasks.find((entry) => entry.sessionId === id)!;
     return this.cancelTask(run.leadId, task.id);
+  }
+  /** Drain control writes before the database removes a lead or one of its workers. */
+  deleteSession(id: string, remove: () => Promise<void>): Promise<void> {
+    const result = this.actions.catch(() => undefined).then(async () => {
+      const run = this.forSession(id);
+      if (
+        run &&
+        (run.status === "active" ||
+          run.status === "paused" ||
+          run.tasks.some(activeTask))
+      ) {
+        await this.stopRun(run.leadId);
+      }
+      await this.saves.catch(() => undefined);
+      await remove();
+      this.deleted.add(id);
+      if (!run) return;
+      this.runs = this.runs.filter((entry) => entry.leadId !== run.leadId);
+      this.persisted.delete(run.leadId);
+      this.blocked.delete(run.leadId);
+      this.announced.delete(run.leadId);
+      this.emit();
+      if (run.leadId !== id) {
+        // Read the transaction's pruned graph; never save the pre-delete snapshot.
+        const updated = await this.store.load(run.leadId).catch((error) => {
+          console.error("Could not reload orchestration after deletion", error);
+          this.loaded.delete(run.leadId);
+          return null;
+        });
+        if (updated) {
+          this.runs = [...this.runs, updated];
+          this.persisted.set(run.leadId, updated);
+          this.emit();
+        }
+      }
+    });
+    this.actions = result.catch(() => undefined);
+    return result;
   }
   /** `${taskId}:${requestId}` for every worker currently blocked on the lead. */
   private blockedKeys(run: OrchestrationRun): string[] {
