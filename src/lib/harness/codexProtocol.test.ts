@@ -340,6 +340,59 @@ describe("mapCodexNotification", () => {
     });
   });
 
+  it("uses Codex command actions for readable command rows", () => {
+    const mapped = mapCodexNotification("item/started", {
+      item: {
+        id: "cmd_read",
+        type: "commandExecution",
+        command: `/bin/zsh -lc "nl -ba src/lib/orchestration.ts | sed -n '1,260p'"`,
+        cwd: "/Users/me/project",
+        status: "inProgress",
+        commandActions: [
+          {
+            type: "read",
+            command: "nl -ba src/lib/orchestration.ts",
+            name: "orchestration.ts",
+            path: "/Users/me/project/src/lib/orchestration.ts",
+          },
+          { type: "unknown", command: "sed -n '1,260p'" },
+        ],
+      },
+    });
+
+    expect(mapped.events[0]).toMatchObject({
+      type: "tool.started",
+      callId: "cmd_read",
+      title: "Read src/lib/orchestration.ts",
+      kind: "execute",
+      preview: {
+        kind: "shell",
+        path: "/Users/me/project/src/lib/orchestration.ts",
+        fileName: "orchestration.ts",
+      },
+    });
+  });
+
+  it("falls back to unwrapping Codex shell launchers", () => {
+    const mapped = mapCodexNotification("item/started", {
+      item: {
+        id: "cmd_find",
+        type: "commandExecution",
+        command: `/bin/zsh -lc "rg -n 'submissionError|hydrate' src/lib"`,
+        status: "inProgress",
+      },
+    });
+
+    expect(mapped.events[0]).toMatchObject({
+      title: "Find submissionError|hydrate",
+      preview: {
+        kind: "shell",
+        path: "src/lib",
+        query: "submissionError|hydrate",
+      },
+    });
+  });
+
   it("maps file change items", () => {
     const mapped = mapCodexNotification("item/started", {
       item: {
@@ -605,6 +658,37 @@ describe("approvals", () => {
         requestId: 7,
         callId: "cmd_1",
         kind: "execute",
+      },
+    });
+  });
+
+  it("keeps readable Codex actions on command approvals", () => {
+    const mapped = mapApprovalRequest(
+      "item/commandExecution/requestApproval",
+      {
+        itemId: "cmd_read",
+        command: `/bin/zsh -lc "cat src/App.tsx"`,
+        cwd: "/Users/me/project",
+        reason: "Inspect the app",
+        commandActions: [
+          {
+            type: "read",
+            command: "cat src/App.tsx",
+            name: "App.tsx",
+            path: "/Users/me/project/src/App.tsx",
+          },
+        ],
+      },
+      8,
+    );
+
+    expect(mapped?.event).toMatchObject({
+      title: "Read src/App.tsx",
+      kind: "execute",
+      preview: {
+        kind: "shell",
+        path: "/Users/me/project/src/App.tsx",
+        fileName: "App.tsx",
       },
     });
   });

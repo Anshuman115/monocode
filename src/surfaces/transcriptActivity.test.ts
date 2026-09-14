@@ -595,6 +595,30 @@ describe("activityPhaseTitle", () => {
     ).toBe("Ran 3 commands · Searched the project · Edited 2 files");
   });
 
+  it("summarises readable historical Codex shell rows by their inferred work", () => {
+    const storedCodexTool = (id: string, text: string): Block => ({
+      id,
+      role: "tool",
+      text,
+      tool: { kind: "execute", title: text, status: "completed" },
+    });
+
+    expect(
+      title([
+        storedCodexTool(
+          "r1",
+          `/bin/zsh -lc "sed -n '1,120p' src/lib/paths.ts
+sed -n '330,430p' src/lib/harness/codexProtocol.test.ts"`,
+        ),
+        storedCodexTool(
+          "r2",
+          `/bin/zsh -lc "nl -ba src/lib/harness/apply.ts | sed -n '520,620p'"`,
+        ),
+        storedCodexTool("run", "/bin/zsh -lc 'npm test'"),
+      ]),
+    ).toBe("Read 2 files · Ran a command");
+  });
+
   it("puts only the call in flight in the present tense", () => {
     expect(
       title([edit("e1", "a.ts"), edit("e2", "b.ts"), shell("c1")], true),
@@ -922,6 +946,20 @@ describe("toolCallLabel", () => {
         tool: { kind: "skill", title: "Skill /code-review" },
       }),
     ).toBe("Skill /code-review");
+  });
+
+  it("hides Codex's shell launcher on commands that stay commands", () => {
+    expect(
+      toolCallLabel({
+        id: "wrapped",
+        role: "tool",
+        text: `/bin/zsh -lc "npm test -- --run src/lib/app.test.ts"`,
+        tool: {
+          kind: "execute",
+          title: `/bin/zsh -lc "npm test -- --run src/lib/app.test.ts"`,
+        },
+      }),
+    ).toBe("npm test -- --run src/lib/app.test.ts");
   });
 
   it("renders file-reading bash as a Read/Find label", () => {

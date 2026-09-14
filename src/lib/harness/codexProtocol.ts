@@ -12,12 +12,14 @@ import {
   isVisionImage,
   normalizeImageMime,
 } from "../attachments";
+import { displayPath } from "../paths";
 import { normalizeTaskListStatus } from "../taskList";
 import {
   composeToolTitle,
   extractToolPreview,
   formatAgentType,
 } from "./preview";
+import { formatShellIntent, inferShellIntent } from "./shellIntent";
 import { streamTextDelta } from "./streamText";
 import type { HarnessEvent } from "./types";
 
@@ -614,26 +616,26 @@ function mapToolItem(
     const status = mapItemStatus(stringField(item, "status"), completed);
     const output =
       stringField(item, "aggregatedOutput") ?? stringField(item, "output");
-    const preview: ToolPreview | undefined = undefined;
+    const presentation = codexCommandPresentation(item, command);
     const eventType = completed ? "tool.updated" : "tool.started";
     if (eventType === "tool.started") {
       return {
         type: "tool.started",
         callId,
-        title: command,
+        title: presentation.title,
         kind: "execute",
         status,
-        preview,
+        preview: presentation.preview,
       };
     }
     return {
       type: "tool.updated",
       callId,
-      title: command,
+      title: presentation.title,
       kind: "execute",
       status,
       ...(output ? { detail: output } : {}),
-      preview,
+      preview: presentation.preview,
     };
   }
 
@@ -717,6 +719,86 @@ function mapToolItem(
   void item;
   void completed;
   return null;
+}
+
+/** Prefer Codex's own best-effort command parsing, then our legacy fallback. */
+function codexCommandPresentation(
+  item: Record<string, unknown>,
+  command: string,
+): { title: string; preview?: ToolPreview } {
+  const cwd = stringField(item, "cwd");
+  const actions = Array.isArray(item.commandActions)
+    ? item.commandActions.flatMap((value) => {
+        const action = asRecord(value);
+        return action ? [action] : [];
+      })
+    : [];
+
+  // The last meaningful stage usually describes the pipeline's visible goal
+  // (`cat file | grep term` is a Find), while unknown filters are ignored.
+  for (let index = actions.length - 1; index >= 0; index -= 1) {
+    const action = actions[index];
+    const type = stringField(action, "type");
+    const path = stringField(action, "path");
+    const shownPath = path ? displayPath(path, cwd) : undefined;
+    if (type === "search") {
+      const query = stringField(action, "query");
+      if (!query) continue;
+      return {
+        title: `Find ${query}`,
+        preview: shellCommandPreview(command, path, query),
+      };
+    }
+    if (type === "read" && path) {
+      return {
+        title: `Read ${shownPath}`,
+        preview: shellCommandPreview(command, path),
+      };
+    }
+    if (type === "listFiles") {
+      return {
+        title: shownPath ? `List ${shownPath}` : "List",
+        preview: shellCommandPreview(command, path),
+      };
+    }
+  }
+
+  const inferred = inferShellIntent(command);
+  if (!inferred) return { title: command };
+  const path = inferred.path;
+  const shownPath = path ? displayPath(path, cwd) : undefined;
+  return {
+    title: formatShellIntent(inferred, shownPath, inferred.query) ?? command,
+    preview: shellCommandPreview(
+      command,
+      path,
+      inferred.query,
+      inferred.startLine,
+    ),
+  };
+}
+
+function shellCommandPreview(
+  command: string,
+  path?: string,
+  query?: string,
+  startLine?: number,
+): ToolPreview {
+  return {
+    kind: "shell",
+    title: command,
+    ...(path
+      ? {
+          path,
+          fileName: path
+            .replace(/[/\\]+$/, "")
+            .split(/[/\\]/)
+            .pop(),
+        }
+      : {}),
+    ...(query ? { query } : {}),
+    ...(startLine ? { startLine } : {}),
+  };
 }
 
 function mapSubAgentActivity(
@@ -1116,15 +1198,21 @@ export function mapApprovalRequest(
     const command = stringField(rec, "command") ?? "Shell";
     const callId = stringField(rec, "itemId");
     const reason = stringField(rec, "reason");
+    const presentation = codexCommandPresentation(rec, command);
+    const readable = presentation.title !== command;
     return {
       kind: "command",
       event: {
         type: "approval.requested",
         requestId,
-        title: reason ? `${command} — ${reason}` : command,
+        title: readable
+          ? presentation.title
+          : reason
+            ? `${command} — ${reason}`
+            : command,
         kind: "execute",
         callId,
-        preview: undefined,
+        preview: presentation.preview,
       },
     };
   }
