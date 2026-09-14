@@ -214,13 +214,15 @@ describe("linked work item update notice", () => {
     expect(notice?.querySelector(".popover-backdrop")).not.toBeNull();
     expect(document.body.textContent).toContain("1 new comment");
     expect(
-      button("Dismiss").nextElementSibling?.getAttribute("aria-label"),
-    ).toBe("Dismiss updates for Pull request 42");
-    expect(button("Open discussion").classList.contains("truncate")).toBe(true);
+      notice?.querySelector(
+        'button[aria-label="Dismiss updates for Pull request 42"]',
+      ),
+    ).not.toBeNull();
+    expect(button("Open PR").classList.contains("truncate")).toBe(true);
     expect(button("Address with agent").classList).toContain(
       "whitespace-nowrap",
     );
-    act(() => button("Open discussion").click());
+    act(() => button("Open PR").click());
     expect(onAcknowledge).toHaveBeenCalledTimes(1);
     expect(onOpenDiscussion).toHaveBeenCalledTimes(1);
     act(() => button("Address with agent").click());

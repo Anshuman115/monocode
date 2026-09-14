@@ -82,11 +82,10 @@ export function LinkedWorkItemUpdateNotice({
     latest?.kind === "comment" ||
     latest?.kind === "review" ||
     latest?.kind === "review_comment";
-  const primaryLabel = discussion
-    ? "Open discussion"
-    : latest?.kind === "commit"
+  const openLabel =
+    latest?.kind === "commit"
       ? "Open commit"
-      : `Open ${card.kind === "pr" ? "pull request" : "issue"}`;
+      : `Open ${card.kind === "pr" ? "PR" : "issue"}`;
   const agentLabel = discussion
     ? "Address with agent"
     : latest?.kind === "commit"
@@ -108,7 +107,7 @@ export function LinkedWorkItemUpdateNotice({
         ? GitPullRequestClosed
         : Check;
 
-  const openPrimary = () => {
+  const openActivity = () => {
     onAcknowledge();
     if (discussion) {
       onOpenDiscussion();
@@ -151,24 +150,15 @@ export function LinkedWorkItemUpdateNotice({
             GitHub activity
           </span>
         </div>
-        <div className="flex items-center gap-px">
-          <button
-            type="button"
-            onClick={dismiss}
-            className="shrink-0 whitespace-nowrap rounded-md px-1.5 h-6 text-[11px] text-content/50 hover:bg-content/10 hover:text-content"
-          >
-            Dismiss
-          </button>
-          <button
-            type="button"
-            title="Dismiss"
-            aria-label={`Dismiss updates for ${kindLabel} ${card.number}`}
-            onClick={dismiss}
-            className="grid size-6 place-items-center rounded-md text-content/40 hover:bg-content/10 hover:text-content"
-          >
-            <X className="size-3" strokeWidth={2} />
-          </button>
-        </div>
+        <button
+          type="button"
+          title="Dismiss"
+          aria-label={`Dismiss updates for ${kindLabel} ${card.number}`}
+          onClick={dismiss}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-content/40 hover:bg-content/10 hover:text-content"
+        >
+          <X className="size-3" strokeWidth={2} />
+        </button>
       </div>
 
       <div className="relative z-[1] px-3 py-2.5">
@@ -287,22 +277,22 @@ export function LinkedWorkItemUpdateNotice({
       <div className="relative z-[1] flex min-w-0 items-center gap-1.5 border-t border-content/10 px-3 py-2.5 text-[11px]">
         <button
           type="button"
-          title={primaryLabel}
-          className="min-w-0 flex-1 truncate whitespace-nowrap rounded-md bg-content/10 px-2 py-1 font-medium hover:bg-content/15"
-          onClick={openPrimary}
-        >
-          {primaryLabel}
-        </button>
-        <button
-          type="button"
           title={agentLabel}
-          className="min-w-0 flex-1 truncate whitespace-nowrap rounded-md px-2 py-1 text-content/65 hover:bg-content/10"
+          className="min-w-0 flex-1 truncate whitespace-nowrap rounded-md bg-content px-2 py-1 font-medium text-background-base hover:bg-content/90"
           onClick={() => {
             onAcknowledge();
             onAddToChat(linkedWorkItemActivityPrompt(card));
           }}
         >
           {agentLabel}
+        </button>
+        <button
+          type="button"
+          title={openLabel}
+          className="min-w-0 flex-1 truncate whitespace-nowrap rounded-md bg-content/10 px-2 py-1 font-medium hover:bg-content/15"
+          onClick={openActivity}
+        >
+          {openLabel}
         </button>
       </div>
     </section>
