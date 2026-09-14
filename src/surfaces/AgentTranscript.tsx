@@ -514,12 +514,10 @@ function AgentTranscriptComponent({
           // do not collapse with it: they are lifted out and parked under the
           // work, where they stay put however often it re-folds.
           const foldEntries = fold
-            ? items
-                .slice(fold.start, fold.end + 1)
-                .map((entry, offset) => ({
-                  entry,
-                  index: fold.start + offset,
-                }))
+            ? items.slice(fold.start, fold.end + 1).map((entry, offset) => ({
+                entry,
+                index: fold.start + offset,
+              }))
             : [];
           const foldSubagents = foldEntries.filter(
             ({ entry }) => entry.type === "subagents",
@@ -824,7 +822,7 @@ function TurnMetricsBadge({
   return (
     <div
       ref={root}
-      className="relative shrink-0"
+      className="relative shrink-0 pl-1"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}

@@ -91,6 +91,11 @@ async function click(element: Element) {
     (element as HTMLElement).click();
   });
 }
+async function press(element: Element, key: string) {
+  await act(async () => {
+    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  });
+}
 async function input(
   element: HTMLInputElement | HTMLTextAreaElement,
   value: string,
@@ -246,6 +251,16 @@ describe("orchestration composer and card", () => {
     await click(
       document.querySelector('[aria-label="Model for Settings UI"]')!,
     );
+    expect(document.activeElement).toBe(
+      document.querySelector('[aria-label="Search assignment models"]'),
+    );
+    // Marks the surface as a picker, which is what keeps the composer from
+    // pulling focus straight back out of the search field.
+    expect(
+      document
+        .querySelector('[aria-label="Search assignment models"]')
+        ?.closest("[data-model-picker]"),
+    ).not.toBeNull();
     await input(
       document.querySelector('[aria-label="Search assignment models"]')!,
       "Claude",
@@ -253,7 +268,29 @@ describe("orchestration composer and card", () => {
     expect(
       document.querySelector("[data-popover-side]")?.textContent,
     ).not.toContain("Worker One");
-    await click(button("Worker Two"));
+    // Arrows walk the list from the search field and Enter takes the highlight.
+    await input(
+      document.querySelector('[aria-label="Search assignment models"]')!,
+      "Worker",
+    );
+    await press(
+      document.querySelector('[aria-label="Search assignment models"]')!,
+      "ArrowDown",
+    );
+    await press(
+      document.querySelector('[aria-label="Search assignment models"]')!,
+      "Enter",
+    );
+    expect(container.textContent).toContain("Worker Two");
+    // The pointer reaches the same rows.
+    await click(
+      document.querySelector('[aria-label="Model for Settings UI"]')!,
+    );
+    await click(
+      [...document.querySelectorAll('[role="option"]')].find((row) =>
+        row.textContent?.includes("Worker Two"),
+      )!,
+    );
     expect(container.textContent).toContain("Worker Two");
     expect(container.querySelector("textarea")).toBeNull();
     await click(
@@ -263,13 +300,11 @@ describe("orchestration composer and card", () => {
       document.querySelector('[aria-label="Instructions for task 1"]')!,
       "Build the accessible form and check keyboard navigation",
     );
-    await act(async () => {
-      const limit = document.querySelector<HTMLSelectElement>(
-        '[aria-label="Parallel workers"]',
-      )!;
-      limit.value = "1";
-      limit.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await click(
+      [
+        ...document.querySelectorAll('[aria-label="Parallel workers"] button'),
+      ].find((option) => option.textContent === "1")!,
+    );
     expect(confirm).not.toHaveBeenCalled();
     await click(button("Confirm & start"));
     expect(confirm).toHaveBeenCalledWith(

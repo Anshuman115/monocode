@@ -1,9 +1,11 @@
 import {
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { HARNESS_TITLE, type Block } from "../lib/session";
 import type {
@@ -11,6 +13,8 @@ import type {
   ProposedTask,
 } from "../lib/orchestrationPlan";
 import { orchestrator } from "../lib/orchestration";
+import { resizeComposer } from "../lib/composerResize";
+import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { OrchestrationActions } from "./OrchestrationActions";
 import { HarnessIcon } from "./HarnessIcon";
 import { Popover } from "./Popover";
@@ -19,6 +23,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDashed,
+  CircleHelp,
   MessageMultiple,
   Play,
   Search,
@@ -35,10 +40,63 @@ function AssignmentModel({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
   const anchor = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const activeRef = useRef<HTMLButtonElement>(null);
+  const listOverscroll = useLockOverscroll<HTMLDivElement>();
   const selected = choices.find(
     (choice) => choice.harness === task.harness && choice.model === task.model,
   );
+  const matches = choices.filter((choice) =>
+    `${choice.name} ${choice.model} ${HARNESS_TITLE[choice.harness]}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
+  // Two things fought this field for focus. The composer takes focus back
+  // unless a picker surface is in the DOM, which `data-model-picker` below
+  // now declares; and the popover measures itself with `visibility: hidden`
+  // on its first pass, where nothing can be focused. Placement flushes in a
+  // layout effect ahead of this one, so focus now for the pass that is
+  // already on screen and again next frame, once placement has landed.
+  // Re-focusing a focused field is a no-op.
+  useEffect(() => {
+    if (!open) return;
+    search.current?.focus({ preventScroll: true });
+    const frame = requestAnimationFrame(() =>
+      search.current?.focus({ preventScroll: true }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  const pick = (choice: OrchestrationChoice) => {
+    onChange(choice);
+    setOpen(false);
+    anchor.current?.focus();
+  };
+  // Arrows walk the list from the search field, the way the app's other
+  // pickers work. The keys stop here so the transcript underneath does not
+  // scroll along with the highlight.
+  const onSearchKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!matches.length) return;
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setActive((index) =>
+        Math.min(matches.length - 1, Math.max(0, index + step)),
+      );
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      const choice = matches[active];
+      if (choice) pick(choice);
+    }
+  };
   return (
     <div className="relative min-w-0">
       <button
@@ -48,9 +106,10 @@ function AssignmentModel({
         aria-expanded={open}
         onClick={() => {
           setQuery("");
+          setActive(selected ? choices.indexOf(selected) : 0);
           setOpen(!open);
         }}
-        className="flex max-w-full items-center gap-1.5 rounded-md bg-content/5 px-2 py-1 text-[11px] text-content/60 hover:bg-content/10 hover:text-content"
+        className="flex h-7 max-w-full items-center gap-1.5 rounded-md bg-content/5 px-2 text-[11px] text-content/60 hover:bg-content/10 hover:text-content"
       >
         <HarnessIcon harness={task.harness} className="size-3.5 shrink-0" />
         <span className="truncate">
@@ -63,64 +122,71 @@ function AssignmentModel({
           anchor={anchor}
           side="bottom"
           align="start"
-          width={300}
+          width={260}
+          maxHeight={320}
           onDismiss={() => setOpen(false)}
-          className="p-1.5"
+          data-model-picker
+          className="flex flex-col overflow-hidden"
         >
-          <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-content/40">
-            Available models
-          </p>
-          <label className="mb-1 flex items-center gap-2 border-b border-content/10 px-2 py-2 text-content/40">
-            <Search className="size-3.5" />
+          <label className="flex shrink-0 items-center gap-2 border-b border-content/10 px-3 py-2.5 text-content/50">
+            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
             <input
-              autoFocus
+              ref={search}
+              type="text"
               aria-label="Search assignment models"
               placeholder="Search models or harnesses…"
+              spellCheck={false}
+              autoComplete="off"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none"
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+              }}
+              onKeyDown={onSearchKey}
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/40"
             />
           </label>
-          <div className="max-h-64 overflow-y-auto">
-            {choices
-              .filter((choice) =>
-                `${choice.name} ${choice.model} ${HARNESS_TITLE[choice.harness]}`
-                  .toLowerCase()
-                  .includes(query.toLowerCase()),
-              )
-              .map((choice) => (
-                <button
-                  key={`${choice.harness}:${choice.model}`}
-                  type="button"
-                  onClick={() => {
-                    onChange(choice);
-                    setOpen(false);
-                    anchor.current?.focus();
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-content/10"
-                >
-                  <HarnessIcon
-                    harness={choice.harness}
-                    className="size-4 shrink-0"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] text-content/90">
-                      {choice.name}
-                    </span>
-                    <span className="block text-[10px] text-content/45">
-                      {HARNESS_TITLE[choice.harness]}
-                    </span>
+          <div
+            ref={listOverscroll}
+            role="listbox"
+            aria-label="Assignment models"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1"
+          >
+            {matches.map((choice, index) => (
+              <button
+                key={`${choice.harness}:${choice.model}`}
+                ref={index === active ? activeRef : undefined}
+                type="button"
+                role="option"
+                aria-selected={choice === selected}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => pick(choice)}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+                  index === active ? "bg-content/10" : ""
+                }`}
+              >
+                <HarnessIcon
+                  harness={choice.harness}
+                  className="size-4 shrink-0"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] leading-tight text-content">
+                    {choice.name}
                   </span>
-                  {choice === selected && (
-                    <Check className="size-3.5 text-accent" />
-                  )}
-                </button>
-              ))}
-            {!choices.some((choice) =>
-              `${choice.name} ${choice.model} ${HARNESS_TITLE[choice.harness]}`
-                .toLowerCase()
-                .includes(query.toLowerCase()),
-            ) && (
+                  <span className="mt-0.5 block truncate text-[11px] leading-tight text-content/45">
+                    {HARNESS_TITLE[choice.harness]}
+                  </span>
+                </span>
+                {choice === selected && (
+                  <Check
+                    className="size-3.5 shrink-0 text-content/55"
+                    strokeWidth={2}
+                  />
+                )}
+              </button>
+            ))}
+            {!matches.length && (
               <p className="px-2 py-3 text-[12px] text-content/45">
                 No matching models
               </p>
@@ -129,6 +195,84 @@ function AssignmentModel({
         </Popover>
       )}
     </div>
+  );
+}
+
+function WorkerHelp() {
+  const [hovered, setHovered] = useState(false);
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <button
+        type="button"
+        ref={anchor}
+        aria-label="What parallel workers means"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        className="grid size-4 shrink-0 place-items-center rounded-full text-content/35 hover:text-content/70"
+      >
+        <CircleHelp className="size-3.5" strokeWidth={1.75} />
+      </button>
+      {(hovered || open) && (
+        <Popover
+          anchor={anchor}
+          side="top"
+          align="start"
+          width={250}
+          onDismiss={() => setOpen(false)}
+          className={`px-2.5 py-2 ${open ? "" : "pointer-events-none"}`}
+        >
+          <div className="text-[12px] leading-4 text-content">
+            How many workers run at once
+          </div>
+          <div className="mt-1 text-[11px] leading-4 text-content/50">
+            The rest of the tasks wait their turn, and a task that depends on
+            another waits for it either way. Every worker edits this same
+            project folder, so a lower number means fewer changes landing in it
+            at the same time.
+          </div>
+        </Popover>
+      )}
+    </>
+  );
+}
+
+function InstructionsField({
+  label,
+  value,
+  className,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  className: string;
+  onChange(value: string): void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const lockOverscroll = useLockOverscroll<HTMLTextAreaElement>();
+  // The same growth the composer uses: fit the text, stop at `max-h-40` and
+  // scroll from there. The value is controlled, so one layout effect covers
+  // typing and edits that arrive from the lead alike.
+  useLayoutEffect(() => {
+    if (ref.current) resizeComposer(ref.current);
+  }, [value]);
+  return (
+    <textarea
+      ref={(el) => {
+        ref.current = el;
+        lockOverscroll(el);
+      }}
+      rows={1}
+      aria-label={label}
+      className={`${className} max-h-40 resize-none overscroll-none`}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }
 
@@ -188,10 +332,11 @@ export function OrchestrationPreview({
   const secondary =
     "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35";
   const field =
-    "mt-1 w-full rounded-md border border-content/10 bg-background-base/40 px-2 py-1.5 text-[12px] text-content/85 outline-none focus:border-content/30";
+    "w-full rounded-md border border-content/12 bg-background-base/40 px-2 py-1.5 text-[12px] leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/30";
+  const fieldLabel = "mb-1 block text-[11px] leading-tight text-content/45";
   return (
     <div
-      className="mb-2 overflow-hidden rounded-xl border border-content/12 bg-content/3 font-sans"
+      className="mb-2 overflow-hidden rounded-xl border border-content/10 bg-content/3 font-sans"
       aria-label="Orchestration proposal"
       data-orchestration-review
     >
@@ -204,10 +349,10 @@ export function OrchestrationPreview({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-medium text-content/80">
+          <div className="truncate text-[13px] font-medium leading-tight text-content/90">
             {planning ? "Planning assignments…" : proposal.title}
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-content/45">
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-tight text-content/45">
             <HarnessIcon
               harness={proposal.author.harness}
               className="size-3 shrink-0"
@@ -238,13 +383,13 @@ export function OrchestrationPreview({
           )}
           {!run && ["ready", "starting"].includes(proposal.status) && (
             <button
-              className="flex h-7 items-center gap-1.5 rounded-md border border-content/12 bg-content/8 px-2.5 text-[11px] font-medium text-content/75 hover:bg-content/12 hover:text-content disabled:opacity-35"
+              className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-[11px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
               disabled={!editable}
               onClick={() =>
                 void perform(() => actions!.confirm(proposal.leadId, block.id))
               }
             >
-              <Play className="size-3" />
+              <Play className="size-3" strokeWidth={1.75} />
               {starting ? "Starting…" : "Confirm & start"}
             </button>
           )}
@@ -332,11 +477,11 @@ export function OrchestrationPreview({
                   </div>
                 </div>
                 {open && (
-                  <div className="space-y-2 px-3 pb-3 pl-8 text-[11px] text-content/50">
+                  <div className="space-y-2.5 px-3 pb-3 pl-8 text-[11px] leading-4 text-content/45">
                     {editable ? (
                       <>
                         <label className="block">
-                          Task
+                          <span className={fieldLabel}>Task</span>
                           <input
                             aria-label={`Title for task ${index + 1}`}
                             className={field}
@@ -347,39 +492,19 @@ export function OrchestrationPreview({
                           />
                         </label>
                         <label className="block">
-                          Instructions
-                          <textarea
-                            aria-label={`Instructions for task ${index + 1}`}
-                            className={`${field} min-h-24 resize-y`}
+                          <span className={fieldLabel}>Instructions</span>
+                          <InstructionsField
+                            label={`Instructions for task ${index + 1}`}
                             value={task.prompt}
-                            onChange={(event) =>
-                              change(task.id, { prompt: event.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="block">
-                          Files and folders, one per line
-                          <textarea
-                            aria-label={`Files for task ${index + 1}`}
-                            className={`${field} font-mono`}
-                            value={task.files.join("\n")}
-                            onChange={(event) =>
-                              change(task.id, {
-                                files: event.target.value.split("\n"),
-                              })
-                            }
+                            className={field}
+                            onChange={(prompt) => change(task.id, { prompt })}
                           />
                         </label>
                       </>
                     ) : (
-                      <>
-                        <p className="whitespace-pre-wrap text-[12px] leading-5 text-content/60">
-                          {task.prompt}
-                        </p>
-                        <p className="break-words font-mono">
-                          Files · {task.files.join(", ")}
-                        </p>
-                      </>
+                      <p className="whitespace-pre-wrap text-[12px] leading-5 text-content/60">
+                        {task.prompt}
+                      </p>
                     )}
                     {!!task.dependsOn.length && (
                       <p>
@@ -424,31 +549,46 @@ export function OrchestrationPreview({
       )}
       {!planning && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-content/10 px-3 py-2 text-[11px] text-content/45">
-          {editable ? (
-            <label>
-              Parallel workers
-              <select
-                aria-label="Parallel workers"
-                className="ml-1.5 rounded-md bg-content/8 px-1.5 py-0.5 text-content/70"
-                value={proposal.settings.maxWorkers}
-                onChange={(event) =>
-                  actions?.update(proposal.leadId, block.id, {
-                    ...proposal,
-                    settings: {
-                      ...proposal.settings,
-                      maxWorkers: Number(event.target.value),
-                    },
-                  })
-                }
-              >
-                {[1, 2, 3, 4].map((number) => (
-                  <option key={number}>{number}</option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <span>{proposal.settings.maxWorkers} parallel</span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {editable ? (
+              <>
+                <span>Parallel workers</span>
+                <div
+                  role="radiogroup"
+                  aria-label="Parallel workers"
+                  className="flex items-center gap-0.5 rounded-md bg-content/5 p-0.5"
+                >
+                  {[1, 2, 3, 4].map((number) => (
+                    <button
+                      key={number}
+                      type="button"
+                      role="radio"
+                      aria-checked={proposal.settings.maxWorkers === number}
+                      onClick={() =>
+                        actions?.update(proposal.leadId, block.id, {
+                          ...proposal,
+                          settings: {
+                            ...proposal.settings,
+                            maxWorkers: number,
+                          },
+                        })
+                      }
+                      className={`grid size-5 place-items-center rounded-[5px] text-[11px] leading-none tabular-nums ${
+                        proposal.settings.maxWorkers === number
+                          ? "bg-content/15 font-medium text-content"
+                          : "text-content/45 hover:bg-content/8 hover:text-content"
+                      }`}
+                    >
+                      {number}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <span>{proposal.settings.maxWorkers} parallel</span>
+            )}
+            <WorkerHelp />
+          </div>
           <span>
             {run?.status ??
               (proposal.status === "approved"
