@@ -278,7 +278,6 @@ import { liveAgentsFromSessions } from "./lib/liveAgents";
 import { hiddenApprovalNotices } from "./lib/approvalToast";
 import { useSessionReminders } from "./hooks/useSessionReminders";
 import { ReminderNotices } from "./chrome/ReminderNotices";
-import { LinkedWorkItemUpdateNotice } from "./chrome/LinkedWorkItemUpdateNotice";
 import { nextUnseenFinishedSessions } from "./lib/sessionDone";
 import {
   loadNotificationsEnabled,
@@ -342,7 +341,6 @@ import type { ConnectableInboxSource } from "./lib/inboxFilters";
 import { InboxView } from "./surfaces/InboxView";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
-import { requestAddToChat } from "./lib/quoteDraft";
 import { NotesView } from "./surfaces/NotesView";
 import {
   githubWorkItemThread,
@@ -1089,8 +1087,6 @@ export default function App({
     [sessions, activeTabId, tabs, composerFocused],
   );
   const [reminderNoticesHeight, setReminderNoticesHeight] = useState(0);
-  const [linkedActivityNoticeHeight, setLinkedActivityNoticeHeight] =
-    useState(0);
 
   useEffect(() => {
     syncDockBadge(sessions);
@@ -5821,8 +5817,12 @@ export default function App({
     onSteerQueuedMessage,
     onResumeQueue,
     onInboxCardDismiss,
+    onLinkedWorkItemUpdateCardDismiss,
     onNoteCardDismiss,
     onHandoffCardDismiss,
+    onOpenLinkedWorkItem,
+    onArchiveSession: onArchiveHistorySession,
+    onDeleteSession: onDeleteHistorySession,
     onApproval,
     onQuestionReply,
     onQuestionInteraction,
@@ -6215,61 +6215,9 @@ export default function App({
 
       <ApprovalToasts
         notices={hiddenApprovalToasts}
-        topOffset={
-          12 +
-          (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0) +
-          (linkedActivityNoticeHeight ? linkedActivityNoticeHeight + 8 : 0)
-        }
+        topOffset={12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)}
         onFocusSession={onOpenApprovalSession}
         onApproval={onApproval}
-      />
-      <LinkedWorkItemUpdateNotice
-        card={
-          searchViewOpen || inboxViewOpen || notesViewOpen || settingsOpen
-            ? undefined
-            : sessions.find((session) => session.id === activeTab?.focusedId)
-                ?.linkedWorkItemUpdateCard
-        }
-        topOffset={12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)}
-        onAcknowledge={() => {
-          const session = sessions.find(
-            (entry) => entry.id === activeTab?.focusedId,
-          );
-          const updatedAt = session?.linkedWorkItemUpdateCard?.updatedAt;
-          if (session && updatedAt != null) {
-            markLinkedSessionUpdateSeen(session.id, updatedAt);
-          }
-        }}
-        onDismiss={() => {
-          if (activeTab?.focusedId) {
-            onLinkedWorkItemUpdateCardDismiss(activeTab.focusedId);
-          }
-        }}
-        onOpenDiscussion={() => {
-          const session = sessions.find(
-            (entry) => entry.id === activeTab?.focusedId,
-          );
-          if (session?.linkedWorkItem) {
-            onOpenLinkedWorkItem(session.linkedWorkItem);
-          }
-        }}
-        onAddToChat={(text) => {
-          requestAddToChat(text, "plain");
-          setComposerFocused(true);
-        }}
-        onArchiveSession={() => {
-          const sessionId = activeTab?.focusedId;
-          return sessionId
-            ? onArchiveHistorySession(sessionId, true)
-            : Promise.resolve(false);
-        }}
-        onDeleteSession={() => {
-          const sessionId = activeTab?.focusedId;
-          return sessionId
-            ? onDeleteHistorySession(sessionId)
-            : Promise.resolve(false);
-        }}
-        onHeightChange={setLinkedActivityNoticeHeight}
       />
       <ReminderNotices
         reminders={sessionReminders.due}

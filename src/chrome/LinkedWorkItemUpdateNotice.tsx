@@ -1,7 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { LAYER } from "../lib/layers";
+import { useEffect, useRef, useState } from "react";
 import {
   linkedWorkItemActivityPrompt,
   linkedWorkItemTerminalState,
@@ -27,14 +25,12 @@ import {
 
 type Props = {
   card?: LinkedWorkItemUpdateCard;
-  topOffset?: number;
   onAcknowledge: () => void;
   onDismiss: () => void;
   onOpenDiscussion: () => void;
   onAddToChat: (text: string) => void;
   onArchiveSession?: () => Promise<boolean>;
   onDeleteSession?: () => Promise<boolean>;
-  onHeightChange?: (height: number) => void;
 };
 
 function entryKindLabel(entry: LinkedWorkItemActivityEntry): string {
@@ -62,32 +58,17 @@ function ActivityIcon({ entry }: { entry: LinkedWorkItemActivityEntry }) {
 
 export function LinkedWorkItemUpdateNotice({
   card,
-  topOffset = 12,
   onAcknowledge,
   onDismiss,
   onOpenDiscussion,
   onAddToChat,
   onArchiveSession,
   onDeleteSession,
-  onHeightChange,
 }: Props) {
-  const panelRef = useRef<HTMLElement>(null);
   const soundedCards = useRef(new Set<string>());
   const [cleanupAction, setCleanupAction] = useState<
     "archive" | "delete" | undefined
   >();
-  useLayoutEffect(() => {
-    const panel = panelRef.current;
-    if (!panel || !onHeightChange) return;
-    const measure = () => onHeightChange(panel.offsetHeight);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(panel);
-    return () => {
-      observer.disconnect();
-      onHeightChange(0);
-    };
-  }, [card, onHeightChange]);
   useEffect(() => {
     if (!card || card.status !== "ready") return;
     const key = `${card.kind}:${card.repo}:${card.number}:${card.updatedAt}`;
@@ -155,13 +136,11 @@ export function LinkedWorkItemUpdateNotice({
     }
   };
 
-  return createPortal(
+  return (
     <section
-      ref={panelRef}
       aria-label={`New activity on ${kindLabel} ${card.number}`}
       aria-live="polite"
-      style={{ zIndex: LAYER.popover - 1, top: topOffset }}
-      className="linked-activity-notice fixed right-3 isolate w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-xl border border-content/10 text-content shadow-xl"
+      className="linked-activity-notice pointer-events-auto absolute top-3 right-3 z-40 isolate w-[min(320px,calc(100%_-_24px))] overflow-hidden rounded-xl border border-content/10 text-content shadow-xl"
     >
       <div
         aria-hidden="true"
@@ -329,7 +308,6 @@ export function LinkedWorkItemUpdateNotice({
           {agentLabel}
         </button>
       </div>
-    </section>,
-    document.body,
+    </section>
   );
 }
