@@ -2,8 +2,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { InboxItem } from "../lib/githubTasks";
+import type { LinkedWorkItem } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
-import { InboxDetail, inboxShowsFullFileDiff } from "./InboxView";
+import {
+  InboxDetail,
+  inboxShowsFullFileDiff,
+  LinkedWorkItemPanel,
+} from "./InboxView";
 
 function item(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
@@ -41,6 +46,29 @@ function renderDetail(
 }
 
 describe("InboxDetail layout", () => {
+  it("renders a linked item as a standalone, closable side panel", () => {
+    const target: LinkedWorkItem = {
+      kind: "issue",
+      repo: "acme/web",
+      number: 157,
+      url: "https://github.com/acme/web/issues/157",
+    };
+    const markup = renderToStaticMarkup(
+      createElement(LinkedWorkItemPanel, {
+        target,
+        cwd: "/tmp/web",
+        recents: [],
+        onClose: () => {},
+      }),
+    );
+
+    expect(markup).toContain("data-linked-work-item-panel");
+    expect(markup).toContain('aria-label="Linked issue #157"');
+    expect(markup).toContain('aria-label="Resize linked issue panel"');
+    expect(markup).toContain('title="Close issue panel"');
+    expect(markup).not.toContain("data-app-inbox");
+  });
+
   it("shows when a PR was created alongside its last update", () => {
     const markup = renderDetail({
       ...item({ kind: "pr" }),

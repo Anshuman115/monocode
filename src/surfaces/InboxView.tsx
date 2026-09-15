@@ -15,6 +15,7 @@ import {
   ListFilter,
   LoaderCircle,
   MessageMultiple,
+  PanelRight,
   Plus,
   RefreshCw,
   Search,
@@ -36,7 +37,7 @@ import { InboxConnectMenu } from "../chrome/InboxConnectMenu";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
-import { OverlayNav } from "../chrome/TitleBar";
+import { IconButton, OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -164,8 +165,11 @@ const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-
 const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-content/5`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content`;
 const DEFAULT_WIDTH = 280;
+const LINKED_PANEL_MIN_WIDTH = 360;
+const LINKED_PANEL_DEFAULT_WIDTH = 520;
 
 let rememberedWidth = DEFAULT_WIDTH;
+let rememberedLinkedPanelWidth = LINKED_PANEL_DEFAULT_WIDTH;
 
 type InboxProjectOption = {
   path: string;
@@ -1023,6 +1027,162 @@ export function InboxView({
   );
 }
 
+export function LinkedWorkItemPanel({
+  target,
+  cwd,
+  recents,
+  sessions = [],
+  onClose,
+  onOpenSession,
+}: {
+  target: LinkedWorkItem;
+  cwd: string;
+  recents: RecentProject[];
+  sessions?: readonly SessionSummary[];
+  onClose: () => void;
+  onOpenSession?: (sessionId: string) => void | Promise<void>;
+}) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const logos = useTabGroupLogos();
+  const projects = useMemo(
+    () => inboxProjectsForRail(recents, cwd),
+    [cwd, recents],
+  );
+  const projectOptions = useMemo(
+    () => inboxProjectOptions(projects, logos),
+    [logos, projects],
+  );
+  const [item, setItem] = useState<InboxItem | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const resize = useDragResize({
+    min: LINKED_PANEL_MIN_WIDTH,
+    max: () =>
+      Math.max(
+        LINKED_PANEL_MIN_WIDTH,
+        Math.round(
+          (typeof window === "undefined"
+            ? LINKED_PANEL_DEFAULT_WIDTH / 0.65
+            : window.innerWidth) * 0.65,
+        ),
+      ),
+    defaultWidth: LINKED_PANEL_DEFAULT_WIDTH,
+    initial: rememberedLinkedPanelWidth,
+    direction: "left",
+    onCommit: (width) => {
+      rememberedLinkedPanelWidth = width;
+    },
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setItem(null);
+    setError(null);
+    setLoading(true);
+    void githubWorkItem(cwd, target.repo, target.kind, target.number, {
+      force: true,
+    })
+      .then((next) => {
+        if (cancelled) return;
+        setItem({ ...next, projectPath: cwd, provider: "github" });
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, target.kind, target.number, target.repo]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  const kindLabel = target.kind === "pr" ? "Pull request" : "Issue";
+  return (
+    <aside
+      ref={resize.setPaneRef}
+      aria-label={`Linked ${kindLabel.toLowerCase()} #${target.number}`}
+      aria-busy={loading}
+      data-linked-work-item-panel
+      className="relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-content/10 bg-background-base text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
+    >
+      <div
+        role="separator"
+        aria-label={`Resize linked ${kindLabel.toLowerCase()} panel`}
+        aria-orientation="vertical"
+        onPointerDown={resize.onPointerDown}
+        onDoubleClick={resize.onDoubleClick}
+        className={`absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize touch-none ${
+          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
+        }`}
+      />
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-content/10 px-3">
+        <InboxProviderMark
+          provider="github"
+          className="size-3.5 shrink-0 text-content/45"
+        />
+        <span className="shrink-0 text-[12px] text-content/50">
+          {kindLabel} #{target.number}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-content/75">
+          {item?.title ?? target.repo}
+        </span>
+        <IconButton
+          label={`Close ${kindLabel.toLowerCase()} panel`}
+          onClick={onClose}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      </header>
+      <div className="min-h-0 min-w-0 flex-1">
+        {item ? (
+          <InboxDetail
+            key={inboxItemKey(item)}
+            item={item}
+            cwd={cwd}
+            projects={projectOptions}
+            revision={0}
+            relatedSessions={relatedSessionsForInboxItem(item, sessions)}
+            onOpenSession={onOpenSession}
+          />
+        ) : error ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+            <CircleX className="size-5 text-rose-400/90" strokeWidth={1.75} />
+            <p role="alert" className="max-w-sm text-[12px] text-content/55">
+              {error}
+            </p>
+            <button
+              type="button"
+              onClick={() => void openUrl(target.url)}
+              className={ACTION_OUTLINE}
+            >
+              <ExternalLink className="size-3.5" strokeWidth={1.75} />
+              Open on GitHub
+            </button>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center text-content/40">
+            <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 function InboxDetailBody({
   item,
   cwd,
@@ -1799,13 +1959,17 @@ export function InboxDetail({
                   ) : null}
                 </>
               ) : null}
-              <button
-                type="button"
-                onClick={onDiscuss}
-                className={item.kind === "pr" ? ACTION_FILLED : ACTION_OUTLINE}
-              >
-                <MessageSquare className="size-3.5" strokeWidth={1.75} /> Ask
-              </button>
+              {onDiscuss ? (
+                <button
+                  type="button"
+                  onClick={onDiscuss}
+                  className={
+                    item.kind === "pr" ? ACTION_FILLED : ACTION_OUTLINE
+                  }
+                >
+                  <MessageSquare className="size-3.5" strokeWidth={1.75} /> Ask
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void openUrl(item.url)}
