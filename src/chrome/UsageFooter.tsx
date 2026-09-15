@@ -175,8 +175,7 @@ export function UsageFooter({
               open={terminalOpen}
               onToggle={onToggleTerminal}
             />
-          ) : null}
-          {showTerminalButton ? (
+          ) : showTerminalButton ? (
             <button
               type="button"
               className={`inline-flex h-5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-1.5 hover:bg-content/10 ${
