@@ -248,6 +248,7 @@ import {
   sameProjectPath,
 } from "./lib/recents";
 import {
+  applyPlaceTabOnPane,
   applyPlaceSessionOnPane,
   filterTabsForProject,
   findOpenSessionTab,
@@ -3419,6 +3420,43 @@ export default function App({
       setComposerFocused(true);
     },
     [ensureOpenSession, tabCloseScope],
+  );
+
+  const onPlaceTabOnPane = useCallback(
+    (sourceTabId: string, targetId: string, edge: PaneEdge) => {
+      const targetTab = tabsRef.current.find((tab) =>
+        leafIds(tab.layout).includes(targetId),
+      );
+      if (!targetTab || targetTab.id === sourceTabId) return;
+
+      const blankTarget = sessionsRef.current.find(
+        (session) => session.id === targetId && isBlankSession(session),
+      );
+      const result = applyPlaceTabOnPane({
+        tabs: tabsRef.current,
+        sessions: sessionsRef.current,
+        sourceTabId,
+        targetId,
+        edge,
+        replaceTarget: blankTarget != null,
+      });
+      if (!result) return;
+
+      if (blankTarget) {
+        lastPersisted.current.delete(blankTarget.id);
+        void forgetHarnessSession(blankTarget.harness, blankTarget.id);
+      }
+      sessionsRef.current = result.sessions;
+      tabsRef.current = result.tabs;
+      setSessions(result.sessions);
+      setTabs(result.tabs);
+      setActiveTabId(result.activeTabId);
+      setProjectTerminalFocused(false);
+      setComposerFocused(
+        result.sessions.some((session) => session.id === result.focusedId),
+      );
+    },
+    [],
   );
 
   const onRenameHistorySession = useCallback(
@@ -6910,6 +6948,7 @@ export default function App({
                 onClose={onCloseTitleTab}
                 onCloseMany={onCloseTabs}
                 onReorder={onReorderTabs}
+                onPlaceOnPane={onPlaceTabOnPane}
                 onGoToFile={onGoToFile}
                 recents={recents}
                 onSelectProject={onSelectProject}
