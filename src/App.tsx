@@ -248,6 +248,7 @@ import {
   sameProjectPath,
 } from "./lib/recents";
 import {
+  applyDetachPaneToTab,
   applyPlaceTabOnPane,
   applyPlaceSessionOnPane,
   filterTabsForProject,
@@ -2942,6 +2943,24 @@ export default function App({
       );
     },
     [],
+  );
+
+  const onDetachPane = useCallback(
+    (paneId: string, targetTabId: string, position: "before" | "after") => {
+      const result = applyDetachPaneToTab({
+        tabs: tabsRef.current,
+        paneId,
+        targetTabId,
+        position,
+      });
+      if (!result) return;
+
+      tabsRef.current = result.tabs;
+      setTabs(result.tabs);
+      setProjectTerminalFocused(false);
+      activateTab(result.activeTabId, result.focusedId);
+    },
+    [activateTab],
   );
 
   const focusOpenSession = useCallback((sessionId: string) => {
@@ -7101,6 +7120,7 @@ export default function App({
                               editorNavigation={editorNavigation}
                               onUpdatePlan={onUpdatePlan}
                               onMovePane={onMovePane}
+                              onDetachPane={onDetachPane}
                               onTerminalMetaChange={onTerminalMetaChange}
                             />
                           </div>
