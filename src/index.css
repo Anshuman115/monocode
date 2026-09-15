@@ -793,6 +793,21 @@ header[data-tauri-drag-region] button {
   color: color-mix(in srgb, var(--color-content) 78%, transparent);
 }
 
+/* AgentMarkdown passes dir="auto", so Streamdown puts every block in its own
+   <div dir="..." style="display: contents"> wrapper. A display:contents box
+   drops its own margins, so Streamdown's `space-y-4` on the root (it targets
+   those wrappers) paints no gap at all. Headings, blockquotes and rules keep
+   their spacing because their margin sits on the element itself (mt-6/mb-2,
+   my-4, my-6); paragraphs and lists carry none, so every "\n\n" started a new
+   <p> with no visible gap and the reply read as one dense block (#218).
+   Put the gap back on the block inside the wrapper, top side only, so a reply
+   never ends with a trailing gap. */
+.agent-markdown > div + div > p,
+.agent-markdown > div + div > [data-streamdown="unordered-list"],
+.agent-markdown > div + div > [data-streamdown="ordered-list"] {
+  margin-top: 1rem;
+}
+
 .agent-markdown p strong,
 .agent-markdown p em,
 .agent-markdown p [data-streamdown="strong"] {
