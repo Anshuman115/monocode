@@ -107,6 +107,25 @@ describe("orchestration proposals", () => {
       ),
     ).toHaveLength(2);
   });
+  it("keeps an explicitly selected worker effort and rejects malformed settings", () => {
+    expect(
+      validateProposedTasks(
+        [
+          {
+            ...task,
+            modelSettings: { reasoningEffort: "xhigh" },
+          },
+        ],
+        draft.settings,
+      )[0].modelSettings,
+    ).toEqual({ reasoningEffort: "xhigh" });
+    expect(() =>
+      validateProposedTasks(
+        [{ ...task, modelSettings: { reasoningEffort: 42 } }],
+        draft.settings,
+      ),
+    ).toThrow("model settings");
+  });
   it("keeps model edits and assignments through persistence", () => {
     const proposal = completeOrchestrationProposal(
       draft,

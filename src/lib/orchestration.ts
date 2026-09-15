@@ -19,6 +19,7 @@ export type OrchestrationTask = {
   title: string;
   harness: HarnessId;
   model: string;
+  modelSettings?: Record<string, string>;
   prompt: string;
   files: string[];
   scopes: string[];
@@ -448,7 +449,7 @@ export class Orchestrator {
     );
     this.host!.submit(
       leadId,
-      `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, files, dependsOn }) => ({ taskId: id, title, prompt, harness, model, files, dependsOn })))}`,
+      `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, modelSettings, files, dependsOn }) => ({ taskId: id, title, prompt, harness, model, modelSettings, files, dependsOn })))}`,
       (outcome) => {
         if (outcome.status !== "completed")
           void this.pause(

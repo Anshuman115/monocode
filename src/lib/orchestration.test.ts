@@ -197,14 +197,25 @@ describe("local orchestration", () => {
   it("starts exactly the approved assignments and preserves forward dependencies", async () => {
     const f = setup();
     f.lead.busy = false;
+    const card = proposal();
+    card.tasks[1].modelSettings = { reasoningEffort: "xhigh" };
     expect(f.host.submit).not.toHaveBeenCalled();
-    await f.manager.startApproved("lead", "card", proposal());
+    await f.manager.startApproved("lead", "card", card);
     await vi.waitFor(() =>
       expect(f.host.createWorker).toHaveBeenCalledTimes(1),
     );
     expect(f.tasks().map((task) => task.status)).toEqual(["queued", "running"]);
     expect(f.tasks()[0].prompt).toBe("User edited instructions");
     expect(f.tasks()[0].dependsOn).toEqual([f.tasks()[1].id]);
+    expect(f.tasks()[1].modelSettings).toEqual({
+      reasoningEffort: "xhigh",
+    });
+    expect(f.host.createWorker).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        modelSettings: { reasoningEffort: "xhigh" },
+      }),
+    );
     expect(f.manager.run("lead")?.proposalId).toBe("card");
     expect(f.saved.get("lead")?.tasks).toHaveLength(2);
     const workerPrompt = vi
@@ -218,6 +229,9 @@ describe("local orchestration", () => {
     expect(
       vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
     ).toContain("do not delegate duplicates");
+    expect(
+      vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
+    ).toContain('"modelSettings":{"reasoningEffort":"xhigh"}');
   });
   it("never launches a partial plan when one assignment has invalid scopes", async () => {
     const f = setup();

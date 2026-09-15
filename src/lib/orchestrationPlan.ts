@@ -15,6 +15,7 @@ export type ProposedTask = {
   prompt: string;
   harness: HarnessId;
   model: string;
+  modelSettings?: Record<string, string>;
   files: string[];
   dependsOn: string[];
 };
@@ -52,6 +53,18 @@ function stringList(value: unknown, label: string, max: number): string[] {
         .map((item) => required(item, label, 512)),
     ),
   ];
+}
+
+function stringRecord(value: unknown, label: string): Record<string, string> {
+  const input = record(value);
+  const entries = Object.entries(input);
+  if (entries.length > 32) throw new Error(`Invalid ${label}`);
+  return Object.fromEntries(
+    entries.map(([key, entry]) => [
+      required(key, label, 128),
+      required(entry, label, 256),
+    ]),
+  );
 }
 
 export function validateOrchestrationSettings(
@@ -135,6 +148,11 @@ export function validateProposedTasks(
       prompt: required(task.prompt, "task instructions"),
       harness,
       model,
+      ...(task.modelSettings === undefined
+        ? {}
+        : {
+            modelSettings: stringRecord(task.modelSettings, "model settings"),
+          }),
       files,
       dependsOn: stringList(task.dependsOn ?? [], "dependencies", 40),
     };

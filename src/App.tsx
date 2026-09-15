@@ -272,6 +272,7 @@ import {
   type Block,
   type HarnessId,
   type LinkedWorkItem,
+  type ModelTarget,
   type PlanBuildTarget,
   type RuntimeMode,
   type PlanStatus,
@@ -536,7 +537,7 @@ function withPlanBuildTarget(
   target: PlanBuildTarget,
 ): Session {
   const resolved = resolveModel(target.harness, target.model);
-  const modelSettings = preferredModelSettings(resolved, session.modelSettings);
+  const modelSettings = mergeModelSettings(resolved, target.modelSettings);
   const plan = planComposerSwitch(session, target.harness);
   const next = withHarnessChoice(
     session,
@@ -5301,11 +5302,12 @@ export default function App({
   );
 
   const onSecondOpinion = useCallback(
-    (sourceId: string, harness: HarnessId, turn: Block[], model: string) => {
+    (sourceId: string, target: ModelTarget, turn: Block[]) => {
       const source = sessionsRef.current.find(
         (session) => session.id === sourceId,
       );
       if (!source) return;
+      const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
       const userRequest = turnUserRequest(turn);
@@ -5318,6 +5320,10 @@ export default function App({
       });
       const session = {
         ...newSession(harness, cwd, model, source.runtimeMode),
+        modelSettings: mergeModelSettings(
+          resolveModel(harness, model),
+          modelSettings,
+        ),
         title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
       };
       openSessionBeside(sourceId, session, cwd);
@@ -5334,11 +5340,12 @@ export default function App({
   );
 
   const onHandoff = useCallback(
-    (sourceId: string, harness: HarnessId, turn: Block[], model: string) => {
+    (sourceId: string, target: ModelTarget, turn: Block[]) => {
       const source = sessionsRef.current.find(
         (session) => session.id === sourceId,
       );
       if (!source) return;
+      const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
       const sliced = sessionThroughTurn(source, turn);
@@ -5347,6 +5354,10 @@ export default function App({
       const display = sessionDisplayTitle(source.title, source.harness);
       const session = {
         ...newSession(harness, cwd, model, source.runtimeMode),
+        modelSettings: mergeModelSettings(
+          resolveModel(harness, model),
+          modelSettings,
+        ),
         title: formatSessionTitle(
           harness,
           display === "New session" ? HANDOFF_TITLE : display,
@@ -5665,6 +5676,22 @@ export default function App({
           throw new Error(
             "The saved worker no longer matches its approved model. Create a new assignment.",
           );
+        const fresh = {
+          ...newSession(
+            task.harness,
+            run.cwd,
+            task.model,
+            lead.runtimeMode,
+          ),
+          ...(task.modelSettings
+            ? {
+                modelSettings: mergeModelSettings(
+                  resolveModel(task.harness, task.model),
+                  task.modelSettings,
+                ),
+              }
+            : {}),
+        };
         const base = restored
           ? {
               ...restored,
@@ -5674,12 +5701,7 @@ export default function App({
               runtimeMode: lead.runtimeMode,
             }
           : {
-              ...newSession(
-                task.harness,
-                run.cwd,
-                task.model,
-                lead.runtimeMode,
-              ),
+              ...fresh,
               id: task.sessionId,
               title: task.title,
             };

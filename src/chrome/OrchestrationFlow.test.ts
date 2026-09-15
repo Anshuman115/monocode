@@ -69,8 +69,43 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
   setHarnessModels("codex", [
-    { id: "codex:one", harness: "codex", name: "Worker One" },
+    {
+      id: "codex:one",
+      harness: "codex",
+      name: "Worker One",
+      settings: [
+        {
+          id: "reasoningEffort",
+          label: "Reasoning",
+          kind: "select",
+          value: "high",
+          options: [
+            { value: "xhigh", label: "Extra High" },
+            { value: "high", label: "High" },
+          ],
+        },
+      ],
+    },
     { id: "codex:two", harness: "codex", name: "Worker Two" },
+  ]);
+  setHarnessModels("claude", [
+    {
+      id: "claude:two",
+      harness: "claude",
+      name: "Worker Two",
+      settings: [
+        {
+          id: "effort",
+          label: "Effort",
+          kind: "select",
+          value: "high",
+          options: [
+            { value: "xhigh", label: "Extra High" },
+            { value: "high", label: "High" },
+          ],
+        },
+      ],
+    },
   ]);
   container = document.createElement("div");
   document.body.append(container);
@@ -97,6 +132,11 @@ async function click(element: Element) {
 async function press(element: Element, key: string) {
   await act(async () => {
     element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  });
+}
+async function hover(element: Element) {
+  await act(async () => {
+    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
   });
 }
 async function input(
@@ -273,7 +313,7 @@ describe("orchestration composer and card", () => {
     expect(
       document.querySelector("[data-popover-side]")?.textContent,
     ).not.toContain("Worker One");
-    // Arrows walk the list from the search field and Enter takes the highlight.
+    // Arrows walk the list, then Enter opens and chooses its effort.
     await input(
       document.querySelector('[aria-label="Search assignment models"]')!,
       "Worker",
@@ -286,17 +326,36 @@ describe("orchestration composer and card", () => {
       document.querySelector('[aria-label="Search assignment models"]')!,
       "Enter",
     );
-    expect(container.textContent).toContain("Worker Two");
+    expect(
+      document.querySelector('[role="menu"][aria-label="Worker Two effort"]'),
+    ).not.toBeNull();
+    await press(
+      document.querySelector('[aria-label="Search assignment models"]')!,
+      "ArrowUp",
+    );
+    await press(
+      document.querySelector('[aria-label="Search assignment models"]')!,
+      "Enter",
+    );
+    expect(container.textContent).toContain("Worker Two · Extra High");
     // The pointer reaches the same rows.
     await click(
       document.querySelector('[aria-label="Model for Settings UI"]')!,
     );
+    const workerTwo = [...document.querySelectorAll('[role="option"]')].find(
+      (row) => row.textContent?.includes("Worker Two"),
+    )!;
+    await hover(workerTwo);
+    const effortMenu = document.querySelector(
+      '[role="menu"][aria-label="Worker Two effort"]',
+    )!;
+    expect(effortMenu).toBeTruthy();
     await click(
-      [...document.querySelectorAll('[role="option"]')].find((row) =>
-        row.textContent?.includes("Worker Two"),
+      [...effortMenu.querySelectorAll('[role="menuitemradio"]')].find(
+        (option) => option.textContent === "High",
       )!,
     );
-    expect(container.textContent).toContain("Worker Two");
+    expect(container.textContent).toContain("Worker Two · High");
     expect(container.querySelector("textarea")).toBeNull();
     await click(
       document.querySelector('[aria-label="Details for Settings UI"]')!,
@@ -319,6 +378,7 @@ describe("orchestration composer and card", () => {
           expect.objectContaining({
             harness: "claude",
             model: "claude:two",
+            modelSettings: { effort: "high" },
             prompt: "Build the accessible form and check keyboard navigation",
           }),
         ],
