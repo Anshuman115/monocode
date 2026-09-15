@@ -29,12 +29,12 @@ const CSS_PATH = resolve(process.cwd(), "src/index.css");
 
 const SAMPLE = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
 
-function renderAgentMarkdown(): string {
+function renderAgentMarkdown(sample = SAMPLE): string {
   return renderToStaticMarkup(
     createElement(
       Streamdown,
       { dir: "auto", className: "agent-markdown" },
-      SAMPLE,
+      sample,
     ),
   );
 }
@@ -117,10 +117,8 @@ describe("agent-markdown paragraph spacing", () => {
 
       if (index > 0) {
         const previousBelow = declaredMargin(paragraphs[index - 1], "bottom");
-        expect(
-          !isZero(above) || !isZero(previousBelow),
-          "expected a gap between two paragraphs",
-        ).toBe(true);
+        expect(above, "expected the full gap between paragraphs").toBe("1rem");
+        expect(isZero(previousBelow)).toBe(true);
       } else {
         expect(isZero(above), "no gap above the first paragraph").toBe(true);
       }
@@ -129,5 +127,30 @@ describe("agent-markdown paragraph spacing", () => {
         expect(isZero(below), "no gap after the last paragraph").toBe(true);
       }
     });
+  });
+
+  it("keeps lists closer to the paragraphs that introduce them", () => {
+    document.body.innerHTML = renderAgentMarkdown(
+      "Intro.\n\n- First\n- Second\n\nMore context.\n\n1. First\n2. Second",
+    );
+    const lists = [
+      ...document.querySelectorAll<HTMLElement>(
+        '.agent-markdown [data-streamdown="unordered-list"], .agent-markdown [data-streamdown="ordered-list"]',
+      ),
+    ];
+
+    expect(lists).toHaveLength(2);
+    for (const list of lists) {
+      expect(declaredMargin(list, "top")).toBe("0.5rem");
+      expect(isZero(declaredMargin(list, "bottom"))).toBe(true);
+    }
+  });
+
+  it("does not add a gap before the first visible block", () => {
+    document.body.innerHTML = renderAgentMarkdown("\n\nFirst paragraph.");
+    const paragraph = document.querySelector<HTMLElement>(".agent-markdown p")!;
+
+    expect(paragraph.parentElement?.previousElementSibling).toBeTruthy();
+    expect(isZero(declaredMargin(paragraph, "top"))).toBe(true);
   });
 });

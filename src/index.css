@@ -801,11 +801,15 @@ header[data-tauri-drag-region] button {
    my-4, my-6); paragraphs and lists carry none, so every "\n\n" started a new
    <p> with no visible gap and the reply read as one dense block (#218).
    Put the gap back on the block inside the wrapper, top side only, so a reply
-   never ends with a trailing gap. */
-.agent-markdown > div + div > p,
-.agent-markdown > div + div > [data-streamdown="unordered-list"],
-.agent-markdown > div + div > [data-streamdown="ordered-list"] {
+   never ends with a trailing gap. Ignore empty wrappers before the first
+   visible block, and keep lists closer to the paragraph that introduces them. */
+.agent-markdown > div:not(:empty) ~ div > p {
   margin-top: 1rem;
+}
+
+.agent-markdown > div:not(:empty) ~ div > [data-streamdown="unordered-list"],
+.agent-markdown > div:not(:empty) ~ div > [data-streamdown="ordered-list"] {
+  margin-top: 0.5rem;
 }
 
 .agent-markdown p strong,
