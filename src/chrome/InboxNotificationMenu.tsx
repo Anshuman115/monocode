@@ -59,7 +59,7 @@ export function InboxNotificationMenu({
       disabled: !mutedIds.length,
     },
   ];
-  if (!selection && error)
+  if (discovery.unavailablePaths.length)
     items.push({ kind: "item", id: "retry", label: "Retry loading projects" });
   if (onOpenSettings)
     items.push(
@@ -103,10 +103,10 @@ export function InboxNotificationMenu({
             Project notifications
           </p>
           <p role="status" className="text-xs text-content/50">
-            {selection
-              ? `${allIds.length} ${allIds.length === 1 ? "project" : "projects"} · ${mutedIds.length} muted`
-              : error
-                ? "Projects unavailable"
+            {error
+              ? "Projects unavailable"
+              : selection
+                ? `${allIds.length} ${allIds.length === 1 ? "project" : "projects"} · ${mutedIds.length} muted`
                 : "Loading projects…"}
           </p>
           {error ? (

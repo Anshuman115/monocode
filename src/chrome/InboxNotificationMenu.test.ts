@@ -223,6 +223,35 @@ it("keeps the menu open and reports failed persistence so the action can be retr
   ).toBeNull();
 });
 
+it("keeps healthy projects actionable when a stale rail path is unavailable", async () => {
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const cwd = (args as { cwd: string }).cwd;
+    if (command === "git_notification_context" && cwd === "/repos/private") {
+      throw new Error("Directory missing");
+    }
+    return {
+      root: cwd,
+      commonDir: null,
+      remote: "https://github.com/company/work.git",
+    };
+  });
+
+  await openInboxMenu();
+
+  await vi.waitFor(() =>
+    expect(button("Mute all projects").disabled).toBe(false),
+  );
+  expect(document.body.textContent).not.toContain("unavailable project");
+  expect(document.querySelector('[role="alert"]')).toBeNull();
+  expect(button("Retry loading projects")).toBeDefined();
+
+  act(() => button("Mute all projects").click());
+  act(() => button("Until resumed").click());
+  expect(loadNotificationPreferences()).toEqual({
+    "repository:github.com/company/work": { disabled: [], mutedUntil: null },
+  });
+});
+
 it("disables bulk actions on unresolved projects and allows retrying discovery", async () => {
   const resolve = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockResolvedValue(null);

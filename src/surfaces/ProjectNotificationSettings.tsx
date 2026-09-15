@@ -232,8 +232,13 @@ export function ProjectNotificationSettings({
                   ? resolveTabGroupLogo(key, groupLogos)
                   : null;
                 const categories = NOTIFICATION_CATEGORIES.filter(
-                  (category) =>
-                    project.kind !== "linear" || category.id === "issues",
+                  (category) => {
+                    if (project.kind === "linear")
+                      return category.id === "issues";
+                    if (project.kind === "local")
+                      return !["pullRequests", "issues"].includes(category.id);
+                    return true;
+                  },
                 );
                 const enabledCount = categories.filter(
                   (category) =>
@@ -312,6 +317,9 @@ export function ProjectNotificationSettings({
                               {project.name}
                             </p>
                             <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+                              {project.kind === "local"
+                                ? "Local project · "
+                                : ""}
                               {muted
                                 ? "All notifications paused"
                                 : enabledCount === categories.length

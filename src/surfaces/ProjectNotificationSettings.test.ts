@@ -125,6 +125,38 @@ it("offers only issue notifications for a Linear project", async () => {
   ).toEqual(["issues"]);
 });
 
+it("keeps local projects while offering only local notification categories", async () => {
+  rememberNotificationProjects([
+    {
+      id: "local:/fun",
+      name: "fun",
+      detail: "/fun",
+      kind: "local",
+      paths: ["/fun"],
+    },
+  ]);
+  await act(async () =>
+    root.render(createElement(ProjectNotificationSettings, { cwd: "" })),
+  );
+
+  const local = categoriesButton("fun");
+  expect(local.textContent).toContain("Local project · All categories enabled");
+  act(() => local.click());
+  expect(checkbox("Agent finished for fun").checked).toBe(true);
+  expect(checkbox("Agent approvals and questions for fun").checked).toBe(true);
+  expect(checkbox("Reminders for fun").checked).toBe(true);
+  expect(
+    container.querySelector(
+      'input[aria-label="Pull requests / Merge requests for fun"]',
+    ),
+  ).toBeNull();
+  expect(
+    container.querySelector(
+      'input[aria-label="Issues and Linear tasks for fun"]',
+    ),
+  ).toBeNull();
+});
+
 it("discovers recent projects and focuses the project requested by a quick action", async () => {
   vi.mocked(invoke)
     .mockImplementationOnce(async () => ({

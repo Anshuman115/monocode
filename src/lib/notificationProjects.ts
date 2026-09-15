@@ -50,17 +50,24 @@ export function knownNotificationProject(
   );
 }
 
-/** A bulk action must never silently omit an unresolved local checkout. */
+/**
+ * A bulk action waits for every reachable checkout. Callers may explicitly
+ * exclude paths whose discovery completed with an error when they surface that
+ * unavailable state separately.
+ */
 export function knownNotificationProjectSelection(
   paths: readonly string[],
+  unavailablePaths: readonly string[] = [],
 ): { projects: NotificationProject[] } | null {
   const projects = loadNotificationProjects();
   const knownPaths = new Set(
     projects.flatMap((project) => project.paths.map(pathKey)),
   );
-  return paths
-    .filter(looksLikeProject)
-    .every((path) => knownPaths.has(pathKey(path)))
+  const unavailable = new Set(unavailablePaths.map(pathKey));
+  return paths.filter(looksLikeProject).every((path) => {
+    const key = pathKey(path);
+    return knownPaths.has(key) || unavailable.has(key);
+  })
     ? { projects }
     : null;
 }

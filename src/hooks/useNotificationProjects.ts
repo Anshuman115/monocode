@@ -62,19 +62,25 @@ export function useNotificationProjects(paths: readonly string[]) {
     notificationProjectsSnapshot,
   );
   const pathsKey = JSON.stringify([...new Set(paths.filter(looksLikeProject))]);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{
+    pathsKey: string;
+    paths: string[];
+  } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     const requested = JSON.parse(pathsKey) as string[];
     setFailure(null);
     const discover = () => {
-      void Promise.all(requested.map(resolveNotificationProject)).then(
-        () => {
-          if (active) setFailure(null);
-        },
-        () => {
-          if (active) setFailure(pathsKey);
+      void Promise.allSettled(requested.map(resolveNotificationProject)).then(
+        (results) => {
+          if (!active) return;
+          const unavailable = requested.filter(
+            (_, index) => results[index]?.status === "rejected",
+          );
+          setFailure(
+            unavailable.length ? { pathsKey, paths: unavailable } : null,
+          );
         },
       );
     };
@@ -85,15 +91,25 @@ export function useNotificationProjects(paths: readonly string[]) {
       unwatch();
     };
   }, [pathsKey, attempt]);
-  const selection = knownNotificationProjectSelection(JSON.parse(pathsKey));
+  const requested = JSON.parse(pathsKey) as string[];
+  const unavailablePaths = failure?.pathsKey === pathsKey ? failure.paths : [];
+  const selection = knownNotificationProjectSelection(
+    requested,
+    unavailablePaths,
+  );
+  const projects = loadNotificationProjects();
   return {
-    projects: loadNotificationProjects(),
+    projects,
     selection,
-    loading: selection === null && failure !== pathsKey,
+    unavailablePaths,
+    loading: selection === null && failure?.pathsKey !== pathsKey,
     error:
-      selection === null && failure === pathsKey
+      unavailablePaths.length > 0 && projects.length === 0
         ? "Could not load projects. Please try again."
         : null,
-    retry: () => setAttempt((value) => value + 1),
+    retry: () => {
+      setFailure(null);
+      setAttempt((value) => value + 1);
+    },
   };
 }

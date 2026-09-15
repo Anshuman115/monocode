@@ -75,6 +75,8 @@ to its category count automatically at expiry or on manual resume.
   refresh. Concurrent discovery is shared, and a Git change during discovery
   schedules a follow-up. A failed background refresh retains known data and
   backs off for five seconds. Unknown paths expose discovery failures for retry.
+  When one rail path is unavailable, healthy projects remain available to bulk
+  actions instead of blocking the full list.
   Native discovery updates checkout-to-repository associations without moving
   notification preferences from the old repository to the new one.
   Unavailable paths and Git metadata failures reject discovery instead of
@@ -125,6 +127,8 @@ a different project. Host names keep separate GitLab instances distinct.
 
 Repositories without a hosted remote use the absolute Git common directory;
 ordinary folders use their normalized path. Windows paths compare without case.
+These local projects expose agent completion, agent input and reminder controls;
+provider-only pull-request and issue controls are omitted.
 Linear uses its project UUID. Issues without a Linear project use a separate
 unassigned group for each team UUID. Projects can be cataloged from remote Inbox
 items without any local folder. Saved catalog entries keep their controls
