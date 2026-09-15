@@ -6941,11 +6941,6 @@ export default function App({
                 onSelect={activateTab}
                 onNew={onNew}
                 onNewTerminal={onNewTerminal}
-                onShowTerminal={onShowProjectTerminal}
-                projectTerminalActive={
-                  !!currentProjectDock &&
-                  currentProjectDock.pane.files.length > 0
-                }
                 onOpenSettings={onOpenSettings}
                 onOpenInbox={onOpenInbox}
                 onOpenNotes={notesEnabled ? onOpenNotes : undefined}
@@ -7154,6 +7149,18 @@ export default function App({
                 terminals={runningTerminals}
                 terminalOpen={runningTerminalOpen}
                 onToggleTerminal={onToggleRunningTerminal}
+                onNewTerminal={
+                  looksLikeProject(projectCwd) ? onNewTerminal : undefined
+                }
+                onShowTerminal={
+                  looksLikeProject(projectCwd)
+                    ? onShowProjectTerminal
+                    : undefined
+                }
+                projectTerminalActive={
+                  !!currentProjectDock &&
+                  currentProjectDock.pane.files.length > 0
+                }
               />
             )}
           </div>
