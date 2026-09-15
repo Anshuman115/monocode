@@ -7130,6 +7130,7 @@ export default function App({
                 sessions={sidebarHistory}
                 besideRail
                 onClose={onCloseSettings}
+                onSelectSection={onSelectSettingsSection}
                 onOpenSession={onOpenArchivedSession}
                 onArchiveSession={onArchiveHistorySession}
                 onDeleteSession={onDeleteHistorySession}
@@ -7191,7 +7192,7 @@ export default function App({
             onSnooze={sessionReminders.schedule}
             onDismiss={sessionReminders.cancel}
             onRetry={sessionReminders.refresh}
-            onOpenSettings={() => openSettings()}
+            onOpenSettings={() => openSettings("general", "notifications")}
             onHeightChange={setReminderNoticesHeight}
           />
           {whatsNewVersion ? (
