@@ -1031,16 +1031,12 @@ export function LinkedWorkItemPanel({
   target,
   cwd,
   recents,
-  sessions = [],
   onClose,
-  onOpenSession,
 }: {
   target: LinkedWorkItem;
   cwd: string;
   recents: RecentProject[];
-  sessions?: readonly SessionSummary[];
   onClose: () => void;
-  onOpenSession?: (sessionId: string) => void | Promise<void>;
 }) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -1117,7 +1113,7 @@ export function LinkedWorkItemPanel({
       aria-label={`Linked ${kindLabel.toLowerCase()} #${target.number}`}
       aria-busy={loading}
       data-linked-work-item-panel
-      className="relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-content/10 bg-background-base text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
+      className="relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-content/10 text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
     >
       <div
         role="separator"
@@ -1129,24 +1125,14 @@ export function LinkedWorkItemPanel({
           resize.dragging ? "bg-content/15" : "hover:bg-content/10"
         }`}
       />
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-content/10 px-3">
-        <InboxProviderMark
-          provider="github"
-          className="size-3.5 shrink-0 text-content/45"
-        />
-        <span className="shrink-0 text-[12px] text-content/50">
-          {kindLabel} #{target.number}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-content/75">
-          {item?.title ?? target.repo}
-        </span>
+      <div className="absolute top-2 right-2 z-30">
         <IconButton
           label={`Close ${kindLabel.toLowerCase()} panel`}
           onClick={onClose}
         >
           <PanelRight className="size-3.5" strokeWidth={1.75} />
         </IconButton>
-      </header>
+      </div>
       <div className="min-h-0 min-w-0 flex-1">
         {item ? (
           <InboxDetail
@@ -1155,8 +1141,8 @@ export function LinkedWorkItemPanel({
             cwd={cwd}
             projects={projectOptions}
             revision={0}
-            relatedSessions={relatedSessionsForInboxItem(item, sessions)}
-            onOpenSession={onOpenSession}
+            relatedSessions={[]}
+            mode="panel"
           />
         ) : error ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
@@ -1392,6 +1378,7 @@ export function InboxDetail({
   projects,
   revision,
   relatedSessions,
+  mode = "inbox",
   onDiscuss,
   onStart,
   onOpenSession,
@@ -1401,11 +1388,13 @@ export function InboxDetail({
   projects: InboxProjectOption[];
   revision: number;
   relatedSessions: readonly SessionSummary[];
+  mode?: "inbox" | "panel";
   onDiscuss?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
   onOpenSession?: (sessionId: string) => void | Promise<void>;
 }) {
   const detailLock = useLockOverscroll<HTMLDivElement>();
+  const panel = mode === "panel";
   const linear = item.provider === "linear";
   const gitlab = item.provider === "gitlab";
   const isPr = !linear && item.kind === "pr";
@@ -1765,18 +1754,32 @@ export function InboxDetail({
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div
+      ref={panel ? detailLock : undefined}
+      data-inbox-detail-scroll={panel ? "" : undefined}
+      className={
+        panel
+          ? "h-full min-h-0 min-w-0 overflow-y-auto overscroll-none"
+          : "flex h-full min-h-0 min-w-0 flex-col"
+      }
+    >
       <div
         data-inbox-detail-header
-        className="relative z-10 shrink-0 border-b border-content/10"
+        className={`relative border-b border-content/10 ${
+          panel ? "" : "z-10 shrink-0"
+        }`}
       >
         <div
-          className={`mx-auto flex w-full max-w-5xl flex-col gap-2.5 px-8 pt-5 ${
-            isPr ? "" : "pb-5"
-          }`}
+          className={`mx-auto flex w-full max-w-5xl flex-col ${
+            panel ? "gap-2 px-5 pt-4" : "gap-2.5 px-8 pt-5"
+          } ${isPr ? "" : panel ? "pb-4" : "pb-5"}`}
         >
-          <header className="flex flex-col gap-2.5">
-            <div className="flex min-w-0 items-center gap-2 text-[12px] text-content/50">
+          <header className={`flex flex-col ${panel ? "gap-2" : "gap-2.5"}`}>
+            <div
+              className={`flex min-w-0 items-center gap-2 text-[12px] text-content/50 ${
+                panel ? "pr-8" : ""
+              }`}
+            >
               <InboxProviderMark
                 provider={item.provider}
                 className="size-3.5 shrink-0"
@@ -1806,7 +1809,9 @@ export function InboxDetail({
             </div>
             <h1
               title={item.title}
-              className="line-clamp-2 text-[20px] font-semibold leading-tight text-content"
+              className={`line-clamp-2 font-semibold leading-tight text-content ${
+                panel ? "text-[18px]" : "text-[20px]"
+              }`}
             >
               {item.title}
             </h1>
@@ -1883,7 +1888,7 @@ export function InboxDetail({
                 </>
               ) : null}
             </div>
-            {relatedSessions.length > 0 ? (
+            {!panel && relatedSessions.length > 0 ? (
               <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
                 <span className="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[11px] text-content/45">
                   <MessageMultiple className="size-3.5" strokeWidth={1.75} />
@@ -2048,11 +2053,19 @@ export function InboxDetail({
         </div>
       </div>
       <div
-        ref={detailLock}
-        data-inbox-detail-scroll
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
+        ref={panel ? undefined : detailLock}
+        data-inbox-detail-scroll={panel ? undefined : ""}
+        className={
+          panel
+            ? "min-w-0"
+            : "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
+        }
       >
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-5">
+        <div
+          className={`mx-auto flex w-full max-w-5xl flex-col ${
+            panel ? "gap-4 px-5 py-4" : "gap-5 px-8 py-5"
+          }`}
+        >
           {item.labels.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {item.labels.map((label) => (

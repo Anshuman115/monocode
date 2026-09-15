@@ -7134,9 +7134,7 @@ export default function App({
                     target={linkedWorkItemPanel.item}
                     cwd={linkedWorkItemPanel.cwd}
                     recents={recents}
-                    sessions={inboxRelatedSessions}
                     onClose={closeLinkedWorkItemPanel}
-                    onOpenSession={onSelectHistorySession}
                   />
                 ) : null}
               </main>

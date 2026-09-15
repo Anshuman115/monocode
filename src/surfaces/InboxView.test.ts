@@ -67,6 +67,8 @@ describe("InboxDetail layout", () => {
     expect(markup).toContain('aria-label="Resize linked issue panel"');
     expect(markup).toContain('title="Close issue panel"');
     expect(markup).not.toContain("data-app-inbox");
+    expect(markup).not.toContain("bg-background-base");
+    expect(markup).not.toContain("backdrop-blur");
   });
 
   it("shows when a PR was created alongside its last update", () => {
@@ -112,6 +114,39 @@ describe("InboxDetail layout", () => {
     expect(header).toContain('aria-label="Pull request sections"');
     expect(header).toContain("Summary");
     expect(header).toContain("Code");
+  });
+
+  it("lets the linked-item panel header scroll and omits related threads", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InboxDetail, {
+        item: item({ kind: "pr" }),
+        cwd: "/tmp/web",
+        projects: [],
+        revision: 0,
+        mode: "panel",
+        relatedSessions: [
+          {
+            id: "session-1",
+            cwd: "/tmp/web",
+            harness: "codex",
+            model: "gpt-5",
+            runtimeMode: "supervised",
+            title: "Review MonoCode Pull Request",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      }),
+    );
+    const scrollIndex = markup.indexOf("data-inbox-detail-scroll");
+    const headerIndex = markup.indexOf("data-inbox-detail-header");
+
+    expect(scrollIndex).toBeGreaterThan(-1);
+    expect(headerIndex).toBeGreaterThan(scrollIndex);
+    expect(markup.match(/data-inbox-detail-scroll/g)).toHaveLength(1);
+    expect(markup).toContain("text-[18px]");
+    expect(markup).not.toContain("Related thread");
+    expect(markup).not.toContain("Review MonoCode Pull Request");
   });
 
   it("offers full-file diffs only for GitHub pull requests", () => {
