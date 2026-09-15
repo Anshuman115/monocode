@@ -140,6 +140,11 @@ describe("InboxDetail layout", () => {
     );
     const scrollIndex = markup.indexOf("data-inbox-detail-scroll");
     const headerIndex = markup.indexOf("data-inbox-detail-header");
+    const reviewIndex = markup.indexOf("Review on GitHub");
+    const reviewButton = markup.slice(
+      markup.lastIndexOf("<button", reviewIndex),
+      reviewIndex,
+    );
 
     expect(scrollIndex).toBeGreaterThan(-1);
     expect(headerIndex).toBeGreaterThan(scrollIndex);
@@ -147,6 +152,7 @@ describe("InboxDetail layout", () => {
     expect(markup).toContain("text-[18px]");
     expect(markup).not.toContain("Related thread");
     expect(markup).not.toContain("Review MonoCode Pull Request");
+    expect(reviewButton).toContain("bg-content/10");
   });
 
   it("offers full-file diffs only for GitHub pull requests", () => {

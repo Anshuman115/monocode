@@ -163,6 +163,7 @@ const MAX_WIDTH = 420;
 const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-[12px]";
 const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80`;
 const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-content/5`;
+const ACTION_BACKED = `${ACTION} h-7 bg-content/10 text-content hover:bg-content/15`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content`;
 const DEFAULT_WIDTH = 280;
 const LINKED_PANEL_MIN_WIDTH = 360;
@@ -1978,7 +1979,7 @@ export function InboxDetail({
               <button
                 type="button"
                 onClick={() => void openUrl(item.url)}
-                className={ACTION_GHOST}
+                className={panel ? ACTION_BACKED : ACTION_GHOST}
               >
                 <ExternalLink className="size-3.5" strokeWidth={1.75} />
                 {item.kind === "pr"
