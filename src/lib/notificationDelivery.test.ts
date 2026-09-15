@@ -16,27 +16,14 @@ beforeEach(() => {
   localStorage.clear();
   invoke.mockReset();
   play.mockClear();
-  invoke.mockImplementation(async (command: string) => {
-    if (command === "git_notification_context")
-      return {
-        root: "/private",
-        commonDir: "/private/.git",
-        remote: "https://github.com/acme/private.git",
-      };
-  });
+  invoke.mockResolvedValue(undefined);
   saveNotificationsEnabled(true);
   setWindowFocused(false);
 });
 
-it("returns false without a banner or sound when project identity lookup fails", async () => {
-  invoke.mockImplementation(async (command: string) => {
-    if (command === "git_notification_context") {
-      throw new Error("Project identity unavailable");
-    }
-  });
-
+it("returns false without a banner or sound for a non-project path", async () => {
   const sent = await notifySession(
-    newSession("claude", "/unavailable-notify"),
+    newSession("claude", "/"),
     "finished",
     false,
   );
@@ -48,16 +35,10 @@ it("returns false without a banner or sound when project identity lookup fails",
   expect(play).not.toHaveBeenCalled();
 });
 
-it("finishes without a banner or sound when project identity lookup fails", async () => {
-  invoke.mockImplementation(async (command: string) => {
-    if (command === "git_notification_context") {
-      throw new Error("Project identity unavailable");
-    }
-  });
-
+it("finishes without a banner or sound for a non-project path", async () => {
   await expect(
     announceSessionFinished(
-      newSession("claude", "/unavailable-announcement"),
+      newSession("claude", "/"),
       false,
     ),
   ).resolves.toBeUndefined();
@@ -69,7 +50,7 @@ it("finishes without a banner or sound when project identity lookup fails", asyn
 });
 
 it("blocks every project banner, including approvals and questions, while muted", async () => {
-  updateNotificationPreferences(["repository:github.com/acme/private"], {
+  updateNotificationPreferences(["local:/private"], {
     mutedUntil: null,
   });
   const session = newSession("claude", "/private");
@@ -85,19 +66,11 @@ it("blocks every project banner, including approvals and questions, while muted"
   ).toEqual([]);
 });
 
-it("does not deliver an input event from the mute period if identity resolution finishes after expiry", async () => {
+it("does not deliver an input event observed during a mute after expiry", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(1000);
-  let resolveContext!: (value: unknown) => void;
-  invoke.mockImplementation((command: string) =>
-    command === "git_notification_context"
-      ? new Promise((resolve) => {
-          resolveContext = resolve;
-        })
-      : Promise.resolve(),
-  );
   try {
-    updateNotificationPreferences(["repository:github.com/acme/private"], {
+    updateNotificationPreferences(["local:/private"], {
       mutedUntil: 2000,
     });
     const sent = notifySession(
@@ -106,11 +79,6 @@ it("does not deliver an input event from the mute period if identity resolution 
       false,
     );
     vi.setSystemTime(3000);
-    resolveContext({
-      root: "/private",
-      commonDir: "/private/.git",
-      remote: "https://github.com/acme/private.git",
-    });
     expect(await sent).toBe(false);
   } finally {
     vi.useRealTimers();

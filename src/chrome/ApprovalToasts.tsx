@@ -3,7 +3,6 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { allowsProjectNotification } from "../lib/notificationPreferences";
 import { knownNotificationProject } from "../lib/notificationProjects";
-import { useNotificationProjects } from "../hooks/useNotificationProjects";
 import { useProjectNotificationPreferences } from "../hooks/useProjectNotificationPreferences";
 import type { ApprovalDecision } from "../lib/harness";
 import type { PendingApprovalNotice } from "../lib/approvalToast";
@@ -62,7 +61,6 @@ function ProjectApprovalToast(props: {
   onApproval: Props["onApproval"];
 }) {
   const path = props.notice.session.cwd;
-  useNotificationProjects([path]);
   // The keyed gate stays mounted even while hidden. Resuming notifications
   // must not turn a pending request into a new popup.
   const [occurredAt] = useState(Date.now);

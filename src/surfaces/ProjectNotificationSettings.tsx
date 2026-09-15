@@ -45,12 +45,12 @@ export function ProjectNotificationSettings({
   notificationSettingsRequest = 0,
   highlighted = false,
 }: Props) {
-  const discovery = useNotificationProjects([
+  const notificationProjects = useNotificationProjects([
     cwd,
     notificationProjectPath ?? "",
     ...recents.map((project) => project.path),
   ]);
-  const projects = [...discovery.projects].sort((a, b) =>
+  const projects = [...notificationProjects.projects].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
   const preferences = useProjectNotificationPreferences();
@@ -59,7 +59,6 @@ export function ProjectNotificationSettings({
   const groupCustomColors = loadTabGroupCustomColors();
   const groupMascots = loadTabGroupMascots();
   const [error, setError] = useState<string | null>(null);
-  const loading = discovery.loading;
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -175,9 +174,9 @@ export function ProjectNotificationSettings({
             </p>
           </div>
         ) : null}
-        {error || discovery.error ? (
+        {error ? (
           <p role="alert" className="px-4 py-3.5 text-[12px] text-red-400">
-            {error ?? discovery.error}
+            {error}
           </p>
         ) : null}
         {projects.length === 0 ? (
@@ -185,9 +184,7 @@ export function ProjectNotificationSettings({
             role="status"
             className="px-4 py-3.5 text-[12px] leading-relaxed text-content/45"
           >
-            {loading
-              ? "Loading projects…"
-              : "Open a project or connect an Inbox provider to configure its notifications."}
+            Open a project or connect an Inbox provider to configure its notifications.
           </p>
         ) : null}
         {projects.length ? (

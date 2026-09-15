@@ -10,10 +10,6 @@ import {
 } from "../lib/sessionReminders";
 import { useSessionReminders } from "./useSessionReminders";
 import { updateNotificationPreferences } from "../lib/notificationPreferences";
-import {
-  refreshNotificationProjects,
-  resolveNotificationProject,
-} from "../lib/notificationProjects";
 
 const { invoke, listen, message } = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -54,18 +50,11 @@ function Harness() {
   return null;
 }
 
-it("updates reminder delivery when a checkout is reassigned to a muted repository", async () => {
-  updateNotificationPreferences(["repository:github.com/acme/new"], {
+it("applies a path-based project mute without discovery", async () => {
+  updateNotificationPreferences(["local:/another-project"], {
     mutedUntil: null,
   });
   await mount();
-  expect(api.due).toEqual([reminder]);
-  invoke.mockResolvedValueOnce({
-    root: reminder.cwd,
-    commonDir: null,
-    remote: "https://github.com/acme/new.git",
-  });
-  await act(async () => refreshNotificationProjects([reminder.cwd]));
   expect(api.due).toEqual([]);
   const configuration = invoke.mock.calls
     .filter(([command]) => command === "reminder_configure")
@@ -102,13 +91,6 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(
       async (command: string, args: Record<string, any> = {}) => {
-        if (command === "git_notification_context") {
-          return {
-            root: args.cwd,
-            commonDir: null,
-            remote: "git@github.com:acme/private.git",
-          };
-        }
         if (command === "reminder_list")
           return stored.map((item) => ({ ...item }));
         if (command === "reminder_take_open") {
@@ -156,85 +138,30 @@ afterEach(() => {
 });
 
 describe("saved session reminders", () => {
-  it("keeps reminders accessible and delivers healthy projects when another folder is unavailable", async () => {
+  it("keeps reminders actionable even when a project path no longer exists", async () => {
     const unavailable = {
       ...reminder,
       sessionId: "unavailable-session",
       cwd: "/deleted-worktree",
     };
     stored = [reminder, unavailable];
-    const original = invoke.getMockImplementation()!;
-    invoke.mockImplementation((command, args = {}) => {
-      if (command === "git_notification_context" && args.cwd === unavailable.cwd)
-        return Promise.reject(new Error("Directory missing"));
-      return original(command, args);
-    });
 
     await mount();
 
     expect(api.reminders).toEqual([reminder, unavailable]);
-    expect(api.due).toEqual([reminder]);
-    expect(api.error).toContain("Directory missing");
+    expect(api.due).toEqual([reminder, unavailable]);
+    expect(api.error).toBeNull();
     const configuration = invoke.mock.calls
       .filter(([command]) => command === "reminder_configure")
       .at(-1)?.[1];
     expect(configuration.preferences.projectRules).toEqual({
       "saved-session": { enabled: true, after: 0 },
+      "unavailable-session": { enabled: true, after: 0 },
     });
 
     await act(async () => api.cancel([unavailable.sessionId]));
     expect(api.reminders).toEqual([reminder]);
     expect(api.error).toBeNull();
-  });
-
-  it("delivers known projects while another lookup is pending and applies its mute when it resolves", async () => {
-    await resolveNotificationProject(reminder.cwd);
-    const delayed = {
-      ...reminder,
-      sessionId: "delayed-session",
-      cwd: "/slow-project",
-    };
-    stored = [reminder, delayed];
-    updateNotificationPreferences(["repository:github.com/acme/muted"], {
-      mutedUntil: null,
-    });
-    let release!: () => void;
-    const discovery = new Promise((resolve) => {
-      release = () => resolve({
-        root: delayed.cwd,
-        commonDir: null,
-        remote: "https://github.com/acme/muted.git",
-      });
-    });
-    const original = invoke.getMockImplementation()!;
-    invoke.mockImplementation((command, args = {}) => {
-      if (command === "git_notification_context" && args.cwd === delayed.cwd)
-        return discovery;
-      return original(command, args);
-    });
-
-    await mount();
-
-    expect(api.reminders).toEqual([reminder, delayed]);
-    expect(api.due).toEqual([reminder]);
-    const configuration = invoke.mock.calls
-      .filter(([command]) => command === "reminder_configure")
-      .at(-1)?.[1];
-    expect(configuration?.preferences.projectRules).toEqual({
-      "saved-session": { enabled: true, after: 0 },
-    });
-
-    await act(async () => release());
-    expect(api.reminders).toEqual([reminder, delayed]);
-    expect(api.due).toEqual([reminder]);
-    expect(api.error).toBeNull();
-    const resolved = invoke.mock.calls
-      .filter(([command]) => command === "reminder_configure")
-      .at(-1)?.[1];
-    expect(resolved.preferences.projectRules).toEqual({
-      "saved-session": { enabled: true, after: 0 },
-      "delayed-session": { enabled: false, after: 0 },
-    });
   });
 
   it("serializes native configuration so a slower old update cannot overwrite a newer mute", async () => {
@@ -256,7 +183,7 @@ describe("saved session reminders", () => {
     );
     await mount();
     await act(async () =>
-      updateNotificationPreferences(["repository:github.com/acme/private"], {
+      updateNotificationPreferences(["local:/another-project"], {
         mutedUntil: null,
       }),
     );
@@ -272,7 +199,7 @@ describe("saved session reminders", () => {
     await mount();
     expect(api.due).toEqual([reminder]);
     await act(async () =>
-      updateNotificationPreferences(["repository:github.com/acme/private"], {
+      updateNotificationPreferences(["local:/another-project"], {
         disabled: ["reminders"],
       }),
     );
@@ -284,7 +211,7 @@ describe("saved session reminders", () => {
       false,
     );
     await act(async () =>
-      updateNotificationPreferences(["repository:github.com/acme/private"], {
+      updateNotificationPreferences(["local:/another-project"], {
         disabled: [],
       }),
     );
@@ -301,7 +228,7 @@ describe("saved session reminders", () => {
   });
 
   it("suppresses a muted project's reminders in both native delivery and in-app notices while retaining sidebar data", async () => {
-    updateNotificationPreferences(["repository:github.com/acme/private"], {
+    updateNotificationPreferences(["local:/another-project"], {
       mutedUntil: null,
     });
     await mount();

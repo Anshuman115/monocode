@@ -109,8 +109,8 @@ it("mutes all rail and known Inbox projects for one hour directly from Inbox", a
   const preferences = loadNotificationPreferences();
   expect(Object.keys(preferences).sort()).toEqual([
     "linear:project:planning",
-    "repository:github.com/company/work",
-    "repository:github.com/person/private",
+    "local:/repos/private",
+    "local:/repos/work",
   ]);
   for (const preference of Object.values(preferences)) {
     expect(preference.mutedUntil).toBeGreaterThanOrEqual(start + 3_600_000);
@@ -129,7 +129,7 @@ it("offers explicit all-project actions without an implicit active-project exclu
       name: "company/work",
       detail: "github.com",
       kind: "repository",
-      paths: ["/elsewhere/work-checkout"],
+      paths: [],
     },
   ]);
   updateNotificationPreferences(["repository:github.com/company/work"], {
@@ -145,26 +145,27 @@ it("offers explicit all-project actions without an implicit active-project exclu
       disabled: ["issues"],
       mutedUntil: null,
     },
-    "repository:github.com/person/private": { disabled: [], mutedUntil: null },
+    "local:/repos/private": { disabled: [], mutedUntil: null },
+    "local:/repos/work": { disabled: [], mutedUntil: null },
   });
 });
 
 it("resumes muted projects without changing category choices or unmuted projects", async () => {
-  updateNotificationPreferences(["repository:github.com/company/work"], {
+  updateNotificationPreferences(["local:/repos/work"], {
     disabled: ["issues"],
     mutedUntil: null,
   });
-  updateNotificationPreferences(["repository:github.com/person/private"], {
+  updateNotificationPreferences(["local:/repos/private"], {
     disabled: ["agentFinished"],
   });
   await openInboxMenu();
   act(() => button("Resume muted projects").click());
   expect(loadNotificationPreferences()).toEqual({
-    "repository:github.com/company/work": {
+    "local:/repos/work": {
       disabled: ["issues"],
       resumedAt: expect.any(Number),
     },
-    "repository:github.com/person/private": { disabled: ["agentFinished"] },
+    "local:/repos/private": { disabled: ["agentFinished"] },
   });
   await openInboxMenu();
   expect(button("Resume muted projects").disabled).toBe(true);
@@ -189,11 +190,11 @@ it("opens custom timing from the duration submenu for all projects", async () =>
   });
   act(() => button("Mute until then").click());
   expect(loadNotificationPreferences()).toEqual({
-    "repository:github.com/company/work": {
+    "local:/repos/work": {
       disabled: [],
       mutedUntil: new Date(2030, 0, 16, 12).getTime(),
     },
-    "repository:github.com/person/private": {
+    "local:/repos/private": {
       disabled: [],
       mutedUntil: new Date(2030, 0, 16, 12).getTime(),
     },
@@ -223,46 +224,23 @@ it("keeps the menu open and reports failed persistence so the action can be retr
   ).toBeNull();
 });
 
-it("keeps healthy projects actionable when a stale rail path is unavailable", async () => {
-  vi.mocked(invoke).mockImplementation(async (command, args) => {
-    const cwd = (args as { cwd: string }).cwd;
-    if (command === "git_notification_context" && cwd === "/repos/private") {
-      throw new Error("Directory missing");
-    }
-    return {
-      root: cwd,
-      commonDir: null,
-      remote: "https://github.com/company/work.git",
-    };
-  });
-
+it("keeps every rail path actionable without checking the filesystem", async () => {
+  vi.mocked(invoke).mockRejectedValue(new Error("Native bridge unavailable"));
   await openInboxMenu();
-
-  await vi.waitFor(() =>
-    expect(button("Mute all projects").disabled).toBe(false),
-  );
-  expect(document.body.textContent).not.toContain("unavailable project");
+  expect(button("Mute all projects").disabled).toBe(false);
+  expect(document.body.textContent).not.toContain("unavailable");
   expect(document.querySelector('[role="alert"]')).toBeNull();
-  expect(button("Retry loading projects")).toBeDefined();
+  expect(document.body.textContent).not.toContain("Retry loading projects");
 
   act(() => button("Mute all projects").click());
   act(() => button("Until resumed").click());
   expect(loadNotificationPreferences()).toEqual({
-    "repository:github.com/company/work": { disabled: [], mutedUntil: null },
+    "local:/repos/private": { disabled: [], mutedUntil: null },
+    "local:/repos/work": { disabled: [], mutedUntil: null },
   });
-});
-
-it("disables bulk actions on unresolved projects and allows retrying discovery", async () => {
-  const resolve = vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockResolvedValue(null);
-  await openInboxMenu();
-  expect(button("Mute all projects").disabled).toBe(true);
-  expect(button("Resume muted projects").disabled).toBe(true);
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "Could not load projects",
-  );
-  vi.mocked(invoke).mockImplementation(resolve);
-  await act(async () => button("Retry loading projects").click());
-  expect(button("Mute all projects").disabled).toBe(false);
-  expect(document.querySelector('[role="alert"]')).toBeNull();
+  expect(
+    vi.mocked(invoke).mock.calls.some(([command]) =>
+      command === "git_notification_context"
+    ),
+  ).toBe(false);
 });

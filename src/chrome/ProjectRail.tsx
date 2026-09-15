@@ -1,7 +1,6 @@
 import {
   Archive,
   BellOff,
-  Clock,
   FolderOpen,
   ImagePlus,
   Inbox,
@@ -73,7 +72,6 @@ import { TabGroupMenu, type TabGroupMenuExtraItem } from "./TabGroupMenu";
 import type { SettingsSectionId } from "../lib/settings";
 import {
   knownNotificationProject,
-  resolveNotificationProject,
   type NotificationProject,
 } from "../lib/notificationProjects";
 import { NotificationMuteDatePicker } from "./NotificationMuteDatePicker";
@@ -95,7 +93,6 @@ function projectMenuExtraItems(
   canRemove: boolean,
   canConfigureNotifications: boolean,
   notificationReady: boolean,
-  loadFailed: boolean,
 ): TabGroupMenuExtraItem[] {
   const items: TabGroupMenuExtraItem[] = [
     {
@@ -116,7 +113,6 @@ function projectMenuExtraItems(
       submenu: notificationMuteActions(),
     },
   ];
-  if (loadFailed) items.push({ id: "notifications-retry", label: "Retry loading notifications", icon: Clock });
   if (canConfigureNotifications) {
     items.push({
       id: "notifications-settings",
@@ -239,20 +235,12 @@ export function ProjectRail({
   const readyNotificationProject = notificationPath
     ? knownNotificationProject(notificationPath)
     : undefined;
-  const notificationMenuError = notificationError
-    ?? (!readyNotificationProject ? notificationProjects.error : null);
+  const notificationMenuError = notificationError;
   const menuMuteStatus = readyNotificationProject
     ? notificationMuteStatus(notificationPreferences[readyNotificationProject.id])
     : null;
   useEffect(() => {
-    let active = true;
     setNotificationError(null);
-    if (notificationPath) {
-      void resolveNotificationProject(notificationPath).catch(() => {
-        if (active) setNotificationError("Could not load notification preferences.");
-      });
-    }
-    return () => { active = false; };
   }, [notificationPath]);
   const [inboxMenu, setInboxMenu] = useState<{
     x: number;
@@ -406,11 +394,6 @@ export function ProjectRail({
   const onProjectMenuPick = (action: string) => {
     if (!projectMenu) return;
     const { path, projectKey } = projectMenu;
-    if (action === "notifications-retry") {
-      setNotificationError(null);
-      notificationProjects.retry();
-      return false;
-    }
     if (action === "mute:custom") {
       if (!readyNotificationProject) return false;
       setNotificationMenu({ ...projectMenu, project: readyNotificationProject });
@@ -656,12 +639,9 @@ export function ProjectRail({
             Boolean(onRemoveProject),
             Boolean(onOpenNotificationSettings),
             Boolean(readyNotificationProject),
-            Boolean(notificationMenuError && !readyNotificationProject),
           )}
           footer={notificationMenuError ? (
             <p role="alert" className="px-2 py-1 text-xs text-red-400">{notificationMenuError}</p>
-          ) : !readyNotificationProject ? (
-            <p role="status" className="px-2 py-1 text-xs text-content/50">Loading notification preferences…</p>
           ) : null}
           onExtraPick={onProjectMenuPick}
         />

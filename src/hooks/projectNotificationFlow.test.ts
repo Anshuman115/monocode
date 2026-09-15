@@ -30,8 +30,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockRejectedValue(new Error("No native bridge")),
 }));
 
-const oneId = "repository:github.com/acme/one";
-const twoId = "repository:github.com/acme/two";
+const oneId = "local:/one";
+const twoId = "local:/two";
 const recents = [
   { path: "/one", openedAt: 1 },
   { path: "/two", openedAt: 2 },
@@ -44,7 +44,7 @@ let activity: InboxActivity;
 
 function Harness() {
   activity = useInboxActivity(recents, "/one", sessions);
-  return createElement(ProjectNotificationSettings, { cwd: "" });
+  return createElement(ProjectNotificationSettings, { cwd: "", recents });
 }
 async function mount() {
   await act(async () => root.render(createElement(Harness)));

@@ -5,7 +5,7 @@ import {
   allowsProjectNotification,
   type NotificationSubject,
 } from "./notificationPreferences";
-import { resolveNotificationProject } from "./notificationProjects";
+import { knownNotificationProject } from "./notificationProjects";
 
 const KEY = "monocode.notifications";
 
@@ -231,9 +231,7 @@ export async function notifySession(
 ): Promise<boolean> {
   if (session.inboxAsk) return false;
   const occurredAt = Date.now();
-  const project = await resolveNotificationProject(session.cwd).catch(
-    () => undefined,
-  );
+  const project = knownNotificationProject(session.cwd);
   if (!project) return false;
   return notifyProjectSession(session, event, sessionVisible, {
     projectId: project.id,
@@ -249,9 +247,7 @@ export async function announceSessionFinished(
 ): Promise<void> {
   if (session.inboxAsk) return;
   const occurredAt = Date.now();
-  const project = await resolveNotificationProject(session.cwd).catch(
-    () => undefined,
-  );
+  const project = knownNotificationProject(session.cwd);
   if (!project) return;
   const subject: NotificationSubject = {
     projectId: project.id,

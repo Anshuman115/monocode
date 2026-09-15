@@ -103,7 +103,7 @@ describe("Inbox activity polling", () => {
     expect(activity.linkedSessionUpdateIds.has(session.id)).toBe(true);
 
     act(() =>
-      updateNotificationPreferences(["repository:github.com/acme/app"], {
+      updateNotificationPreferences(["local:/tmp/app"], {
         disabled: ["pullRequests"],
       }),
     );
@@ -113,7 +113,7 @@ describe("Inbox activity polling", () => {
     expect(isInboxEntryUnseen(entry)).toBe(true);
 
     act(() =>
-      updateNotificationPreferences(["repository:github.com/acme/app"], {
+      updateNotificationPreferences(["local:/tmp/app"], {
         disabled: [],
         mutedUntil: Date.now() + 1000,
       }),
@@ -136,20 +136,20 @@ describe("Inbox activity polling", () => {
     expect(activity.unseen).toBe(true);
 
     act(() =>
-      updateNotificationPreferences(["repository:github.com/acme/app"], {
+      updateNotificationPreferences(["local:/tmp/app"], {
         mutedUntil: null,
       }),
     );
     expect(activity.unseen).toBe(false);
     expect(isInboxEntryUnseen(entry)).toBe(true);
     act(() =>
-      updateNotificationPreferences(["repository:github.com/acme/app"], {
+      updateNotificationPreferences(["local:/tmp/app"], {
         mutedUntil: undefined,
       }),
     );
     expect(activity.unseen).toBe(true);
     act(() =>
-      updateNotificationPreferences(["repository:github.com/acme/app"], {
+      updateNotificationPreferences(["local:/tmp/app"], {
         mutedUntil: Date.now() + 1000,
       }),
     );
@@ -176,7 +176,7 @@ describe("Inbox activity polling", () => {
       { ...mutedEntry, updatedAt: "2026-09-12T12:00:00Z" },
       { ...otherEntry, updatedAt: "2026-09-12T12:00:00Z" },
     ]);
-    updateNotificationPreferences(["repository:github.com/acme/app"], {
+    updateNotificationPreferences(["local:/tmp/app"], {
       mutedUntil: null,
     });
     listInboxItems.mockResolvedValue({ items: [remote, other], errors: {} });

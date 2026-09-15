@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { pathKey, projectName } from "./paths";
 import { looksLikeProject } from "./recents";
 import type { InboxItem } from "./githubTasks";
@@ -11,75 +10,64 @@ export type NotificationProject = {
   paths: string[];
 };
 
-type ProjectContext = {
-  root: string;
-  commonDir: string | null;
-  remote: string | null;
-};
-const CATALOG_KEY = "monocode.notificationProjects.v1";
+const CATALOG_KEY = "monocode.notificationProjects.v2";
 const CATALOG_CHANGE = "monocode:notification-projects-change";
-const resolving = new Map<string, Promise<NotificationProject>>();
-const queuedRefreshes = new Map<string, Promise<NotificationProject>>();
-const REFRESH_AFTER_MS = 60_000;
-const RETRY_AFTER_MS = 5_000;
-const freshness = new Map<
-  string,
-  { id: string; checkedAt?: number; retryAfter?: number }
->();
 let catalogValue: string | null | undefined;
 let catalog: NotificationProject[] = [];
-let catalogGeneration = 0;
 
-function readCatalogValue(): string | null {
-  const value = localStorage.getItem(CATALOG_KEY);
-  if (value === null && catalogValue != null) {
-    resolving.clear();
-    queuedRefreshes.clear();
-    freshness.clear();
-    catalogGeneration++;
-  }
-  return value;
+function localNotificationProject(path: string): NotificationProject {
+  return {
+    id: `local:${pathKey(path)}`,
+    name: projectName(path),
+    detail: path,
+    kind: "local",
+    paths: [path],
+  };
 }
 
 export function knownNotificationProject(
   path: string,
 ): NotificationProject | undefined {
+  if (!looksLikeProject(path)) return;
   const key = pathKey(path);
-  return loadNotificationProjects().find((project) =>
-    project.paths.some((entry) => pathKey(entry) === key),
+  return (
+    loadNotificationProjects().find((project) =>
+      project.paths.some((entry) => pathKey(entry) === key),
+    ) ?? localNotificationProject(path)
   );
 }
 
-/**
- * A bulk action waits for every reachable checkout. Callers may explicitly
- * exclude paths whose discovery completed with an error when they surface that
- * unavailable state separately.
- */
 export function knownNotificationProjectSelection(
   paths: readonly string[],
-  unavailablePaths: readonly string[] = [],
-): { projects: NotificationProject[] } | null {
-  const projects = loadNotificationProjects();
-  const knownPaths = new Set(
-    projects.flatMap((project) => project.paths.map(pathKey)),
+): { projects: NotificationProject[] } {
+  const requested = new Map(
+    paths.filter(looksLikeProject).map((path) => [pathKey(path), path]),
   );
-  const unavailable = new Set(unavailablePaths.map(pathKey));
-  return paths.filter(looksLikeProject).every((path) => {
-    const key = pathKey(path);
-    return knownPaths.has(key) || unavailable.has(key);
-  })
-    ? { projects }
-    : null;
+  const stored = loadNotificationProjects();
+  const projects = new Map(
+    stored
+      .filter(
+        (project) =>
+          project.paths.length === 0 ||
+          project.paths.some((path) => requested.has(pathKey(path))),
+      )
+      .map((project) => [project.id, project]),
+  );
+  for (const path of requested.values()) {
+    const project = knownNotificationProject(path)!;
+    projects.set(project.id, project);
+  }
+  return { projects: [...projects.values()] };
 }
 
 export function loadNotificationProjects(): NotificationProject[] {
   try {
-    const value = readCatalogValue();
+    const value = localStorage.getItem(CATALOG_KEY);
     if (value === catalogValue) return catalog;
     catalogValue = value;
     catalog = [];
     const parsed: unknown = JSON.parse(value ?? "[]");
-    if (!Array.isArray(parsed)) return (catalog = []);
+    if (!Array.isArray(parsed)) return catalog;
     catalog = parsed.filter(
       (value): value is NotificationProject =>
         value &&
@@ -99,48 +87,13 @@ export function loadNotificationProjects(): NotificationProject[] {
 export function rememberNotificationProjects(
   projects: readonly NotificationProject[],
 ) {
-  storeNotificationProjects(projects, false);
-}
-
-function storeNotificationProjects(
-  projects: readonly NotificationProject[],
-  assignPaths: boolean,
-) {
   const current = loadNotificationProjects();
   const byId = new Map(current.map((project) => [project.id, project]));
   for (const project of projects) {
-    const paths = assignPaths
-      ? project.paths
-      : project.paths.filter(
-          (path) =>
-            ![...byId.values()].some(
-              (entry) =>
-                entry.id !== project.id &&
-                entry.paths.some(
-                  (knownPath) => pathKey(knownPath) === pathKey(path),
-                ),
-            ),
-        );
-    // A checkout can change remotes. Keep its former Inbox identity, but ensure
-    // synchronous lookup associates the checkout only with its current project.
-    const assignedPaths = new Set(paths.map(pathKey));
-    for (const [id, entry] of byId) {
-      if (
-        id !== project.id &&
-        entry.paths.some((path) => assignedPaths.has(pathKey(path)))
-      ) {
-        byId.set(id, {
-          ...entry,
-          paths: entry.paths.filter(
-            (path) => !assignedPaths.has(pathKey(path)),
-          ),
-        });
-      }
-    }
     const previous = byId.get(project.id);
     byId.set(project.id, {
       ...project,
-      paths: [...new Set([...(previous?.paths ?? []), ...paths])],
+      paths: [...new Set([...(previous?.paths ?? []), ...project.paths])],
     });
   }
   const nextProjects = [...byId.values()];
@@ -151,7 +104,7 @@ function storeNotificationProjects(
     localStorage.setItem(CATALOG_KEY, next);
     catalogValue = next;
   } catch {
-    // The catalog is an in-memory source of identity; persistence is only a cache.
+    // Keep the catalog in memory when browser storage is unavailable.
   }
   window.dispatchEvent(new Event(CATALOG_CHANGE));
 }
@@ -171,128 +124,6 @@ export function subscribeNotificationProjects(
   return () => {
     window.removeEventListener(CATALOG_CHANGE, listener);
     window.removeEventListener("storage", onStorage);
-  };
-}
-
-export async function resolveNotificationProject(
-  path: string,
-): Promise<NotificationProject> {
-  const known = knownNotificationProject(path);
-  if (known) {
-    const previous = freshness.get(pathKey(path));
-    const now = Date.now();
-    if (
-      !previous ||
-      previous.id !== known.id ||
-      ((previous.checkedAt === undefined ||
-        now - previous.checkedAt >= REFRESH_AFTER_MS) &&
-        now >= (previous.retryAfter ?? 0))
-    ) {
-      void refreshNotificationProject(path).catch(() => {});
-    }
-    return known;
-  }
-  return refreshNotificationProject(path);
-}
-
-function refreshNotificationProject(
-  path: string,
-): Promise<NotificationProject> {
-  // Observe profile resets before reusing an in-flight lookup.
-  loadNotificationProjects();
-  const key = pathKey(path);
-  const pending = resolving.get(key);
-  if (pending) return pending;
-  const generation = catalogGeneration;
-  const promise = resolveLocalProject(path)
-    .then((project) => {
-      loadNotificationProjects();
-      if (generation !== catalogGeneration) {
-        throw new Error(
-          "Notification project catalog changed during discovery",
-        );
-      }
-      storeNotificationProjects([project], true);
-      freshness.set(key, { id: project.id, checkedAt: Date.now() });
-      return project;
-    })
-    .catch((error: unknown) => {
-      const known = knownNotificationProject(path);
-      if (known && generation === catalogGeneration) {
-        const previous = freshness.get(key);
-        freshness.set(key, {
-          id: known.id,
-          checkedAt: previous?.id === known.id ? previous.checkedAt : undefined,
-          retryAfter: Date.now() + RETRY_AFTER_MS,
-        });
-      }
-      throw error;
-    })
-    .finally(() => {
-      if (resolving.get(key) === promise) resolving.delete(key);
-    });
-  resolving.set(key, promise);
-  return promise;
-}
-
-/** Explicit invalidation after Git changes; ordinary reads use the freshness window. */
-export async function refreshNotificationProjects(
-  paths: readonly string[],
-): Promise<void> {
-  loadNotificationProjects();
-  const uniquePaths = new Map(
-    paths.filter(looksLikeProject).map((path) => [pathKey(path), path]),
-  );
-  await Promise.all(
-    [...uniquePaths.values()].map(async (path) => {
-      try {
-        const key = pathKey(path);
-        const pending = resolving.get(key);
-        if (!pending) {
-          await refreshNotificationProject(path);
-        } else {
-          let queued = queuedRefreshes.get(key);
-          if (!queued) {
-            const generation = catalogGeneration;
-            queued = pending
-              .catch(() => {})
-              .then(() => {
-                if (generation !== catalogGeneration)
-                  throw new Error(
-                    "Notification project catalog changed during discovery",
-                  );
-                // Further Git changes during this pass need another refresh.
-                if (queuedRefreshes.get(key) === queued)
-                  queuedRefreshes.delete(key);
-                return refreshNotificationProject(path);
-              })
-              .finally(() => {
-                if (queuedRefreshes.get(key) === queued)
-                  queuedRefreshes.delete(key);
-              });
-            queuedRefreshes.set(key, queued);
-          }
-          await queued;
-        }
-      } catch (error) {
-        if (!knownNotificationProject(path)) throw error;
-      }
-    }),
-  );
-}
-
-async function resolveLocalProject(path: string): Promise<NotificationProject> {
-  const context = await invoke<ProjectContext>("git_notification_context", {
-    cwd: path,
-  });
-  const remote = repositoryProject(context.remote ?? "");
-  if (remote) return { ...remote, paths: [path] };
-  return {
-    id: `local:${pathKey(context.commonDir ?? context.root)}`,
-    name: projectName(context.root),
-    detail: context.root,
-    kind: "local",
-    paths: [path],
   };
 }
 
@@ -319,15 +150,21 @@ export function inboxNotificationProject(
       paths: [],
     };
   }
+  if (item.projectPath && looksLikeProject(item.projectPath)) {
+    return {
+      ...localNotificationProject(item.projectPath),
+      name: item.repo || projectName(item.projectPath),
+      kind: "repository",
+    };
+  }
   const remote = repositoryProject(item.url, item.repo);
-  if (remote)
-    return { ...remote, paths: item.projectPath ? [item.projectPath] : [] };
+  if (remote) return remote;
   return {
-    id: `local:${pathKey(item.projectPath || "~")}`,
+    id: `repository:${item.provider}:${item.repo.toLowerCase()}`,
     name: item.repo,
-    detail: item.projectPath || "Unknown project",
-    kind: "local",
-    paths: item.projectPath ? [item.projectPath] : [],
+    detail: item.provider,
+    kind: "repository",
+    paths: [],
   };
 }
 

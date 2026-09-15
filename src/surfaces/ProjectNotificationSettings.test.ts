@@ -32,14 +32,14 @@ beforeEach(() => {
       name: "me/private",
       detail: "github.com",
       kind: "repository",
-      paths: ["/private"],
+      paths: [],
     },
     {
       id: "repository:github.com/work/app",
       name: "work/app",
       detail: "github.com",
       kind: "repository",
-      paths: ["/work"],
+      paths: [],
     },
   ]);
   container = document.createElement("div");
@@ -136,7 +136,7 @@ it("keeps local projects while offering only local notification categories", asy
     },
   ]);
   await act(async () =>
-    root.render(createElement(ProjectNotificationSettings, { cwd: "" })),
+    root.render(createElement(ProjectNotificationSettings, { cwd: "/fun" })),
   );
 
   const local = categoriesButton("fun");
@@ -249,7 +249,7 @@ it("mutes several selected projects without changing another project's notificat
       name: "me/other",
       detail: "github.com",
       kind: "repository",
-      paths: ["/other"],
+      paths: [],
     },
   ]);
   await act(async () =>

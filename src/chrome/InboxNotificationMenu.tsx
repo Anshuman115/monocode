@@ -27,10 +27,8 @@ export function InboxNotificationMenu({
   onOpenSettings,
   onClose,
 }: Props) {
-  const discovery = useNotificationProjects(projectPaths);
-  const selection = discovery.selection;
+  const notificationProjects = useNotificationProjects(projectPaths);
   const [saveError, setError] = useState<string | null>(null);
-  const error = saveError ?? discovery.error;
   const [customOpen, setCustomOpen] = useState(false);
   const preferences = useProjectNotificationPreferences();
   const pathsKey = JSON.stringify(projectPaths);
@@ -39,7 +37,7 @@ export function InboxNotificationMenu({
     setError(null);
   }, [pathsKey]);
 
-  const allIds = selection?.projects.map((project) => project.id) ?? [];
+  const allIds = notificationProjects.projects.map((project) => project.id);
   const mutedIds = allIds.filter((id) =>
     isProjectMuted(preferences[id] ?? { disabled: [] }),
   );
@@ -59,8 +57,6 @@ export function InboxNotificationMenu({
       disabled: !mutedIds.length,
     },
   ];
-  if (discovery.unavailablePaths.length)
-    items.push({ kind: "item", id: "retry", label: "Retry loading projects" });
   if (onOpenSettings)
     items.push(
       { kind: "sep" },
@@ -103,25 +99,16 @@ export function InboxNotificationMenu({
             Project notifications
           </p>
           <p role="status" className="text-xs text-content/50">
-            {error
-              ? "Projects unavailable"
-              : selection
-                ? `${allIds.length} ${allIds.length === 1 ? "project" : "projects"} · ${mutedIds.length} muted`
-                : "Loading projects…"}
+            {`${allIds.length} ${allIds.length === 1 ? "project" : "projects"} · ${mutedIds.length} muted`}
           </p>
-          {error ? (
+          {saveError ? (
             <p role="alert" className="text-xs text-red-400">
-              {error}
+              {saveError}
             </p>
           ) : null}
         </div>
       }
       onPick={(id) => {
-        if (id === "retry") {
-          setError(null);
-          discovery.retry();
-          return;
-        }
         if (id === "settings") {
           onClose();
           onOpenSettings?.();

@@ -9,7 +9,6 @@ import {
 import { ProjectRail } from "./ProjectRail";
 import { invoke } from "@tauri-apps/api/core";
 import { rememberNotificationProjects } from "../lib/notificationProjects";
-import { notifyGitChanged } from "../lib/fs";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => ({
@@ -48,69 +47,28 @@ function button(label: string) {
   return result!;
 }
 
-it("recovers an unknown project's actions after retrying failed discovery", async () => {
-  const original = vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockRejectedValue(new Error("Native discovery unavailable"));
-  try {
-    await act(async () => root.render(createElement(ProjectRail, {
-      cwd: "/work/private", recents: [], onSelectProject: vi.fn(), onOpenProject: vi.fn(),
-    })));
-    await act(async () => container.querySelector('button[aria-current="true"]')!.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-    ));
-    expect(button("Mute notifications").disabled).toBe(true);
-    expect(document.querySelector('[role="alert"]')).not.toBeNull();
-    vi.mocked(invoke).mockImplementation(original);
-    await act(async () => button("Retry loading notifications").click());
-    expect(button("Mute notifications").disabled).toBe(false);
-    expect(document.querySelector('[role="alert"]')).toBeNull();
-  } finally {
-    vi.mocked(invoke).mockImplementation(original);
-  }
-});
-
-it("refreshes each project once after a Git change with both rail and Inbox mounted", async () => {
-  await act(async () => root.render(createElement(ProjectRail, {
-    cwd: "/work/private", recents: [], onSelectProject: vi.fn(), onOpenProject: vi.fn(), onOpenInbox: vi.fn(),
-  })));
-  await act(async () => container.querySelector('button[aria-label="Inbox"]')!.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-  ));
-  vi.mocked(invoke).mockClear();
-  await act(async () => notifyGitChanged());
-  expect(invoke).toHaveBeenCalledTimes(1);
-  expect(invoke).toHaveBeenCalledWith("git_notification_context", { cwd: "/work/private" });
-});
-
-it("opens known project actions immediately while Git refresh is pending", async () => {
+it("opens path-based project actions immediately without Git discovery", async () => {
   rememberNotificationProjects([{
-    id: "repository:github.com/person/private", name: "person/private",
+    id: "local:/work/private", name: "person/private",
     detail: "github.com", kind: "repository", paths: ["/work/private"],
   }]);
-  const original = vi.mocked(invoke).getMockImplementation()!;
-  let finish!: (value: unknown) => void;
-  const pending = new Promise(resolve => { finish = resolve; });
-  vi.mocked(invoke).mockImplementation(() => pending as ReturnType<typeof invoke>);
-  try {
-    await act(async () => root.render(createElement(ProjectRail, {
-      cwd: "/work/private", recents: [], onSelectProject: vi.fn(), onOpenProject: vi.fn(),
-    })));
-    // A synchronous render is enough; resolving Git is not a prerequisite.
-    act(() => container.querySelector('button[aria-current="true"]')!.dispatchEvent(
-      new MouseEvent("contextmenu", { bubbles: true, clientX: 40, clientY: 80 }),
-    ));
-    expect(button("Mute notifications").disabled).toBe(false);
-    act(() => button("Mute notifications").click());
-    act(() => button("1 hour").click());
-    expect(loadNotificationPreferences()["repository:github.com/person/private"].mutedUntil).toBeGreaterThan(Date.now());
-  } finally {
-    vi.mocked(invoke).mockImplementation(original);
-    await act(async () => finish({ root: "/work/private", commonDir: null, remote: "https://github.com/person/private.git" }));
-  }
+  await act(async () => root.render(createElement(ProjectRail, {
+    cwd: "/work/private", recents: [], onSelectProject: vi.fn(), onOpenProject: vi.fn(),
+  })));
+  act(() => container.querySelector('button[aria-current="true"]')!.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, clientX: 40, clientY: 80 }),
+  ));
+  expect(button("Mute notifications").disabled).toBe(false);
+  act(() => button("Mute notifications").click());
+  act(() => button("1 hour").click());
+  expect(loadNotificationPreferences()["local:/work/private"].mutedUntil).toBeGreaterThan(Date.now());
+  expect(
+    vi.mocked(invoke).mock.calls.some(([command]) => command === "git_notification_context"),
+  ).toBe(false);
 });
 
 it("shows persisted mute status on the project and in its reopened menu", async () => {
-  updateNotificationPreferences(["repository:github.com/person/private"], {
+  updateNotificationPreferences(["local:/work/private"], {
     mutedUntil: null,
   });
   await act(async () => root.render(createElement(ProjectRail, {
@@ -142,7 +100,7 @@ it("shows persisted mute status on the project and in its reopened menu", async 
   vi.useFakeTimers();
   const until = new Date(2030, 0, 15, 16, 30).getTime();
   vi.setSystemTime(until - 1000);
-  act(() => updateNotificationPreferences(["repository:github.com/person/private"], {
+  act(() => updateNotificationPreferences(["local:/work/private"], {
     mutedUntil: until,
   }));
   const timedIndicator = container.querySelector('[role="img"][aria-label^="Muted until "]');
@@ -161,7 +119,7 @@ it("shows persisted mute status on the project and in its reopened menu", async 
 });
 
 it("mutes a repository from its project context menu", async () => {
-  updateNotificationPreferences(["repository:github.com/person/private"], {
+  updateNotificationPreferences(["local:/work/private"], {
     disabled: ["issues"],
   });
   act(() =>
@@ -196,7 +154,7 @@ it("mutes a repository from its project context menu", async () => {
     "Could not save",
   );
   expect(
-    loadNotificationPreferences()["repository:github.com/person/private"]
+    loadNotificationPreferences()["local:/work/private"]
       .mutedUntil,
   ).toBeUndefined();
   write.mockRestore();
@@ -239,7 +197,7 @@ it("mutes a repository from its project context menu", async () => {
   expect(document.activeElement).toBe(muteAgain);
   act(() => button("Resume notifications").click());
   expect(
-    loadNotificationPreferences()["repository:github.com/person/private"],
+    loadNotificationPreferences()["local:/work/private"],
   ).toEqual({ disabled: ["issues"], resumedAt: expect.any(Number) });
   expect(document.activeElement).toBe(project);
 });

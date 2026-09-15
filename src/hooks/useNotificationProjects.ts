@@ -1,115 +1,19 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { subscribeGitChanged } from "../lib/fs";
-import { looksLikeProject } from "../lib/recents";
-import { pathKey } from "../lib/paths";
+import { useSyncExternalStore } from "react";
 import {
   knownNotificationProjectSelection,
-  loadNotificationProjects,
   notificationProjectsSnapshot,
-  refreshNotificationProjects,
-  resolveNotificationProject,
   subscribeNotificationProjects,
 } from "../lib/notificationProjects";
 
-const watchedPaths = new Map<string, { path: string; subscribers: number }>();
-let stopWatching: (() => void) | undefined;
-
-/** One Git/focus listener serves all mounted views, without duplicate refreshes. */
-function watchProjects(paths: readonly string[]): () => void {
-  const unique = new Map(paths.map((path) => [pathKey(path), path]));
-  for (const [key, path] of unique) {
-    const entry = watchedPaths.get(key);
-    if (entry) entry.subscribers++;
-    else watchedPaths.set(key, { path, subscribers: 1 });
-  }
-  if (watchedPaths.size && !stopWatching) {
-    const activePaths = () =>
-      [...watchedPaths.values()].map((entry) => entry.path);
-    const onResume = () => {
-      if (document.hidden) return;
-      for (const path of activePaths()) {
-        void resolveNotificationProject(path).catch(() => {});
-      }
-    };
-    const unsubscribeGit = subscribeGitChanged(() => {
-      void refreshNotificationProjects(activePaths()).catch(() => {});
-    });
-    window.addEventListener("focus", onResume);
-    document.addEventListener("visibilitychange", onResume);
-    stopWatching = () => {
-      unsubscribeGit();
-      window.removeEventListener("focus", onResume);
-      document.removeEventListener("visibilitychange", onResume);
-    };
-  }
-  return () => {
-    for (const key of unique.keys()) {
-      const entry = watchedPaths.get(key);
-      if (entry && --entry.subscribers === 0) watchedPaths.delete(key);
-    }
-    if (!watchedPaths.size) {
-      stopWatching?.();
-      stopWatching = undefined;
-    }
-  };
-}
-
-/** Read known identities synchronously; discovery and refresh never clear them. */
+/** Project paths are already the notification identity; no discovery is needed. */
 export function useNotificationProjects(paths: readonly string[]) {
   useSyncExternalStore(
     subscribeNotificationProjects,
     notificationProjectsSnapshot,
     notificationProjectsSnapshot,
   );
-  const pathsKey = JSON.stringify([...new Set(paths.filter(looksLikeProject))]);
-  const [failure, setFailure] = useState<{
-    pathsKey: string;
-    paths: string[];
-  } | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    const requested = JSON.parse(pathsKey) as string[];
-    setFailure(null);
-    const discover = () => {
-      void Promise.allSettled(requested.map(resolveNotificationProject)).then(
-        (results) => {
-          if (!active) return;
-          const unavailable = requested.filter(
-            (_, index) => results[index]?.status === "rejected",
-          );
-          setFailure(
-            unavailable.length ? { pathsKey, paths: unavailable } : null,
-          );
-        },
-      );
-    };
-    const unwatch = watchProjects(requested);
-    discover();
-    return () => {
-      active = false;
-      unwatch();
-    };
-  }, [pathsKey, attempt]);
-  const requested = JSON.parse(pathsKey) as string[];
-  const unavailablePaths = failure?.pathsKey === pathsKey ? failure.paths : [];
-  const selection = knownNotificationProjectSelection(
-    requested,
-    unavailablePaths,
-  );
-  const projects = loadNotificationProjects();
+  const selection = knownNotificationProjectSelection(paths);
   return {
-    projects,
-    selection,
-    unavailablePaths,
-    loading: selection === null && failure?.pathsKey !== pathsKey,
-    error:
-      unavailablePaths.length > 0 && projects.length === 0
-        ? "Could not load projects. Please try again."
-        : null,
-    retry: () => {
-      setFailure(null);
-      setAttempt((value) => value + 1);
-    },
+    projects: selection.projects,
   };
 }

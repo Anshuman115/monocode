@@ -4,16 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { updateNotificationPreferences } from "../lib/notificationPreferences";
 import { ApprovalToasts } from "./ApprovalToasts";
-import { invoke } from "@tauri-apps/api/core";
-import { refreshNotificationProjects } from "../lib/notificationProjects";
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (_command: string, { cwd }: { cwd: string }) => ({
-    root: cwd,
-    commonDir: null,
-    remote: `https://github.com/user/${cwd.split("/").at(-1)}.git`,
-  })),
-}));
 
 type Notice = ComponentProps<typeof ApprovalToasts>["notices"][number];
 function notice(
@@ -71,12 +61,10 @@ function visibleRequests() {
 }
 
 it("hides muted project approval popups while another project's controls remain usable", async () => {
-  updateNotificationPreferences(["repository:github.com/user/private"], {
+  updateNotificationPreferences(["local:/projects/private"], {
     mutedUntil: null,
   });
   act(() => render([notice("private"), notice("work")]));
-  expect(visibleRequests()).toHaveLength(0);
-  await act(async () => {});
   expect(visibleRequests()).toHaveLength(1);
   expect(visibleRequests()[0]).toContain("Request work");
   const allow = [...document.querySelectorAll("button")].find(
@@ -90,31 +78,25 @@ it("immediately hides an existing question when its notification category is dis
   await act(async () => render([notice("work", "question")]));
   expect(visibleRequests()).toHaveLength(1);
   act(() =>
-    updateNotificationPreferences(["repository:github.com/user/work"], {
+    updateNotificationPreferences(["local:/projects/work"], {
       disabled: ["agentInput"],
     }),
   );
   expect(visibleRequests()).toHaveLength(0);
 });
 
-it("applies the current checkout identity to a mounted approval without replaying it", async () => {
+it("does not replay a mounted approval after its path is resumed", async () => {
   let now = 1_800_000_000_000;
   vi.spyOn(Date, "now").mockImplementation(() => now);
-  updateNotificationPreferences(["repository:github.com/user/new"], {
+  const ids = ["local:/projects/work"];
+  updateNotificationPreferences(ids, {
     mutedUntil: null,
   });
   await act(async () => render([notice("work")]));
-  expect(visibleRequests()).toHaveLength(1);
-  vi.mocked(invoke).mockResolvedValueOnce({
-    root: "/projects/work",
-    commonDir: null,
-    remote: "https://github.com/user/new.git",
-  });
-  await act(async () => refreshNotificationProjects(["/projects/work"]));
   expect(visibleRequests()).toHaveLength(0);
   now += 1000;
   act(() =>
-    updateNotificationPreferences(["repository:github.com/user/new"], {
+    updateNotificationPreferences(ids, {
       mutedUntil: undefined,
     }),
   );
@@ -129,7 +111,7 @@ it.each(["resume", "expiry", "category"] as const)(
   async (reason) => {
     let now = 1_800_000_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
-    const ids = ["repository:github.com/user/private"];
+    const ids = ["local:/projects/private"];
     updateNotificationPreferences(
       ids,
       reason === "category"
