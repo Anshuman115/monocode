@@ -20,6 +20,11 @@ export type AgentModel = {
   harness: HarnessId;
   name: string;
   nativeId?: string;
+  /** Upstream provider inside a multi-provider harness such as OpenCode. */
+  provider?: {
+    id: string;
+    name: string;
+  };
   settings?: ModelSetting[];
   /** Context window, when the harness catalog reports one. */
   contextWindow?: number;
