@@ -313,12 +313,11 @@ import { nextUnseenFinishedSessions } from "./lib/sessionDone";
 import {
   loadNotificationsEnabled,
   NOTIFICATION_CLICK_EVENT,
-  notifySession,
+  announceSessionFinished,
   probeNotificationPermission,
   setWindowFocused,
 } from "./lib/notifications";
 import { useInputNotifications } from "./hooks/useInputNotifications";
-import { playCue } from "./lib/sounds";
 import { archiveFocusedSession } from "./lib/archiveShortcut";
 import {
   adjacentItemId,
@@ -733,6 +732,8 @@ export default function App({
   const [settingsAnchor, setSettingsAnchor] = useState<SettingsAnchor | null>(
     null,
   );
+  const [notificationProjectPath, setNotificationProjectPath] = useState<string | null>(null);
+  const [notificationSettingsRequest, setNotificationSettingsRequest] = useState(0);
   const [editorNavigation, setEditorNavigation] =
     useState<EditorNavigationTarget | null>(null);
   const editorNavigationToken = useRef(0);
@@ -5079,12 +5080,7 @@ export default function App({
               (s) => s.id === sessionId,
             );
             const visible = sessionId === activeSessionIdRef.current;
-            const sent = finished
-              ? notifySession(finished, "finished", visible)
-              : Promise.resolve(false);
-            void sent.then((ok) => {
-              if (!ok) playCue("turnFinished");
-            });
+            if (finished) void announceSessionFinished(finished, visible);
           }, 0);
           notifyReviewChanged(sessionId);
           notifyGitChanged();
@@ -6333,12 +6329,19 @@ export default function App({
         saveSettingsSection(section);
       }
       setSettingsAnchor(anchor ?? null);
+      setNotificationProjectPath(null);
       setSettingsOpen(true);
     },
     [],
   );
 
   const onOpenSettings = useCallback(() => openSettings(), [openSettings]);
+
+  const onOpenNotificationSettings = useCallback((path?: string) => {
+    openSettings("inbox", "project-notifications");
+    setNotificationProjectPath(path ?? null);
+    setNotificationSettingsRequest((request) => request + 1);
+  }, [openSettings]);
 
   const onOpenInboxIntegrations = useCallback(
     (source: ConnectableInboxSource) => openSettings("inbox", source),
@@ -6951,6 +6954,7 @@ export default function App({
             settingsOpen={settingsOpen}
             settingsSection={settingsSection}
             onOpenSettings={onOpenSettings}
+            onOpenNotificationSettings={onOpenNotificationSettings}
             onSelectSettingsSection={onSelectSettingsSection}
             onCloseSettings={onCloseSettings}
             updateNotice={updateNotice}
@@ -7209,6 +7213,9 @@ export default function App({
               <SettingsView
                 section={settingsSection}
                 anchor={settingsAnchor}
+                notificationProjectPath={notificationProjectPath}
+                notificationSettingsRequest={notificationSettingsRequest}
+                recents={recents}
                 cwd={sidebarCwd}
                 sessions={sidebarHistory}
                 besideRail
