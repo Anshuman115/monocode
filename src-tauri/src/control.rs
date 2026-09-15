@@ -458,7 +458,10 @@ pub fn control_scopes(cwd: String, files: Vec<String>) -> Result<Vec<String>, St
     }
     files
         .iter()
-        .map(|file| resolve_scope(&crate::fs::expand_home(&cwd), file))
+        .map(|file| {
+            resolve_scope(&crate::fs::expand_home(&cwd), file)
+                .map_err(|error| format!("Invalid write scope \"{file}\": {error}"))
+        })
         .collect()
 }
 
@@ -533,6 +536,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         assert!(resolve_scope(&root, "../escape").is_err());
         assert!(resolve_scope(&root, "/absolute").is_err());
+        assert!(control_scopes(
+            root.to_string_lossy().into_owned(),
+            vec!["../escape".into()]
+        )
+        .unwrap_err()
+        .contains("Invalid write scope \"../escape\""));
         assert!(resolve_scope(&root, "src/new.ts")
             .unwrap()
             .ends_with("/src/new.ts"));

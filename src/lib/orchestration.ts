@@ -402,7 +402,11 @@ export class Orchestrator {
     if (proposal.status !== "ready")
       throw new Error("Review a completed proposal before starting");
     const settings = validateOrchestrationSettings(proposal.settings);
-    const planned = validateProposedTasks(proposal.tasks, settings);
+    const planned = validateProposedTasks(
+      proposal.tasks,
+      settings,
+      proposal.cwd,
+    );
     const lead = this.host?.session(leadId);
     if (!lead || !sameCheckout(lead.cwd, proposal.cwd))
       throw new Error("Return to the proposal's project before starting");

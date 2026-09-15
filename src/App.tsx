@@ -4868,7 +4868,11 @@ export default function App({
                   cwd: workCwd,
                 });
           const turnPrompt = proposalDraft
-            ? orchestrationPlanningPrompt(prompt, proposalDraft.settings)
+            ? orchestrationPlanningPrompt(
+                prompt,
+                proposalDraft.settings,
+                proposalDraft.cwd,
+              )
             : intent === "plan" && !rawCommand
               ? planTurnPrompt(prompt)
               : prompt;
