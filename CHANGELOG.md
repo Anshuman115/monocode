@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.48] - 2026-09-16
+
 ### Added
 
 - Drag a split pane into the title-bar tab strip to detach it as a separate workspace tab. Chat, editor, and terminal panes keep their contents and focus.
+- Configure sounds, desktop banners, and sidebar indicators by category for each project from Settings or the project and Inbox menus. Projects can be muted for one, four, or eight hours, until a custom time, or until manually resumed; bulk controls and persistent mute indicators are included, and muting hides Inbox badges without clearing unread activity. In #242 by @ognjeeen.
+- GitHub pull-request details include confirmed actions to merge, convert between draft and ready, close, and reopen the pull request, then refresh the Inbox with its new state.
+- Title-bar tabs show a teal completion check for an unseen agent response until the tab is viewed, while active runs keep their busy indicator.
 
 ### Changed
 
-- Linked GitHub issues and pull requests open in a resizable panel beside their session instead of replacing it with the Inbox.
+- Linked GitHub issues and pull requests open in a resizable panel beside their session instead of replacing it with the Inbox. Item identity stays pinned while the details scroll as one view, related threads are omitted from the side-panel layout, and review actions remain visually distinct.
+- The usage footer names the active terminal process in place of the generic terminal label and uses tighter control and icon spacing.
+- Moving a note to another project now uses the same searchable, keyboard-accessible project picker as the sidebar.
+- Selection highlights, structural separators, and primary actions use shared theme-aware styling across the interface, and the application icons have been refreshed.
+- Terminals answer OSC color queries with resolved colors from the active theme, and the project terminal dock no longer applies its own background tint.
+
+### Fixed
+
+- Paragraphs and lists in agent replies have clear, consistent spacing without adding trailing whitespace to the message. Fixes #218 in #239 by @bluzername.
 
 ## [0.1.47] - 2026-09-15
 
@@ -808,7 +821,8 @@ First public release. macOS (Apple Silicon) only.
 - Updater endpoint and minisign public key are injected at release time rather than committed, so forks do not inherit the maintainer's update channel.
 - macOS release builds sign with `APPLE_SIGNING_IDENTITY` via a config overlay; the committed default remains ad-hoc `-` for community builds.
 
-[Unreleased]: https://github.com/hardbeat920/monocode/compare/v0.1.47...HEAD
+[Unreleased]: https://github.com/hardbeat920/monocode/compare/v0.1.48...HEAD
+[0.1.48]: https://github.com/hardbeat920/monocode/compare/v0.1.47...v0.1.48
 [0.1.47]: https://github.com/hardbeat920/monocode/compare/v0.1.46...v0.1.47
 [0.1.46]: https://github.com/hardbeat920/monocode/compare/v0.1.45...v0.1.46
 [0.1.45]: https://github.com/hardbeat920/monocode/compare/v0.1.44...v0.1.45
