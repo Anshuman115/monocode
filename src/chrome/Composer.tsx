@@ -1531,7 +1531,7 @@ export function Composer({
                   setOrchestrationSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-fuchsia-400/10 px-1.5 text-[11px] text-fuchsia-200/80 hover:bg-fuchsia-400/15"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md border border-fuchsia-500/20 bg-fuchsia-500/15 px-1.5 text-[11px] font-medium text-fuchsia-700 hover:bg-fuchsia-500/20 dark:border-fuchsia-300/10 dark:bg-fuchsia-400/10 dark:text-fuchsia-200/90 dark:hover:bg-fuchsia-400/15"
               >
                 <Share className="size-3.5" />
                 Orchestrator
