@@ -259,6 +259,14 @@ function workItemLookupKey(
   return `${repo.trim().toLowerCase()}:${kind}:${number}`;
 }
 
+export function peekGithubWorkItem(
+  repo: string,
+  kind: GithubTaskKind,
+  number: number,
+): GithubWorkItem | null {
+  return workItemByKey.get(workItemLookupKey(repo, kind, number)) ?? null;
+}
+
 /** Fetch one exact item after targeted Inbox navigation misses its list cache. */
 export function githubWorkItem(
   cwd: string,
