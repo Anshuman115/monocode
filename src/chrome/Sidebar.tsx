@@ -1133,7 +1133,7 @@ function SidebarComponent({
             onTabPick(itemId);
           }}
           className={`flex h-6 min-w-0 flex-1 items-center justify-center self-center rounded-md px-2 text-[12px] leading-none ${
-            active ? "bg-content/10 text-content" : "text-content/50"
+            active ? "bg-selection text-content" : "text-content/50"
           }`}
         >
           {isChangesTab && hasChangeStats ? (
@@ -1836,7 +1836,7 @@ function SidebarProjectPicker({
           }}
           className={`flex h-6.5 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] leading-none hover:text-content ${
             open
-              ? "bg-content/10 text-content"
+              ? "bg-selection text-content"
               : "text-content/50 hover:bg-content/5"
           }`}
         >
@@ -1920,7 +1920,7 @@ function SidebarProjectPicker({
                       onClick={() => pickProject(item.path)}
                       className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left ${
                         active === index
-                          ? "bg-content/10 text-content"
+                          ? "bg-selection text-content"
                           : "text-content/75 hover:bg-content/5 hover:text-content"
                       }`}
                     >
@@ -2069,7 +2069,7 @@ function SessionsHeaderButton({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
       className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
-        open || active ? "bg-content/10 text-content" : ""
+        open || active ? "bg-selection text-content" : ""
       }`}
     >
       {children}
@@ -2640,7 +2640,7 @@ function SessionCard({
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
-                  ? "bg-content/10 text-content border-transparent"
+                  ? "bg-selection text-content border-transparent"
                   : `text-content/80 hover:text-content border-transparent ${
                       orchestrationExpanded
                         ? "bg-content/5 hover:bg-content/10"
@@ -2886,7 +2886,7 @@ function SessionRenameRow({
         needsApproval
           ? "bg-amber-400/10 text-content"
           : isActive
-            ? "bg-content/10 text-content"
+            ? "bg-selection text-content"
             : "text-content/80"
       }`}
     >

@@ -423,7 +423,9 @@ function MascotSwatch({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPick}
       className={`grid size-5 shrink-0 place-items-center rounded-md ${
-        selected ? "bg-content/15 ring-1 ring-content/50" : "hover:bg-content/8"
+        selected
+          ? "bg-selection-hover ring-1 ring-content/50"
+          : "hover:bg-content/8"
       }`}
     >
       {children}

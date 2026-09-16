@@ -261,7 +261,7 @@ function InboxSourceTab({
       onClick={() => onSelect(source)}
       className={`flex h-6 min-w-0 flex-1 items-center justify-center rounded-md px-2 text-[12px] leading-none ${
         selected
-          ? "bg-content/10 text-content"
+          ? "bg-selection text-content"
           : "text-content/50 hover:bg-content/5 hover:text-content"
       }`}
     >
@@ -786,7 +786,7 @@ export function InboxView({
             onClick={() => setConnectMenuOpen((open) => !open)}
             className={`flex h-6 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-[12px] leading-none ${
               connectMenuOpen
-                ? "bg-content/10 text-content"
+                ? "bg-selection text-content"
                 : "text-content/40 hover:bg-content/5 hover:text-content"
             }`}
           >
@@ -817,7 +817,7 @@ export function InboxView({
             aria-haspopup="menu"
             onClick={onFilterButtonClick}
             className={`grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content ${
-              filterMenu || filtersActive ? "bg-content/10 text-content" : ""
+              filterMenu || filtersActive ? "bg-selection text-content" : ""
             }`}
           >
             <ListFilter className="size-3" strokeWidth={1.75} />
@@ -1295,7 +1295,7 @@ function InboxCard({
       onClick={onSelect}
       className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
+          ? "border-transparent bg-selection text-content"
           : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
       }`}
     >
@@ -2029,7 +2029,7 @@ export function InboxDetail({
                     onClick={() => setDiffMode("hunks")}
                     className={`rounded px-2.5 py-1 text-[11px] leading-none ${
                       diffMode === "hunks"
-                        ? "bg-content/10 text-content"
+                        ? "bg-selection text-content"
                         : "text-content/45 hover:text-content/70"
                     }`}
                   >
@@ -2041,7 +2041,7 @@ export function InboxDetail({
                     onClick={() => setDiffMode("full")}
                     className={`rounded px-2.5 py-1 text-[11px] leading-none ${
                       diffMode === "full"
-                        ? "bg-content/10 text-content"
+                        ? "bg-selection text-content"
                         : "text-content/45 hover:text-content/70"
                     }`}
                   >
@@ -2269,7 +2269,7 @@ function InboxProjectPicker({
                 }}
                 className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] ${
                   active
-                    ? "bg-content/10 text-content"
+                    ? "bg-selection text-content"
                     : "text-content/80 hover:bg-content/5 hover:text-content"
                 }`}
               >

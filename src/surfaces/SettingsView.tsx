@@ -524,7 +524,7 @@ function SettingsSearch({
                 onClick={() => go(result)}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] ${
                   index === active
-                    ? "bg-content/10 text-content"
+                    ? "bg-selection text-content"
                     : "text-content hover:bg-content/5"
                 }`}
               >
@@ -2366,7 +2366,7 @@ function Segmented<T extends string>({
           onClick={() => onChange(option.value)}
           className={`min-w-0 rounded-[5px] px-2.5 py-1 ${
             value === option.value
-              ? "bg-content/10 text-content"
+              ? "bg-selection text-content"
               : "text-content/50 hover:text-content"
           }`}
         >
@@ -2676,7 +2676,7 @@ function Select({
                 onClick={() => pick(option.value)}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] ${
                   highlighted || isSelected
-                    ? "bg-content/10 text-content"
+                    ? "bg-selection text-content"
                     : "text-content hover:bg-content/5"
                 }`}
               >

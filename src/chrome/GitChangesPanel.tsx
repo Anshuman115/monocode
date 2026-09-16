@@ -1178,7 +1178,7 @@ function ChangeRow({
           tree ? "" : "pl-2"
         } ${
           active
-            ? "bg-content/10 text-content"
+            ? "bg-selection text-content"
             : "text-content hover:bg-content/5"
         }`}
       >

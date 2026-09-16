@@ -177,7 +177,7 @@ export function ProjectBackgroundDialog({ project, name, onClose }: Props) {
                 onClick={() => updateScope(option.value)}
                 className={`rounded-[5px] px-1.5 py-1 ${
                   scope === option.value
-                    ? "bg-content/10 text-content"
+                    ? "bg-selection text-content"
                     : "text-content/50 hover:text-content"
                 }`}
               >

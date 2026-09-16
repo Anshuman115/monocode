@@ -55,7 +55,7 @@ export function RailAction({
       aria-label={ariaLabel ?? label}
       className={`relative flex w-full items-center gap-2 rounded-md px-2 h-8  text-left ${
         active
-          ? "bg-content/10 text-content"
+          ? "bg-selection text-content"
           : "text-content/50 hover:bg-content/10 hover:text-content"
       } disabled:cursor-default disabled:opacity-40`}
     >
@@ -108,7 +108,7 @@ export function RailSearch({
       aria-label={ariaLabel ?? label}
       className={`relative flex w-full items-center gap-2 rounded-md border border-content/8 px-1.5 shadow-sm h-8 text-left ${
         active
-          ? "bg-content/10 text-content"
+          ? "bg-selection text-content"
           : "text-content/50 hover:bg-content/10 hover:text-content"
       } disabled:cursor-default disabled:opacity-40`}
     >

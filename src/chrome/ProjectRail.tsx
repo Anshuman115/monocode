@@ -880,7 +880,7 @@ function ProjectCard({
       data-selected={selected || undefined}
       className={`reorder-item project-reorder-item group relative flex touch-none items-stretch rounded-md px-2 h-8 ${
         selected
-          ? "bg-content/12 text-content"
+          ? "bg-selection-strong text-content"
           : "opacity-65"
       } cursor-default`}
       onPointerDown={(event) => {

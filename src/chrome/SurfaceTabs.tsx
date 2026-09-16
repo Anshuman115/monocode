@@ -285,7 +285,7 @@ export function SurfaceTabs({
               if (el && file.id === activeFileId) activeTabRef.current = el;
             }}
             className={`reorder-item tab-motion group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-stroke ${
-              active ? "bg-content/8" : "hover:bg-content/5"
+              active ? "bg-selection-subtle" : "hover:bg-content/5"
             } ${
               canDrag ? "cursor-grab active:cursor-grabbing" : ""
             }`}

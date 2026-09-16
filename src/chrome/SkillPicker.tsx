@@ -316,7 +316,9 @@ function ScopeButton({
       disabled={disabled}
       onClick={onClick}
       className={`flex min-w-0 flex-1 flex-col rounded-md px-2 py-1.5 text-left ${
-        selected ? "bg-content/20 text-content" : "bg-content/10 text-content/70"
+        selected
+          ? "bg-selection-emphasis text-content"
+          : "bg-selection text-content/70"
       } disabled:opacity-40`}
     >
       <span className="text-[12px]">{label}</span>

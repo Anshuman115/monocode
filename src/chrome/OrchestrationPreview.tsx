@@ -276,7 +276,7 @@ function AssignmentModel({
                   openEffortOrPick(choice);
                 }}
                 className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
-                  index === active ? "bg-content/10" : ""
+                  index === active ? "bg-selection" : ""
                 }`}
               >
                 <HarnessIcon
@@ -347,7 +347,7 @@ function AssignmentModel({
                   pick(activeChoice, settingsFor(activeChoice, option.value))
                 }
                 className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-content ${
-                  highlighted ? "bg-content/10" : "hover:bg-content/5"
+                  highlighted ? "bg-selection" : "hover:bg-content/5"
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -755,7 +755,7 @@ export function OrchestrationPreview({
                       }
                       className={`grid size-5 place-items-center rounded-[5px] text-[11px] leading-none tabular-nums ${
                         proposal.settings.maxWorkers === number
-                          ? "bg-content/15 font-medium text-content"
+                          ? "bg-selection-hover font-medium text-content"
                           : "text-content/45 hover:bg-content/8 hover:text-content"
                       }`}
                     >

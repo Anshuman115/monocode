@@ -314,7 +314,7 @@ function TitleTabItem({
           closable ? "pr-7" : "pr-2.5"
         } ${
           active
-            ? "bg-content/10 text-content"
+            ? "bg-selection text-content"
             : "text-content/50 hover:bg-content/5 hover:text-content"
         }`}
       >

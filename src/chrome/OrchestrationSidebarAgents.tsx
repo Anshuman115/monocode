@@ -122,7 +122,7 @@ export function OrchestrationSidebarAgents({
               key={task.sessionId}
               data-orchestration-agent={task.sessionId}
               // Expanding lights the whole row, header and detail together.
-              className={`rounded-md ${open ? "bg-content/10" : ""}`}
+              className={`rounded-md ${open ? "bg-selection" : ""}`}
             >
               <button
                 type="button"
