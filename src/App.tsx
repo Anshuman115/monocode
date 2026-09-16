@@ -7259,6 +7259,7 @@ export default function App({
               <UsageFooter
                 providers={usageProviders}
                 session={usageSession}
+                project={projectCwd}
                 terminals={runningTerminals}
                 terminalOpen={runningTerminalOpen}
                 onToggleTerminal={onToggleRunningTerminal}

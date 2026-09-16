@@ -33,6 +33,7 @@ export type UsageFooterSession = {
 export function UsageFooter({
   providers,
   session,
+  project,
   terminals = [],
   terminalOpen = false,
   onToggleTerminal,
@@ -42,6 +43,7 @@ export function UsageFooter({
 }: {
   providers: RateLimitProvider[];
   session?: UsageFooterSession;
+  project?: string;
   terminals?: RunningTerminal[];
   terminalOpen?: boolean;
   onToggleTerminal?: (fileId: string) => void;
@@ -177,6 +179,7 @@ export function UsageFooter({
             <UsageProviderChip
               limits={codex}
               now={now}
+              project={project}
               onConsumeReset={consumeCodexReset}
             />
           ) : null}
