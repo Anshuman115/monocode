@@ -155,15 +155,11 @@ function SkillList({
             onMouseEnter={() => onRowEnter(index)}
             onClick={() => onPick(skill)}
             className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left ${
-              highlighted ? "bg-skill/15 text-content" : "text-content"
+              highlighted ? "bg-content/10 text-content" : "text-content"
             }`}
           >
             <span className="flex min-w-0 items-baseline gap-2">
-              <span
-                className={`truncate text-[13px] ${
-                  highlighted ? "font-medium text-skill" : ""
-                }`}
-              >
+              <span className="truncate text-[13px]">
                 /{skill.invocation}
               </span>
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-content/40">
