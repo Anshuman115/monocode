@@ -11,9 +11,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
-import { CwdPicker } from "../chrome/CwdPicker";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
+import { SearchableProjectPicker } from "../chrome/SearchableProjectPicker";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -339,10 +339,6 @@ export function NotesView({
           note={selected}
           recents={recents}
           activeCwd={cwd}
-          logos={logos}
-          mascots={groupMascots}
-          colors={groupColors}
-          customColors={groupCustomColors}
           onSaved={onSaved}
           onDelete={onDelete}
           onAddToChat={onAddToChat}
@@ -501,10 +497,6 @@ function NoteDetail({
   note,
   recents,
   activeCwd,
-  logos,
-  mascots,
-  colors,
-  customColors,
   onSaved,
   onDelete,
   onAddToChat,
@@ -515,7 +507,7 @@ function NoteDetail({
   onSaved: (note: Note) => void;
   onDelete: (id: string) => void | Promise<void>;
   onAddToChat: (note: Note) => void;
-} & ProjectMarks) {
+}) {
   if (!note) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col items-center justify-center px-6 text-center">
@@ -530,10 +522,6 @@ function NoteDetail({
       note={note}
       recents={recents}
       activeCwd={activeCwd}
-      logos={logos}
-      mascots={mascots}
-      colors={colors}
-      customColors={customColors}
       onSaved={onSaved}
       onDelete={onDelete}
       onAddToChat={onAddToChat}
@@ -545,10 +533,6 @@ function NoteEditor({
   note,
   recents,
   activeCwd,
-  logos,
-  mascots,
-  colors,
-  customColors,
   onSaved,
   onDelete,
   onAddToChat,
@@ -559,7 +543,7 @@ function NoteEditor({
   onSaved: (note: Note) => void;
   onDelete: (id: string) => void | Promise<void>;
   onAddToChat: (note: Note) => void;
-} & ProjectMarks) {
+}) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const blank = !note.body.trim() && note.title === "Untitled";
   const [mode, setMode] = useMarkdownMode(note.id);
@@ -589,7 +573,6 @@ function NoteEditor({
   bodyRef.current = body;
   noteRef.current = note;
   onSavedRef.current = onSaved;
-  const project = noteSourceProject(sourceCwd);
   const time = formatRelativeTime(new Date(note.updatedAt).toISOString());
 
   useEffect(() => {
@@ -808,42 +791,19 @@ function NoteEditor({
             {note.slug ? (
               <span className="min-w-0 truncate">{note.slug}</span>
             ) : null}
-            <CwdPicker
+            <SearchableProjectPicker
               cwd={sourceCwd ?? "~"}
               recents={recents}
               mode="move"
-              activeCwd={activeCwd}
-              renderProjectLabel={(path) => (
-                <NoteProjectMark
-                  cwd={path}
-                  logos={logos}
-                  mascots={mascots}
-                  colors={colors}
-                  customColors={customColors}
-                />
-              )}
-              placement="below"
-              chevron
-              buttonClassName="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-content/60 hover:text-content"
-              onCwdChange={(path) => {
+              railCwd={activeCwd}
+              buttonClassName="px-1.5"
+              onSelectProject={(path) => {
                 const change = { path };
                 projectChangeRef.current = change;
                 setProjectChange(change);
                 void saveNow();
               }}
-            >
-              {project && sourceCwd ? (
-                <NoteProjectMark
-                  cwd={sourceCwd}
-                  logos={logos}
-                  mascots={mascots}
-                  colors={colors}
-                  customColors={customColors}
-                />
-              ) : (
-                <span>Choose project</span>
-              )}
-            </CwdPicker>
+            />
           </div>
           <input
             value={title}
