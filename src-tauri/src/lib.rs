@@ -271,6 +271,7 @@ pub fn run() {
             fs::git_pr_create,
             fs::git_github_status,
             fs::git_github_repo,
+            fs::git_github_repositories,
             fs::git_github_work_item,
             fs::git_github_work_items,
             fs::git_github_work_item_details,

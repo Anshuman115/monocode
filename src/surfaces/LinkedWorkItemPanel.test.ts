@@ -83,6 +83,18 @@ describe("LinkedWorkItemPanel tab persistence", () => {
 
     expect(container.textContent).toContain("Keep the linked panel warm");
     expect(invoke).toHaveBeenCalledTimes(3);
+    expect(invoke).toHaveBeenCalledWith("git_github_work_item_details", {
+      cwd: "/tmp/web",
+      repo: "acme/web",
+      kind: "issue",
+      number: 157,
+    });
+    expect(invoke).toHaveBeenCalledWith("git_github_work_item_thread", {
+      cwd: "/tmp/web",
+      repo: "acme/web",
+      kind: "issue",
+      number: 157,
+    });
 
     await act(async () => render(false));
     expect(container.querySelector("aside")?.classList).toContain("hidden");

@@ -903,10 +903,19 @@ pub async fn git_github_repo(cwd: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Open issues or pull requests for the current GitHub remote, via `gh`.
+/// The GitHub remote of this working copy and, when it is a fork, its parent.
+#[tauri::command]
+pub async fn git_github_repositories(cwd: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || git_github_repositories_for(&expand_home(&cwd)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Open issues or pull requests for one GitHub repository, via `gh`.
 #[tauri::command]
 pub async fn git_github_work_items(
     cwd: String,
+    repo: String,
     kind: String,
     assigned_to_me: bool,
     state: String,
@@ -916,6 +925,7 @@ pub async fn git_github_work_items(
     tauri::async_runtime::spawn_blocking(move || {
         git_github_work_items_for(
             &expand_home(&cwd),
+            &repo,
             &kind,
             assigned_to_me,
             &state,
@@ -958,11 +968,12 @@ pub struct GitHubWorkItemDetails {
 #[tauri::command]
 pub async fn git_github_work_item_details(
     cwd: String,
+    repo: String,
     kind: String,
     number: i64,
 ) -> Result<GitHubWorkItemDetails, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        git_github_work_item_details_for(&expand_home(&cwd), &kind, number)
+        git_github_work_item_details_for(&expand_home(&cwd), &repo, &kind, number)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1011,11 +1022,12 @@ pub struct GitHubWorkItemThread {
 #[tauri::command]
 pub async fn git_github_work_item_thread(
     cwd: String,
+    repo: String,
     kind: String,
     number: i64,
 ) -> Result<GitHubWorkItemThread, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        git_github_work_item_thread_for(&expand_home(&cwd), &kind, number)
+        git_github_work_item_thread_for(&expand_home(&cwd), &repo, &kind, number)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1025,13 +1037,21 @@ pub async fn git_github_work_item_thread(
 #[tauri::command]
 pub async fn git_github_work_item_comment(
     cwd: String,
+    repo: String,
     kind: String,
     number: i64,
     body: String,
     in_reply_to: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        git_github_work_item_comment_for(&expand_home(&cwd), &kind, number, &body, &in_reply_to)
+        git_github_work_item_comment_for(
+            &expand_home(&cwd),
+            &repo,
+            &kind,
+            number,
+            &body,
+            &in_reply_to,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1077,12 +1097,13 @@ const MAX_PR_DIFF_BYTES: usize = 2 * 1024 * 1024;
 #[tauri::command]
 pub async fn git_github_pr_diff(
     cwd: String,
+    repo: String,
     number: i64,
     full_context: Option<bool>,
 ) -> Result<GitHubPrDiff, String> {
     let full_context = full_context.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        git_github_pr_diff_for(&expand_home(&cwd), number, full_context)
+        git_github_pr_diff_for(&expand_home(&cwd), &repo, number, full_context)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2007,8 +2028,46 @@ fn git_github_repo_for(root: &Path) -> Result<String, String> {
     Ok(slug.to_string())
 }
 
+fn git_github_repositories_for(root: &Path) -> Result<Vec<String>, String> {
+    let json = gh_checked(root, &["repo", "view", "--json", "nameWithOwner,parent"])?;
+    parse_github_repositories(&json)
+}
+
+fn parse_github_repositories(json: &str) -> Result<Vec<String>, String> {
+    #[derive(Deserialize)]
+    struct Owner {
+        login: String,
+    }
+    #[derive(Deserialize)]
+    struct Parent {
+        name: String,
+        owner: Owner,
+    }
+    #[derive(Deserialize)]
+    struct View {
+        #[serde(rename = "nameWithOwner")]
+        name_with_owner: String,
+        #[serde(default)]
+        parent: Option<Parent>,
+    }
+
+    let view: View = serde_json::from_str(json).map_err(|error| error.to_string())?;
+    let (owner, name) = split_github_repo(&view.name_with_owner)?;
+    let mut repos = vec![format!("{owner}/{name}")];
+    if let Some(parent) = view.parent {
+        let parent = format!("{}/{}", parent.owner.login, parent.name);
+        let (owner, name) = split_github_repo(&parent)?;
+        let parent = format!("{owner}/{name}");
+        if !repos[0].eq_ignore_ascii_case(&parent) {
+            repos.push(parent);
+        }
+    }
+    Ok(repos)
+}
+
 fn git_github_work_items_for(
     root: &Path,
+    repo: &str,
     kind: &str,
     assigned_to_me: bool,
     state: &str,
@@ -2019,6 +2078,8 @@ fn git_github_work_items_for(
     if kind != "issue" && kind != "pr" {
         return Err("Unknown GitHub task kind".into());
     }
+    let (owner, name) = split_github_repo(repo)?;
+    let repo = format!("{owner}/{name}");
     let state = if state.trim().eq_ignore_ascii_case("all") {
         "all"
     } else {
@@ -2037,6 +2098,8 @@ fn git_github_work_items_for(
         state.into(),
         "--limit".into(),
         limit,
+        "--repo".into(),
+        repo.clone(),
         "--json".into(),
         fields.into(),
     ];
@@ -2051,7 +2114,6 @@ fn git_github_work_items_for(
     }
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let json = gh_checked(root, &refs)?;
-    let repo = git_github_repo_for(root).unwrap_or_default();
     parse_github_work_items(&json, kind, &repo)
 }
 
@@ -2119,6 +2181,7 @@ fn git_github_pr_action_for(
 
 fn git_github_work_item_details_for(
     root: &Path,
+    repo: &str,
     kind: &str,
     number: i64,
 ) -> Result<GitHubWorkItemDetails, String> {
@@ -2126,13 +2189,21 @@ fn git_github_work_item_details_for(
     if kind != "issue" && kind != "pr" {
         return Err("Unknown GitHub task kind".into());
     }
+    if number <= 0 {
+        return Err("Invalid GitHub item number".into());
+    }
+    let (owner, name) = split_github_repo(repo)?;
+    let repo = format!("{owner}/{name}");
     let number = number.to_string();
     let fields = if kind == "pr" {
         "body,author,baseRefName,headRefName,reviewDecision"
     } else {
         "body,author"
     };
-    let json = gh_checked(root, &[kind, "view", &number, "--json", fields])?;
+    let json = gh_checked(
+        root,
+        &[kind, "view", &number, "--repo", &repo, "--json", fields],
+    )?;
     parse_github_work_item_details(&json)
 }
 
@@ -2273,6 +2344,7 @@ mutation InboxReviewReply($threadId: ID!, $body: String!) {
 
 fn git_github_work_item_thread_for(
     root: &Path,
+    repo: &str,
     kind: &str,
     number: i64,
 ) -> Result<GitHubWorkItemThread, String> {
@@ -2283,8 +2355,7 @@ fn git_github_work_item_thread_for(
     if number <= 0 {
         return Err("Invalid GitHub item number".into());
     }
-    let repo = git_github_repo_for(root)?;
-    let (owner, name) = split_github_repo(&repo)?;
+    let (owner, name) = split_github_repo(repo)?;
     let query = if kind == "pr" {
         GITHUB_PR_THREAD_QUERY
     } else {
@@ -2332,19 +2403,33 @@ fn github_comment_input<'a>(
 
 fn git_github_work_item_comment_for(
     root: &Path,
+    repo: &str,
     kind: &str,
     number: i64,
     body: &str,
     in_reply_to: &str,
 ) -> Result<String, String> {
     let (kind, body) = github_comment_input(kind, number, body)?;
+    let (owner, name) = split_github_repo(repo)?;
+    let repo = format!("{owner}/{name}");
     let reply = in_reply_to.trim();
     if !reply.is_empty() {
         return git_github_review_reply_for(root, reply, body);
     }
     let number = number.to_string();
     with_temp_markdown(body, |path| {
-        let output = gh_checked(root, &[kind, "comment", &number, "--body-file", path])?;
+        let output = gh_checked(
+            root,
+            &[
+                kind,
+                "comment",
+                &number,
+                "--repo",
+                &repo,
+                "--body-file",
+                path,
+            ],
+        )?;
         github_url_from_output(&output, "GitHub did not return a comment URL")
     })
 }
@@ -2840,25 +2925,35 @@ const PR_FULL_CONTEXT_LINES: &str = "999999";
 
 fn git_github_pr_diff_for(
     root: &Path,
+    repo: &str,
     number: i64,
     full_context: bool,
 ) -> Result<GitHubPrDiff, String> {
     if number <= 0 {
         return Err("Invalid pull request number".into());
     }
+    let (owner, name) = split_github_repo(repo)?;
+    let repo = format!("{owner}/{name}");
     let number = number.to_string();
     let fields = if full_context {
         "files,additions,deletions,baseRefOid,headRefOid"
     } else {
         "files,additions,deletions"
     };
-    let json = gh_run(root, &["pr", "view", &number, "--json", fields], false)?;
+    let json = gh_run(
+        root,
+        &["pr", "view", &number, "--repo", &repo, "--json", fields],
+        false,
+    )?;
     let mut diff = parse_github_pr_diff_meta(&json)?;
     let (patch, truncated) = if full_context {
         let (base, head) = parse_github_pr_oids(&json)?;
         git_diff_full_context(root, &base, &head)?
     } else {
-        (gh_run(root, &["pr", "diff", &number], true)?, false)
+        (
+            gh_run(root, &["pr", "diff", &number, "--repo", &repo], true)?,
+            false,
+        )
     };
     if truncated || patch.len() > MAX_PR_DIFF_BYTES {
         diff.truncated = true;
@@ -5840,6 +5935,33 @@ mod tests {
         assert_eq!(
             github_pr_head_filter("hardbeat920/monocode", "main").as_deref(),
             Some("hardbeat920:main")
+        );
+    }
+
+    #[test]
+    fn parse_github_repositories_includes_a_forks_parent() {
+        let json = r#"{
+            "nameWithOwner": "EricRasputin/monocode-eric",
+            "parent": {
+                "name": "monocode",
+                "owner": { "login": "hardbeat920" }
+            }
+        }"#;
+        assert_eq!(
+            parse_github_repositories(json).unwrap(),
+            vec!["EricRasputin/monocode-eric", "hardbeat920/monocode"]
+        );
+    }
+
+    #[test]
+    fn parse_github_repositories_keeps_a_normal_repo_single() {
+        let json = r#"{
+            "nameWithOwner": "hardbeat920/monocode",
+            "parent": null
+        }"#;
+        assert_eq!(
+            parse_github_repositories(json).unwrap(),
+            vec!["hardbeat920/monocode"]
         );
     }
 
