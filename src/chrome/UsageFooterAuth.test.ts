@@ -8,10 +8,9 @@ const auth = vi.hoisted(() => ({
   loginHarness: vi.fn<(_harness: string) => Promise<void>>(),
 }));
 
-vi.mock("../lib/harness/auth", () => ({
+vi.mock("../lib/harness/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/harness/auth")>()),
   loginHarness: auth.loginHarness,
-  supportsHarnessLogin: (harness: string) =>
-    ["claude", "codex", "cursor", "grok", "fx"].includes(harness),
 }));
 
 import { UsageFooter } from "./UsageFooter";

@@ -14,6 +14,9 @@ const child = vi.hoisted(() => ({
 
 vi.mock("./child", () => child);
 vi.mock("../fs", () => ({ homeDir: vi.fn(async () => "/home/alice") }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ label: "test-window" }),
+}));
 
 import {
   harnessLoginArgs,
@@ -70,7 +73,7 @@ describe("harness login", () => {
     const login = loginHarness("claude");
     await vi.waitFor(() => expect(child.watchChild).toHaveBeenCalledOnce());
     expect(child.spawnChild).toHaveBeenCalledWith(
-      "monocode-provider-login-claude",
+      "monocode-provider-login-test-window-claude",
       "/bin/claude",
       ["auth", "login"],
       "/home/alice",

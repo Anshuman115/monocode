@@ -1,5 +1,12 @@
 import { RefreshCw, Terminal } from "./icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { HarnessIcon } from "./HarnessIcon";
 import { Popover, type PopoverDismissReason } from "./Popover";
 import {
@@ -157,61 +164,54 @@ export function UsageFooter({
     return outcome!;
   }, []);
 
-  const reconnectClaude = useCallback(async () => {
-    while (inflight.current) await inflight.current;
-    setRefreshing(true);
-    setClaude((current) => fetchingRateLimits("claude", current));
-    const operation = (async () => {
-      try {
-        await loginHarness("claude");
-        const value = await fetchClaudeRateLimits();
-        setClaude(value);
-        if (value.status !== "ok") {
-          throw new Error(
-            value.error || "Claude sign-in could not be verified",
-          );
+  const reconnectProvider = useCallback(
+    async (
+      provider: RateLimitProvider,
+      fetchLimits: () => Promise<ProviderRateLimits>,
+      setLimits: Dispatch<SetStateAction<ProviderRateLimits>>,
+    ) => {
+      while (inflight.current) await inflight.current;
+      setRefreshing(true);
+      setLimits((current) => fetchingRateLimits(provider, current));
+      const operation = (async () => {
+        try {
+          await loginHarness(provider);
+          const value = await fetchLimits();
+          setLimits(value);
+          if (value.status !== "ok") {
+            throw new Error(
+              value.error ||
+                `${HARNESS_TITLE[provider]} sign-in could not be verified`,
+            );
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Could not complete sign-in";
+          setLimits((current) => errorRateLimits(provider, message, current));
+          throw error;
         }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Could not complete sign-in";
-        setClaude((current) => errorRateLimits("claude", message, current));
-        throw error;
-      }
-    })();
-    const tracked = operation.finally(() => {
-      inflight.current = null;
-      setRefreshing(false);
-    });
-    inflight.current = tracked;
-    await tracked;
-  }, []);
+      })();
+      const tracked = operation.finally(() => {
+        inflight.current = null;
+        setRefreshing(false);
+      });
+      inflight.current = tracked;
+      await tracked;
+    },
+    [],
+  );
 
-  const reconnectCodex = useCallback(async () => {
-    while (inflight.current) await inflight.current;
-    setRefreshing(true);
-    setCodex((current) => fetchingRateLimits("codex", current));
-    const operation = (async () => {
-      try {
-        await loginHarness("codex");
-        const value = await fetchCodexRateLimits();
-        setCodex(value);
-        if (value.status !== "ok") {
-          throw new Error(value.error || "Codex sign-in could not be verified");
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Could not complete sign-in";
-        setCodex((current) => errorRateLimits("codex", message, current));
-        throw error;
-      }
-    })();
-    const tracked = operation.finally(() => {
-      inflight.current = null;
-      setRefreshing(false);
-    });
-    inflight.current = tracked;
-    await tracked;
-  }, []);
+  const reconnectClaude = useCallback(
+    () => reconnectProvider("claude", fetchClaudeRateLimits, setClaude),
+    [reconnectProvider],
+  );
+
+  const reconnectCodex = useCallback(
+    () => reconnectProvider("codex", fetchCodexRateLimits, setCodex),
+    [reconnectProvider],
+  );
 
   const showUsage = wantClaude || wantCodex;
   const showTerminals = terminals.length > 0;

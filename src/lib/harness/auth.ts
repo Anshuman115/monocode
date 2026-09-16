@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { homeDir } from "../fs";
 import { HARNESS_TITLE, type HarnessId } from "../session";
 import * as child from "./child";
@@ -12,6 +13,17 @@ export {
 
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const LOGIN_CHILD_PREFIX = "monocode-provider-login-";
+
+function loginChildId(harness: HarnessId): string {
+  let windowLabel = "main";
+  try {
+    windowLabel = getCurrentWindow().label || windowLabel;
+  } catch {
+    // Keep the login helper usable in browser previews and isolated tests.
+  }
+  const safeWindowLabel = windowLabel.replace(/[^a-zA-Z0-9_-]/g, "-");
+  return `${LOGIN_CHILD_PREFIX}${safeWindowLabel}-${harness}`;
+}
 
 const LOGIN_RESOLVERS: Partial<
   Record<HarnessId, () => Promise<{ path: string }>>
@@ -54,7 +66,7 @@ async function runHarnessLogin(harness: HarnessId): Promise<void> {
   }
 
   const [{ path }, cwd] = await Promise.all([resolve(), homeDir()]);
-  const childId = `${LOGIN_CHILD_PREFIX}${harness}`;
+  const childId = loginChildId(harness);
   await child.killChild(childId).catch(() => undefined);
 
   return new Promise<void>((resolve, reject) => {
