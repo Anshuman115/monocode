@@ -116,6 +116,47 @@ describe("InboxDetail layout", () => {
     expect(header).toContain("Code");
   });
 
+  it("offers GitHub-style actions for an open pull request", () => {
+    const markup = renderDetail(item({ kind: "pr", state: "open" }));
+
+    expect(markup).toContain("Merge pull request");
+    expect(markup).toContain('aria-label="Merge options"');
+    expect(markup).toContain("Convert to draft");
+    expect(markup).toContain("Close pull request");
+  });
+
+  it("adapts pull request actions to draft and closed states", () => {
+    const draft = renderDetail(
+      item({ kind: "pr", state: "open", draft: true }),
+    );
+    expect(draft).toContain("Ready for review");
+    expect(draft).toContain("Close pull request");
+    expect(draft).not.toContain('aria-label="Merge options"');
+
+    const closed = renderDetail(item({ kind: "pr", state: "closed" }));
+    expect(closed).toContain("Reopen pull request");
+    expect(closed).not.toContain("Convert to draft");
+
+    const merged = renderDetail(item({ kind: "pr", state: "merged" }));
+    expect(merged).not.toContain("Reopen pull request");
+    expect(merged).not.toContain('aria-label="Merge options"');
+  });
+
+  it("does not show GitHub lifecycle actions for GitLab merge requests", () => {
+    const markup = renderDetail(
+      item({
+        kind: "pr",
+        provider: "gitlab",
+        repo: "acme/platform",
+        url: "https://gitlab.example.com/acme/platform/-/merge_requests/12",
+      }),
+    );
+
+    expect(markup).not.toContain('aria-label="Merge options"');
+    expect(markup).not.toContain("Convert to draft");
+    expect(markup).not.toContain("Close pull request");
+  });
+
   it("lets the linked-item panel header scroll and omits related threads", () => {
     const markup = renderToStaticMarkup(
       createElement(InboxDetail, {
