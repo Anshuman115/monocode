@@ -2141,7 +2141,7 @@ export function InboxDetail({
         githubKind,
         item.number,
         body,
-        { inReplyTo: replyTo?.threadId },
+        { inReplyTo: replyTo?.threadId, repo: item.repo },
       );
       setReplyTo(null);
       try {

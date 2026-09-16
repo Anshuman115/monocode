@@ -18,6 +18,7 @@ import {
 } from "../lib/inboxFilters";
 import {
   inboxHasUnseenItems,
+  markInboxItemsSeen,
   seedInboxSeenIfNeeded,
   subscribeInboxSeen,
   type InboxSeenEntry,
@@ -30,6 +31,7 @@ import {
   type LinkedWorkItemTarget,
 } from "../lib/linkedSessionUpdates";
 import {
+  markLinkedSessionUpdateSeen,
   linkedSessionSeenAt,
   subscribeLinkedSessionSeen,
 } from "../lib/linkedSessionSeen";
@@ -51,6 +53,10 @@ import {
   subscribeNotificationPreferences,
   type NotificationSubject,
 } from "../lib/notificationPreferences";
+import {
+  consumeInboxSelfActivity,
+  subscribeInboxSelfActivity,
+} from "../lib/inboxSelfActivity";
 
 const POLL_MS = 30_000;
 const FALLBACK_REFRESH_MS = 60_000;
@@ -183,9 +189,13 @@ export function useInboxActivity(
 
     let cancelled = false;
     let pulling = false;
+    let pullAgain = false;
 
     const pull = async (force: boolean) => {
-      if (pulling) return;
+      if (pulling) {
+        pullAgain ||= force;
+        return;
+      }
       pulling = true;
       const projectPaths = projects.map((project) => project.path);
       const filters = pruneInboxFilters(loadInboxFilters(), projectPaths);
@@ -207,16 +217,45 @@ export function useInboxActivity(
           inboxListCacheKey(projects, query),
           Object.keys(listed.errors) as InboxProvider[],
         );
+        const selfAuthored = changed.filter((item) =>
+          consumeInboxSelfActivity(item),
+        );
+        const selfAuthoredKeys = new Set(selfAuthored.map(inboxItemKey));
         const visibleKeys = new Set(visible.map(inboxItemKey));
         // The whole batch is observed even when every cue is suppressed. At most
         // one eligible project chimes; muted projects cannot consume that slot.
         for (const item of changed) {
+          if (selfAuthoredKeys.has(inboxItemKey(item))) continue;
           if (!visibleKeys.has(inboxItemKey(item))) continue;
           if (playCue("inboxUnseen", inboxNotificationSubject(item))) break;
         }
         const entries = seenEntries(visible);
         entriesRef.current = entries;
         seedInboxSeenIfNeeded(entries);
+        const selfAuthoredEntries = entries.filter((entry) =>
+          selfAuthoredKeys.has(entry.key),
+        );
+        if (selfAuthoredEntries.length > 0) {
+          markInboxItemsSeen(selfAuthoredEntries);
+        }
+        for (const item of selfAuthored) {
+          if (item.provider !== "github" || item.kind === "linear") continue;
+          const updatedAt = Date.parse(item.updatedAt);
+          if (!Number.isFinite(updatedAt)) continue;
+          const key = linkedWorkItemUpdateKey({
+            repo: item.repo,
+            kind: item.kind,
+            number: item.number,
+          });
+          for (const session of sessionsRef.current) {
+            if (
+              session.linkedWorkItem &&
+              linkedWorkItemUpdateKey(session.linkedWorkItem) === key
+            ) {
+              markLinkedSessionUpdateSeen(session.id, updatedAt);
+            }
+          }
+        }
         applyUnseen();
 
         const targets = linkedWorkItemTargets(sessionsRef.current);
@@ -264,10 +303,15 @@ export function useInboxActivity(
         // Leave the last known badges; a later poll can try again.
       } finally {
         pulling = false;
+        if (!cancelled && pullAgain) {
+          pullAgain = false;
+          void pull(true);
+        }
       }
     };
 
     void pull(false);
+    const stopSelfActivity = subscribeInboxSelfActivity(() => void pull(true));
     const timer = window.setInterval(() => {
       if (document.hidden) return;
       void pull(true);
@@ -280,6 +324,7 @@ export function useInboxActivity(
       cancelled = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVis);
+      stopSelfActivity();
     };
   }, [applyUnseen, cwd, recents, targetKey]);
 
