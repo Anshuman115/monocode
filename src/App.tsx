@@ -4254,9 +4254,15 @@ export default function App({
         if (!tab) return;
         const file = newFileTab(resolved, sidebarCwdRef.current);
         setTabs((prev) =>
-          prev.map((entry) =>
-            entry.id === tab.id ? openEditorTab(entry, file) : entry,
-          ),
+          prev.map((entry) => {
+            if (entry.id !== tab.id) return entry;
+            const focusedSession = sessionsRef.current.find(
+              (session) => session.id === entry.focusedId,
+            );
+            return openEditorTab(entry, file, {
+              split: focusedSession?.blocks.length === 0 ? "left" : "right",
+            });
+          }),
         );
         if (navigation) {
           editorNavigationToken.current += 1;
