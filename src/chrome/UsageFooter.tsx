@@ -159,7 +159,7 @@ export function UsageFooter({
       inflight.current = null;
       setRefreshing(false);
     });
-    inflight.current = tracked;
+    inflight.current = tracked.catch(() => undefined);
     await tracked;
     return outcome!;
   }, []);
@@ -197,7 +197,7 @@ export function UsageFooter({
         inflight.current = null;
         setRefreshing(false);
       });
-      inflight.current = tracked;
+      inflight.current = tracked.catch(() => undefined);
       await tracked;
     },
     [],

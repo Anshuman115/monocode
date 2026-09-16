@@ -7,12 +7,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.hoisted(() => ({
   loginHarness: vi.fn<(_harness: string) => Promise<void>>(),
 }));
+const rateLimitsFetch = vi.hoisted(() => ({
+  consumeCodexRateLimitResetCredit: vi.fn(),
+  fetchClaudeRateLimits: vi.fn(),
+  fetchCodexRateLimits: vi.fn(),
+}));
 
 vi.mock("../lib/harness/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/harness/auth")>()),
   loginHarness: auth.loginHarness,
 }));
+vi.mock("../lib/rateLimitsFetch", () => rateLimitsFetch);
 
+import type { ProviderRateLimits, RateLimitProvider } from "../lib/rateLimits";
 import { UsageFooter } from "./UsageFooter";
 
 let container: HTMLDivElement;
@@ -28,6 +35,9 @@ beforeEach(() => {
     },
   );
   auth.loginHarness.mockReset();
+  rateLimitsFetch.consumeCodexRateLimitResetCredit.mockReset();
+  rateLimitsFetch.fetchClaudeRateLimits.mockReset();
+  rateLimitsFetch.fetchCodexRateLimits.mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -47,6 +57,26 @@ function button(label: string): HTMLButtonElement {
   );
   expect(result, label).toBeDefined();
   return result!;
+}
+
+function signedOutLimits(provider: RateLimitProvider): ProviderRateLimits {
+  return {
+    provider,
+    session: null,
+    weekly: null,
+    resetCredits: null,
+    updatedAt: Date.now(),
+    error: `${provider} is not signed in`,
+    status: "error",
+  };
+}
+
+function connectedLimits(provider: RateLimitProvider): ProviderRateLimits {
+  return {
+    ...signedOutLimits(provider),
+    error: null,
+    status: "ok",
+  };
 }
 
 describe("UsageFooter provider authentication", () => {
@@ -106,5 +136,46 @@ describe("UsageFooter provider authentication", () => {
     await act(async () => finishLogin?.());
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(container.textContent).not.toContain("sign in");
+  });
+
+  it("starts a waiting recovery after another provider login fails", async () => {
+    let rejectClaude: ((error: Error) => void) | undefined;
+    auth.loginHarness.mockImplementation((harness) => {
+      if (harness === "claude") {
+        return new Promise<void>((_resolve, reject) => {
+          rejectClaude = reject;
+        });
+      }
+      return Promise.resolve();
+    });
+    rateLimitsFetch.fetchClaudeRateLimits.mockResolvedValue(
+      signedOutLimits("claude"),
+    );
+    rateLimitsFetch.fetchCodexRateLimits
+      .mockResolvedValueOnce(signedOutLimits("codex"))
+      .mockResolvedValueOnce(connectedLimits("codex"));
+
+    await act(async () => {
+      root.render(
+        createElement(UsageFooter, {
+          providers: ["claude", "codex"],
+        }),
+      );
+    });
+
+    act(() => button("Claude Code usage details").click());
+    act(() => button("Sign in to Claude Code").click());
+    await vi.waitFor(() =>
+      expect(auth.loginHarness).toHaveBeenCalledWith("claude"),
+    );
+
+    act(() => button("Codex usage details").click());
+    act(() => button("Sign in to Codex").click());
+    expect(auth.loginHarness).not.toHaveBeenCalledWith("codex");
+
+    await act(async () => rejectClaude?.(new Error("Claude login failed")));
+    await vi.waitFor(() =>
+      expect(auth.loginHarness).toHaveBeenCalledWith("codex"),
+    );
   });
 });
