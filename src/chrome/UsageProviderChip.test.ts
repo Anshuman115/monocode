@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderRateLimits } from "../lib/rateLimits";
 import { projectKey } from "../lib/paths";
 import { saveTabGroupMascot } from "../lib/tabGroups";
-import { UsageProviderChip } from "./UsageProviderChip";
+import { needsProviderLogin, UsageProviderChip } from "./UsageProviderChip";
 
 const now = Date.parse("2026-09-16T12:00:00Z");
 
@@ -80,6 +80,44 @@ function button(label: string): HTMLButtonElement {
 }
 
 describe("UsageProviderChip", () => {
+  it("offers the provider-owned login flow for an expired Claude session", async () => {
+    const limits: ProviderRateLimits = {
+      provider: "claude",
+      session: null,
+      weekly: null,
+      resetCredits: null,
+      updatedAt: now,
+      error: "Claude sign-in expired",
+      status: "error",
+    };
+    const onReconnect = vi.fn(async () => undefined);
+    act(() =>
+      root.render(
+        createElement(UsageProviderChip, { limits, now, onReconnect }),
+      ),
+    );
+
+    await act(async () => button("Claude Code usage details").click());
+    expect(document.querySelector(".size-9")).not.toBeNull();
+    await act(async () => button("Sign in to Claude Code").click());
+
+    expect(onReconnect).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain("Signed in to Claude Code");
+  });
+
+  it("does not describe account-specific usage restrictions as login failures", () => {
+    const limits: ProviderRateLimits = {
+      provider: "claude",
+      session: null,
+      weekly: null,
+      resetCredits: null,
+      updatedAt: now,
+      error: "Claude usage is unavailable for this account",
+      status: "error",
+    };
+    expect(needsProviderLogin(limits)).toBe(false);
+  });
+
   it("opens a column of detailed progress bars", async () => {
     act(() =>
       root.render(

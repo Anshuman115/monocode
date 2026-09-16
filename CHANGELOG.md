@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Provider footer controls can launch the official browser sign-in flow for Claude Code, Codex, Cursor, Grok Build, and fx when authentication is required. Submitting while signed out opens the same focused sign-in experience instead of printing the CLI error into the transcript.
+
+### Fixed
+
+- The Claude usage footer no longer refreshes or writes credentials owned by Claude Code, avoiding refresh-token rotation races that could force frequent reauthentication.
+
 ## [0.1.48] - 2026-09-16
 
 ### Added
