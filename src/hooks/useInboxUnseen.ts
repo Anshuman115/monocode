@@ -18,6 +18,7 @@ import {
 } from "../lib/inboxFilters";
 import {
   inboxHasUnseenItems,
+  rememberInboxItems,
   markInboxItemsSeen,
   seedInboxSeenIfNeeded,
   subscribeInboxSeen,
@@ -231,6 +232,11 @@ export function useInboxActivity(
         }
         const entries = seenEntries(visible);
         entriesRef.current = entries;
+        rememberInboxItems(listed.items.map((item) => ({
+          key: inboxItemKey(item),
+          updatedAt: item.updatedAt,
+          projectPath: item.projectPath,
+        })));
         seedInboxSeenIfNeeded(entries);
         const selfAuthoredEntries = entries.filter((entry) =>
           selfAuthoredKeys.has(entry.key),
