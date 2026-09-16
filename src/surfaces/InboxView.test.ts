@@ -190,7 +190,7 @@ describe("InboxDetail layout", () => {
     const scrollIndex = markup.indexOf("data-inbox-detail-scroll");
     const headerIndex = markup.indexOf("data-inbox-detail-header");
     const fixedHeader = markup.slice(fixedIndex, scrollIndex);
-    const reviewIndex = markup.indexOf("Review on GitHub");
+    const reviewIndex = markup.lastIndexOf("Review on GitHub");
     const reviewButton = markup.slice(
       markup.lastIndexOf("<button", reviewIndex),
       reviewIndex,
@@ -203,6 +203,10 @@ describe("InboxDetail layout", () => {
     expect(markup.match(/data-inbox-detail-scroll/g)).toHaveLength(1);
     expect(fixedHeader).toContain("Pull request");
     expect(fixedHeader).toContain("#157");
+    expect(fixedHeader).toContain("Review on GitHub");
+    expect(reviewIndex).toBeLessThan(scrollIndex);
+    expect(markup.match(/aria-label="Review on GitHub"/g)).toHaveLength(1);
+    expect(markup.slice(scrollIndex)).not.toContain("Review on GitHub");
     expect(fixedHeader).toContain("h-9");
     expect(fixedHeader).toContain("px-4");
     expect(fixedHeader).not.toContain("h-10");
@@ -212,7 +216,10 @@ describe("InboxDetail layout", () => {
     expect(markup).toContain("text-[18px]");
     expect(markup).not.toContain("Related thread");
     expect(markup).not.toContain("Review MonoCode Pull Request");
-    expect(reviewButton).toContain("bg-content/10");
+    expect(reviewButton).toContain("h-6.5");
+    expect(reviewButton).toContain("hover:bg-content/10");
+    expect(reviewButton).not.toContain("h-6.5 bg-content/10");
+    expect(fixedHeader).toContain("pr-[34px]");
   });
 
   it("offers full-file diffs only for GitHub pull requests", () => {

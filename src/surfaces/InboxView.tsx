@@ -15,7 +15,7 @@ import {
   ListFilter,
   LoaderCircle,
   MessageMultiple,
-  PanelRight,
+  PanelLeft,
   Plus,
   RefreshCw,
   Search,
@@ -166,7 +166,7 @@ const MAX_WIDTH = 420;
 const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-[12px]";
 const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80`;
 const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-content/5`;
-const ACTION_BACKED = `${ACTION} h-7 bg-content/10 text-content hover:bg-content/15`;
+const ACTION_PANEL_HEADER = `${ACTION} h-6.5 text-content/70 hover:bg-content/10 hover:text-content`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content`;
 const DEFAULT_WIDTH = 280;
 const LINKED_PANEL_MIN_WIDTH = 360;
@@ -1127,7 +1127,7 @@ export function LinkedWorkItemPanel({
       aria-label={`Linked ${kindLabel.toLowerCase()} #${target.number}`}
       aria-busy={loading}
       data-linked-work-item-panel
-      className="relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-stroke text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
+      className="@container/linked relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-stroke text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
     >
       <div
         role="separator"
@@ -1144,7 +1144,7 @@ export function LinkedWorkItemPanel({
           label={`Close ${kindLabel.toLowerCase()} panel`}
           onClick={onClose}
         >
-          <PanelRight className="size-3.5" strokeWidth={1.75} />
+          <PanelLeft className="size-3.5" strokeWidth={1.75} />
         </IconButton>
       </div>
       <div className="min-h-0 min-w-0 flex-1">
@@ -1789,6 +1789,16 @@ export function InboxDetail({
     item.provider === "github" && (item.kind === "issue" || item.kind === "pr")
       ? item.kind
       : null;
+  const externalActionLabel =
+    item.kind === "pr"
+      ? gitlab
+        ? "Review on GitLab"
+        : "Review on GitHub"
+      : linear
+        ? "Open in Linear"
+        : gitlab
+          ? "Open on GitLab"
+          : "Open on GitHub";
   const gitlabKind =
     gitlab && (item.kind === "issue" || item.kind === "pr") ? item.kind : null;
   const cached = linear
@@ -2145,7 +2155,7 @@ export function InboxDetail({
       data-inbox-detail-identity
       data-inbox-detail-fixed-header={panel ? "" : undefined}
       className={`flex min-w-0 items-center gap-2 text-[12px] text-content/50 ${
-        panel ? "h-9 shrink-0 border-b border-stroke px-4 pr-12" : ""
+        panel ? "h-9 shrink-0 border-b border-stroke px-4 pr-[34px]" : ""
       }`}
     >
       <InboxProviderMark
@@ -2170,6 +2180,20 @@ export function InboxDetail({
         <span className="shrink-0 text-accent">{attentionLabel}</span>
       ) : null}
       {source ? <span className="min-w-0 truncate">{source}</span> : null}
+      {panel ? (
+        <button
+          type="button"
+          title={externalActionLabel}
+          aria-label={externalActionLabel}
+          onClick={() => void openUrl(item.url)}
+          className={`${ACTION_PANEL_HEADER} ml-auto shrink-0`}
+        >
+          <ExternalLink className="size-3.5" strokeWidth={1.75} />
+          <span className="@max-[420px]/linked:hidden">
+            {externalActionLabel}
+          </span>
+        </button>
+      ) : null}
     </div>
   );
 
@@ -2374,22 +2398,16 @@ export function InboxDetail({
                     Ask
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => void openUrl(item.url)}
-                  className={panel ? ACTION_BACKED : ACTION_GHOST}
-                >
-                  <ExternalLink className="size-3.5" strokeWidth={1.75} />
-                  {item.kind === "pr"
-                    ? gitlab
-                      ? "Review on GitLab"
-                      : "Review on GitHub"
-                    : linear
-                      ? "Open in Linear"
-                      : gitlab
-                        ? "Open on GitLab"
-                        : "Open on GitHub"}
-                </button>
+                {panel ? null : (
+                  <button
+                    type="button"
+                    onClick={() => void openUrl(item.url)}
+                    className={ACTION_GHOST}
+                  >
+                    <ExternalLink className="size-3.5" strokeWidth={1.75} />
+                    {externalActionLabel}
+                  </button>
+                )}
               </div>
               {startError ? (
                 <p className="text-[12px] text-red-400/90">{startError}</p>
