@@ -88,6 +88,11 @@ describe("InboxDetail layout", () => {
     const scrollIndex = markup.indexOf("data-inbox-detail-scroll");
     const header = markup.slice(headerIndex, scrollIndex);
     const body = markup.slice(scrollIndex);
+    const identityIndex = header.indexOf("data-inbox-detail-identity");
+    const identityTag = header.slice(
+      identityIndex,
+      header.indexOf(">", identityIndex),
+    );
 
     expect(headerIndex).toBeGreaterThan(-1);
     expect(scrollIndex).toBeGreaterThan(headerIndex);
@@ -98,6 +103,8 @@ describe("InboxDetail layout", () => {
     expect(header).toContain("Open on GitHub");
     expect(header).toContain("Unassigned");
     expect(header).toContain("whitespace-nowrap");
+    expect(header).not.toContain("data-inbox-detail-fixed-header");
+    expect(identityTag).not.toContain("border-b");
     expect(header).not.toContain("local-project");
     expect(header).not.toContain("overflow-y-auto");
     expect(header).not.toContain("bg-background-base");
@@ -157,7 +164,7 @@ describe("InboxDetail layout", () => {
     expect(markup).not.toContain("Close pull request");
   });
 
-  it("lets the linked-item panel header scroll and omits related threads", () => {
+  it("pins the linked-item identity above the panel scroller", () => {
     const markup = renderToStaticMarkup(
       createElement(InboxDetail, {
         item: item({ kind: "pr" }),
@@ -179,17 +186,29 @@ describe("InboxDetail layout", () => {
         ],
       }),
     );
+    const fixedIndex = markup.indexOf("data-inbox-detail-fixed-header");
     const scrollIndex = markup.indexOf("data-inbox-detail-scroll");
     const headerIndex = markup.indexOf("data-inbox-detail-header");
+    const fixedHeader = markup.slice(fixedIndex, scrollIndex);
     const reviewIndex = markup.indexOf("Review on GitHub");
     const reviewButton = markup.slice(
       markup.lastIndexOf("<button", reviewIndex),
       reviewIndex,
     );
 
+    expect(fixedIndex).toBeGreaterThan(-1);
+    expect(scrollIndex).toBeGreaterThan(fixedIndex);
     expect(scrollIndex).toBeGreaterThan(-1);
     expect(headerIndex).toBeGreaterThan(scrollIndex);
     expect(markup.match(/data-inbox-detail-scroll/g)).toHaveLength(1);
+    expect(fixedHeader).toContain("Pull request");
+    expect(fixedHeader).toContain("#157");
+    expect(fixedHeader).toContain("h-9");
+    expect(fixedHeader).toContain("px-4");
+    expect(fixedHeader).not.toContain("h-10");
+    expect(fixedHeader).not.toContain("px-5");
+    expect(fixedHeader).toContain("border-b");
+    expect(fixedHeader).not.toContain("A long inbox issue");
     expect(markup).toContain("text-[18px]");
     expect(markup).not.toContain("Related thread");
     expect(markup).not.toContain("Review MonoCode Pull Request");
