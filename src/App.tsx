@@ -38,6 +38,7 @@ import {
 import { Sidebar } from "./chrome/Sidebar";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
 import { WhatsNewDialog } from "./chrome/WhatsNewDialog";
+import { ProviderSignInDialog } from "./chrome/ProviderSignInDialog";
 import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
@@ -166,6 +167,7 @@ import {
   forgetHarnessSession,
   generateHarnessTitle,
   isLiveHarness,
+  latestTurnNeedsHarnessLogin,
   probeHarnessAvailability,
   refreshHarnessCatalogs,
   registerBuiltinHarnesses,
@@ -183,6 +185,7 @@ import {
   type HarnessEvent,
   type UserQuestionReply,
 } from "./lib/harness";
+import { supportsHarnessLogin } from "./lib/harness/authSupport";
 import {
   appendPreparingHandoff,
   buildDeterministicHandoff,
@@ -736,6 +739,25 @@ export default function App({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateNotice, setUpdateNotice] = useState(installedUpdate);
   const [whatsNewVersion, setWhatsNewVersion] = useState<string | null>(null);
+  const [providerSignInRequest, setProviderSignInRequest] = useState<{
+    key: string;
+    sessionId: string;
+    harness: HarnessId;
+  } | null>(null);
+  const seenProviderSignInRequestsRef = useRef<Set<string> | null>(null);
+  const seenProviderSignInRequests =
+    seenProviderSignInRequestsRef.current ??
+    (seenProviderSignInRequestsRef.current = new Set(
+      sessions.flatMap((session) => {
+        if (
+          !supportsHarnessLogin(session.harness) ||
+          !latestTurnNeedsHarnessLogin(session.blocks)
+        ) {
+          return [];
+        }
+        return [providerSignInRequestKey(session)];
+      }),
+    ));
   const [settingsSection, setSettingsSection] =
     useState<SettingsSectionId>(loadSettingsSection);
   const [settingsAnchor, setSettingsAnchor] = useState<SettingsAnchor | null>(
@@ -1110,8 +1132,42 @@ export default function App({
   }, [active?.harness]);
   const usageSession = useMemo(() => {
     if (!active) return undefined;
-    return { harness: active.harness };
-  }, [active?.harness]);
+    return {
+      id: active.id,
+      harness: active.harness,
+      authRequired: latestTurnNeedsHarnessLogin(active.blocks),
+    };
+  }, [active?.id, active?.harness, active?.blocks]);
+  const activeProviderSignInRequest = useMemo(() => {
+    if (
+      !active ||
+      !supportsHarnessLogin(active.harness) ||
+      !latestTurnNeedsHarnessLogin(active.blocks)
+    ) {
+      return null;
+    }
+    return {
+      key: providerSignInRequestKey(active),
+      sessionId: active.id,
+      harness: active.harness,
+    };
+  }, [active]);
+  useEffect(() => {
+    if (!activeProviderSignInRequest) return;
+    if (seenProviderSignInRequests.has(activeProviderSignInRequest.key)) {
+      return;
+    }
+    seenProviderSignInRequests.add(activeProviderSignInRequest.key);
+    setProviderSignInRequest(activeProviderSignInRequest);
+  }, [activeProviderSignInRequest, seenProviderSignInRequests]);
+  useEffect(() => {
+    if (
+      providerSignInRequest &&
+      active?.id !== providerSignInRequest.sessionId
+    ) {
+      setProviderSignInRequest(null);
+    }
+  }, [active?.id, providerSignInRequest]);
   const runningTerminals = useMemo(() => {
     const files: FilePaneTab[] = [];
     const dock = findProjectTerminal(projectTerminals, projectCwd);
@@ -7313,6 +7369,13 @@ export default function App({
               onClose={() => setWhatsNewVersion(null)}
             />
           ) : null}
+          {providerSignInRequest ? (
+            <ProviderSignInDialog
+              key={providerSignInRequest.key}
+              harness={providerSignInRequest.harness}
+              onClose={() => setProviderSignInRequest(null)}
+            />
+          ) : null}
         </div>
       </OrchestrationWorkers.Provider>
     </OrchestrationActions.Provider>
@@ -7328,6 +7391,11 @@ function lastUserBlockId(session: Session): string | undefined {
     if (session.blocks[i]?.role === "user") return session.blocks[i]?.id;
   }
   return undefined;
+}
+
+function providerSignInRequestKey(session: Session): string {
+  const lastBlockId = session.blocks[session.blocks.length - 1]?.id;
+  return `${session.id}:${lastUserBlockId(session) ?? lastBlockId ?? "auth"}`;
 }
 
 function selectedChangePath(

@@ -1,7 +1,14 @@
 import { RefreshCw, Terminal } from "./icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { HarnessIcon } from "./HarnessIcon";
-import { Popover } from "./Popover";
+import { Popover, type PopoverDismissReason } from "./Popover";
 import {
   consumeCodexRateLimitResetCredit,
   fetchClaudeRateLimits,
@@ -17,17 +24,24 @@ import {
   type RateLimitProvider,
 } from "../lib/rateLimits";
 import { HARNESS_LABEL, HARNESS_TITLE, type HarnessId } from "../lib/session";
+import { loginHarness, supportsHarnessLogin } from "../lib/harness/auth";
 import {
   runningTerminalChipLabel,
   type RunningTerminal,
 } from "../lib/terminalTab";
 import { MOD } from "../lib/platform";
 import { UsageProviderChip } from "./UsageProviderChip";
+import {
+  ProviderSignInPanel,
+  type ProviderSignInState,
+} from "./ProviderSignInPanel";
 
 const CLOCK_MS = 30_000;
 
 export type UsageFooterSession = {
+  id?: string;
   harness: HarnessId;
+  authRequired?: boolean;
 };
 
 export function UsageFooter({
@@ -145,10 +159,59 @@ export function UsageFooter({
       inflight.current = null;
       setRefreshing(false);
     });
-    inflight.current = tracked;
+    inflight.current = tracked.catch(() => undefined);
     await tracked;
     return outcome!;
   }, []);
+
+  const reconnectProvider = useCallback(
+    async (
+      provider: RateLimitProvider,
+      fetchLimits: () => Promise<ProviderRateLimits>,
+      setLimits: Dispatch<SetStateAction<ProviderRateLimits>>,
+    ) => {
+      while (inflight.current) await inflight.current;
+      setRefreshing(true);
+      setLimits((current) => fetchingRateLimits(provider, current));
+      const operation = (async () => {
+        try {
+          await loginHarness(provider);
+          const value = await fetchLimits();
+          setLimits(value);
+          if (value.status !== "ok") {
+            throw new Error(
+              value.error ||
+                `${HARNESS_TITLE[provider]} sign-in could not be verified`,
+            );
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Could not complete sign-in";
+          setLimits((current) => errorRateLimits(provider, message, current));
+          throw error;
+        }
+      })();
+      const tracked = operation.finally(() => {
+        inflight.current = null;
+        setRefreshing(false);
+      });
+      inflight.current = tracked.catch(() => undefined);
+      await tracked;
+    },
+    [],
+  );
+
+  const reconnectClaude = useCallback(
+    () => reconnectProvider("claude", fetchClaudeRateLimits, setClaude),
+    [reconnectProvider],
+  );
+
+  const reconnectCodex = useCallback(
+    () => reconnectProvider("codex", fetchCodexRateLimits, setCodex),
+    [reconnectProvider],
+  );
 
   const showUsage = wantClaude || wantCodex;
   const showTerminals = terminals.length > 0;
@@ -174,13 +237,20 @@ export function UsageFooter({
     >
       {showUsage ? (
         <>
-          {wantClaude ? <UsageProviderChip limits={claude} now={now} /> : null}
+          {wantClaude ? (
+            <UsageProviderChip
+              limits={claude}
+              now={now}
+              onReconnect={reconnectClaude}
+            />
+          ) : null}
           {wantCodex ? (
             <UsageProviderChip
               limits={codex}
               now={now}
               project={project}
               onConsumeReset={consumeCodexReset}
+              onReconnect={reconnectCodex}
             />
           ) : null}
           <button
@@ -199,7 +269,7 @@ export function UsageFooter({
           </button>
         </>
       ) : session ? (
-        <SessionChip session={session} />
+        <SessionChip key={session.id ?? session.harness} session={session} />
       ) : null}
       {showTerminals || showTerminalButton ? (
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -243,14 +313,98 @@ function TerminalLiveMark() {
 }
 
 function SessionChip({ session }: { session: UsageFooterSession }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [loginState, setLoginState] = useState<ProviderSignInState>("idle");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const authRequired = Boolean(
+    session.authRequired && loginState !== "complete",
+  );
+  const canLogin = authRequired && supportsHarnessLogin(session.harness);
+
+  useEffect(() => {
+    if (!session.authRequired && loginState === "complete") {
+      setLoginState("idle");
+    }
+  }, [loginState, session.authRequired]);
+
+  const dismiss = (reason: PopoverDismissReason) => {
+    setOpen(false);
+    if (reason === "escape") {
+      requestAnimationFrame(() => trigger.current?.focus());
+    }
+  };
+
+  const signIn = async () => {
+    setLoginState("running");
+    setLoginError(null);
+    try {
+      await loginHarness(session.harness);
+      setOpen(false);
+      setLoginState("complete");
+    } catch (error) {
+      setLoginError(
+        error instanceof Error ? error.message : "Could not complete sign-in",
+      );
+      setLoginState("error");
+    }
+  };
+
+  if (!canLogin) {
+    return (
+      <span
+        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap"
+        title={HARNESS_TITLE[session.harness]}
+      >
+        <HarnessIcon harness={session.harness} className="size-3 shrink-0" />
+        <span>{HARNESS_LABEL[session.harness]}</span>
+      </span>
+    );
+  }
+
   return (
-    <span
-      className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap"
-      title={HARNESS_TITLE[session.harness]}
-    >
-      <HarnessIcon harness={session.harness} className="size-3 shrink-0" />
-      <span>{HARNESS_LABEL[session.harness]}</span>
-    </span>
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className="-mx-1 inline-flex h-5 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-1 text-content/55 transition-[background-color,color,transform] duration-150 ease-out hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent active:scale-[0.97]"
+        aria-label={`${HARNESS_TITLE[session.harness]} sign-in required`}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title={`${HARNESS_TITLE[session.harness]} sign-in required`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <HarnessIcon harness={session.harness} className="size-3 shrink-0" />
+        <span>{HARNESS_LABEL[session.harness]}</span>
+        {authRequired ? (
+          <span className="text-[10px] text-amber-600 dark:text-amber-300">
+            sign in
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <Popover
+          anchor={trigger}
+          side="top"
+          align="start"
+          gap={7}
+          width={300}
+          autoFocus
+          onDismiss={dismiss}
+          role="dialog"
+          aria-label={`${HARNESS_TITLE[session.harness]} sign-in`}
+          tabIndex={-1}
+          className="text-content"
+        >
+          <ProviderSignInPanel
+            harness={session.harness}
+            state={loginState}
+            error={loginError}
+            onSignIn={() => void signIn()}
+          />
+        </Popover>
+      ) : null}
+    </>
   );
 }
 
