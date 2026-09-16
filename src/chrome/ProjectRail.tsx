@@ -443,7 +443,7 @@ export function ProjectRail({
     <nav
       ref={resize.setPaneRef}
       aria-label="Projects"
-      className="sidebar-glass relative flex shrink-0 flex-col border-r border-content/10"
+      className="sidebar-glass relative flex shrink-0 flex-col border-r border-stroke"
     >
       <div
         className="flex h-10 shrink-0 select-none items-center pr-1.5"

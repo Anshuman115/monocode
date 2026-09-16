@@ -230,7 +230,7 @@ export function DateTimePicker({
           </div>
         ))}
       </div>
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-content/10 px-1 pt-3">
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-stroke px-1 pt-3">
         <div>
           <label
             htmlFor={timeId}

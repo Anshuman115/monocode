@@ -329,7 +329,7 @@ export function SettingsView({
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
       <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-content/10"
+        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
@@ -1865,7 +1865,7 @@ function KeybindingsPage() {
         </div>
       }
     >
-      <div className="flex items-center border-b border-content/10 bg-content/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content/40">
+      <div className="flex items-center border-b border-stroke bg-content/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content/40">
         <span className="min-w-0 flex-1">Command</span>
         <span className="w-40 shrink-0">Keybinding</span>
         <span className="w-28 shrink-0">When</span>

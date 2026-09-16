@@ -1151,12 +1151,12 @@ function SidebarComponent({
   const sidebarContent = (
     <aside
       ref={resize.setPaneRef}
-      className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
+      className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
     >
       {railVisible ? (
         <>
           <div
-            className="flex h-10 shrink-0 select-none items-center gap-1 border-b border-content/10 pl-3 pr-1.5"
+            className="flex h-10 shrink-0 select-none items-center gap-1 border-b border-stroke pl-3 pr-1.5"
             data-tauri-drag-region="deep"
           >
             <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
@@ -1167,7 +1167,7 @@ function SidebarComponent({
           <div
             role="tablist"
             aria-label="Workspace"
-            className="flex h-9 shrink-0 items-center gap-px border-b border-content/10 px-2"
+            className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2"
           >
             {workspaceTabItems}
           </div>
@@ -1175,7 +1175,7 @@ function SidebarComponent({
       ) : (
         <>
           <div
-            className="flex h-10 shrink-0 select-none items-center border-b border-content/10 pr-1.5"
+            className="flex h-10 shrink-0 select-none items-center border-b border-stroke pr-1.5"
             data-tauri-drag-region="deep"
           >
             {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
@@ -1209,7 +1209,7 @@ function SidebarComponent({
           <div
             role="tablist"
             aria-label="Workspace"
-            className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-content/10 px-2"
+            className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-stroke px-2"
           >
             {workspaceTabItems}
           </div>
@@ -1250,7 +1250,7 @@ function SidebarComponent({
           )}
         </div>
         {tab === "sessions" && cwd && cwd !== "~" ? (
-          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
             <div className="relative flex h-7 min-w-0 flex-1 items-center">
               <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
               {sessionSearchInput}
@@ -1505,7 +1505,7 @@ function SidebarComponent({
                                   ))}
                                 </ul>
                                 {onNew ? (
-                                  <div className="border-t border-content/10 p-1">
+                                  <div className="border-t border-stroke p-1">
                                     <button
                                       type="button"
                                       data-no-drag
@@ -1813,7 +1813,7 @@ function SidebarProjectPicker({
 
   return (
     <div
-      className="flex h-9 items-center gap-0.5 border-b border-content/10 px-2"
+      className="flex h-9 items-center gap-0.5 border-b border-stroke px-2"
       data-tauri-drag-region="deep"
     >
       <div
@@ -1879,7 +1879,7 @@ function SidebarProjectPicker({
             onKeyDown={onPickerKeyDown}
             className="flex flex-col overflow-hidden"
           >
-            <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-content/10 px-3 text-content/45 focus-within:text-content/70">
+            <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-stroke px-3 text-content/45 focus-within:text-content/70">
               <Search className="size-4 shrink-0" strokeWidth={1.75} />
               <span className="sr-only">Search projects</span>
               <input
@@ -1958,7 +1958,7 @@ function SidebarProjectPicker({
               )}
             </div>
             {onOpenProject ? (
-              <div className="shrink-0 border-t border-content/10 p-1.5">
+              <div className="shrink-0 border-t border-stroke p-1.5">
                 <button
                   type="button"
                   onClick={() => {

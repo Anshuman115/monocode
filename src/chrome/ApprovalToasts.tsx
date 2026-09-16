@@ -119,7 +119,7 @@ function ApprovalToastCard({
         <span className="text-[11px] text-content/40">{harness}</span>
       </button>
       {notice.kind === "question" ? null : (
-        <div className="flex gap-2 border-t border-content/10 px-3.5 py-2.5">
+        <div className="flex gap-2 border-t border-stroke px-3.5 py-2.5">
           <button
             type="button"
             className="flex-1 rounded-md bg-content px-2.5 py-1 text-[11px] font-medium text-background-base hover:bg-content/80"

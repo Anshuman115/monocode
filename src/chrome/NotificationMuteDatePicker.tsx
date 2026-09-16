@@ -80,7 +80,7 @@ export function NotificationMuteDatePicker({
           {error}
         </p>
       ) : null}
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-content/10 pt-2.5">
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-stroke pt-2.5">
         <button
           type="button"
           onClick={onCancel}

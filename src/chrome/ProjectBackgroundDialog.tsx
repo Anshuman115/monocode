@@ -248,7 +248,7 @@ function ProjectBackgroundRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-t border-content/8 pt-4">
+    <div className="flex items-center justify-between gap-4 border-t border-stroke pt-4">
       <span className="text-[13px] font-medium text-content">{label}</span>
       {children}
     </div>

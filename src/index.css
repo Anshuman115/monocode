@@ -31,6 +31,8 @@
   --color-content: hsl(
     var(--theme-hue) var(--theme-saturation) var(--content-lightness)
   );
+  /* Structural separators: use border-stroke, divide-stroke, or bg-stroke. */
+  --color-stroke: color-mix(in srgb, var(--color-content) 7%, transparent);
   --color-accent: hsl(211 92% 62%);
   --color-skill: #e8c547;
   --color-mention: #38bdf8;

@@ -755,9 +755,9 @@ export function InboxView({
   const list = (
     <div
       ref={resize.setPaneRef}
-      className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
+      className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
     >
-      <div className="flex h-9 shrink-0 items-center gap-px border-b border-content/10 px-2">
+      <div className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2">
         {visibleSources.length > 0 ? (
           <div
             role="tablist"
@@ -796,7 +796,7 @@ export function InboxView({
         ) : null}
       </div>
       {noSourcesConnected ? null : (
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
           <div className="relative flex h-7 min-w-0 flex-1 items-center">
             <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
             <input
@@ -976,7 +976,7 @@ export function InboxView({
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
       <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-content/10"
+        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
@@ -1114,7 +1114,7 @@ export function LinkedWorkItemPanel({
       aria-label={`Linked ${kindLabel.toLowerCase()} #${target.number}`}
       aria-busy={loading}
       data-linked-work-item-panel
-      className="relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-content/10 text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
+      className="relative flex min-h-0 max-w-full shrink-0 flex-col border-l border-stroke text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl"
     >
       <div
         role="separator"
@@ -1766,7 +1766,7 @@ export function InboxDetail({
     >
       <div
         data-inbox-detail-header
-        className={`relative border-b border-content/10 ${
+        className={`relative border-b border-stroke ${
           panel ? "" : "z-10 shrink-0"
         }`}
       >

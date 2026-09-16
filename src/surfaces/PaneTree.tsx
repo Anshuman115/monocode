@@ -527,8 +527,8 @@ function Sash({
       aria-valuenow={Math.round(boundary * 100)}
       className={
         row
-          ? "absolute z-10 w-px bg-content/10"
-          : "absolute z-10 h-px bg-content/10"
+          ? "absolute z-10 w-px bg-stroke"
+          : "absolute z-10 h-px bg-stroke"
       }
       style={
         row

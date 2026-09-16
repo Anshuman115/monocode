@@ -339,7 +339,7 @@ export function BranchPicker({
             data-branch-picker
             className="flex flex-col overflow-hidden"
           >
-            <label className="flex shrink-0 items-center gap-2 border-b border-content/10 px-2 py-2.5 text-content/50">
+            <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-2 py-2.5 text-content/50">
               <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
               <input
                 ref={search}
@@ -370,7 +370,7 @@ export function BranchPicker({
               onPick={pick}
             />
             {error ? (
-              <p className="max-h-16 shrink-0 overflow-y-auto whitespace-pre-wrap border-t border-content/10 px-2.5 py-2 text-[11px] leading-4 text-red-400/90">
+              <p className="max-h-16 shrink-0 overflow-y-auto whitespace-pre-wrap border-t border-stroke px-2.5 py-2 text-[11px] leading-4 text-red-400/90">
                 {error}
               </p>
             ) : null}

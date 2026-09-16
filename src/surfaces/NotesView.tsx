@@ -229,9 +229,9 @@ export function NotesView({
   const list = (
     <div
       ref={resize.setPaneRef}
-      className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
+      className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
     >
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
         <div className="relative flex h-7 min-w-0 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
           <input
@@ -317,7 +317,7 @@ export function NotesView({
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
       <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-content/10"
+        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
@@ -916,7 +916,7 @@ function NoteEditor({
         <div
           role="tablist"
           aria-label="Note sections"
-          className="flex h-9 items-stretch gap-4 border-b border-content/10"
+          className="flex h-9 items-stretch gap-4 border-b border-stroke"
         >
           <NoteDetailTab
             label="Preview"
