@@ -441,7 +441,13 @@ function AgentTranscriptComponent({
             <LiveFoldTitle
               startedAt={startedAt}
               paused={waitingForApproval}
-              waitingLabel={pendingQuestion ? "Waiting for answers" : undefined}
+              waitingLabel={
+                managed && waitingForApproval
+                  ? "Waiting for orchestrator"
+                  : pendingQuestion
+                    ? "Waiting for answers"
+                    : undefined
+              }
               modelName={turnModelName}
             />
           ) : durationMs != null ? (
@@ -2648,20 +2654,20 @@ function ApprovalControls({
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
 }) {
   const approval = block.approval;
-  if (!approval || approval.decided) return null;
+  if (!approval || approval.decided || !onApproval) return null;
   return (
     <div className="mt-1.5 flex gap-2">
       <button
         type="button"
         className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"
-        onClick={() => onApproval?.(approval.requestId, "allow")}
+        onClick={() => onApproval(approval.requestId, "allow")}
       >
         Allow
       </button>
       <button
         type="button"
         className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
-        onClick={() => onApproval?.(approval.requestId, "deny")}
+        onClick={() => onApproval(approval.requestId, "deny")}
       >
         Deny
       </button>
