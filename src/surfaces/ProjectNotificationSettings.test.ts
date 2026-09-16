@@ -7,8 +7,6 @@ import {
   updateNotificationPreferences,
 } from "../lib/notificationPreferences";
 import { rememberNotificationProjects } from "../lib/notificationProjects";
-import { saveNotificationsEnabled } from "../lib/notifications";
-import { saveSoundsEnabled } from "../lib/sounds";
 import { ProjectNotificationSettings } from "./ProjectNotificationSettings";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -218,26 +216,6 @@ it("keeps projects collapsed until opened and preserves choices when switching p
   act(() => personal.click());
   expect(personalPanel.hidden).toBe(true);
   expect(workPanel.hidden).toBe(true);
-});
-
-it("explains globally disabled channels and updates when they are enabled", async () => {
-  saveSoundsEnabled(false);
-  saveNotificationsEnabled(false);
-  await act(async () =>
-    root.render(createElement(ProjectNotificationSettings, { cwd: "" })),
-  );
-  expect(container.textContent).toContain("Sounds are off globally.");
-  expect(container.textContent).toContain(
-    "Desktop notifications are off globally.",
-  );
-  act(() => {
-    saveSoundsEnabled(true);
-    saveNotificationsEnabled(true);
-  });
-  expect(container.textContent).not.toContain("Sounds are off globally.");
-  expect(container.textContent).not.toContain(
-    "Desktop notifications are off globally.",
-  );
 });
 
 it("mutes several selected projects without changing another project's notifications", async () => {

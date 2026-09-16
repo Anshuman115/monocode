@@ -376,26 +376,41 @@ html.theme-light [data-composer-box] {
     0 2px 6px color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 
-html.theme-light .composer-send:not(:disabled) {
+/* Solid primary actions share the composer submit treatment. */
+.primary-action:not(:disabled) {
+  background: white;
+  color: black;
+}
+
+.primary-action:not(:disabled):hover {
+  background: color-mix(in srgb, white 90%, transparent);
+}
+
+.primary-action:disabled {
+  background: color-mix(in srgb, white 30%, transparent);
+  color: color-mix(in srgb, black 40%, transparent);
+}
+
+html.theme-light .primary-action:not(:disabled) {
   background: var(--color-content);
   color: var(--color-background-base);
 }
 
-html.theme-light .composer-send:not(:disabled):hover {
+html.theme-light .primary-action:not(:disabled):hover {
   background: color-mix(in srgb, var(--color-content) 90%, transparent);
 }
 
-html.theme-light .composer-send:disabled {
+html.theme-light .primary-action:disabled {
   background: color-mix(in srgb, var(--color-content) 25%, transparent);
   color: color-mix(in srgb, var(--color-background-base) 75%, transparent);
 }
 
-html.has-user-accent .composer-send:not(:disabled) {
+html.has-user-accent .primary-action:not(:disabled) {
   background: var(--user-accent-color);
   color: var(--user-accent-foreground);
 }
 
-html.has-user-accent .composer-send:not(:disabled):hover {
+html.has-user-accent .primary-action:not(:disabled):hover {
   background: color-mix(
     in srgb,
     var(--user-accent-color) 88%,
@@ -403,7 +418,7 @@ html.has-user-accent .composer-send:not(:disabled):hover {
   );
 }
 
-html.has-user-accent .composer-send:disabled {
+html.has-user-accent .primary-action:disabled {
   background: color-mix(in srgb, var(--user-accent-color) 28%, transparent);
   color: color-mix(in srgb, var(--color-content) 35%, transparent);
 }
