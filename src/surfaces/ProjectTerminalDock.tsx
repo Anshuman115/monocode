@@ -174,9 +174,7 @@ export function ProjectTerminalDock({
   return (
     <section
       data-project-terminal-dock=""
-      className={`relative flex h-full min-h-0 min-w-0 flex-col ${
-        focused ? "bg-content/3" : "bg-content/2"
-      } ${
+      className={`relative flex h-full min-h-0 min-w-0 flex-col bg-transparent ${
         dock.side === "top"
           ? "border-b"
           : dock.side === "bottom"
