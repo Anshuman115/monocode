@@ -31,9 +31,13 @@ type ClaudeUsageFetch = {
   error?: string | null;
 };
 
-export async function fetchClaudeRateLimits(): Promise<ProviderRateLimits> {
+export async function fetchClaudeRateLimits(
+  accountId = "default",
+): Promise<ProviderRateLimits> {
   try {
-    const result = await invoke<ClaudeUsageFetch>("fetch_claude_usage");
+    const result = await invoke<ClaudeUsageFetch>("fetch_claude_usage", {
+      accountId,
+    });
     if (result.status === "ok" && result.body) {
       const parsed = parseClaudeOAuthUsage(result.body);
       if (parsed.session || parsed.weekly) return parsed;
@@ -60,7 +64,9 @@ export async function fetchClaudeRateLimits(): Promise<ProviderRateLimits> {
   }
 }
 
-export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
+export async function fetchCodexRateLimits(
+  accountId = "default",
+): Promise<ProviderRateLimits> {
   let path: string;
   try {
     path = (await resolveCodexBinary()).path;
@@ -75,6 +81,7 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
       cwd,
       "account/rateLimits/read",
       {},
+      accountId,
     );
     const parsed = parseCodexRateLimits(result);
     if (parsed.session || parsed.weekly || parsed.resetCredits) return parsed;
@@ -101,6 +108,7 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
 
 export async function consumeCodexRateLimitResetCredit(
   creditId?: string,
+  accountId = "default",
 ): Promise<CodexRateLimitResetOutcome> {
   const path = (await resolveCodexBinary()).path;
   const cwd = await homeDir();
@@ -112,6 +120,7 @@ export async function consumeCodexRateLimitResetCredit(
       idempotencyKey: crypto.randomUUID(),
       ...(creditId ? { creditId } : {}),
     },
+    accountId,
   );
   const outcome = asRecord(result)?.outcome;
   if (
@@ -130,6 +139,7 @@ async function requestCodexAccount<T>(
   cwd: string,
   method: string,
   params: unknown,
+  accountId: string,
 ): Promise<T> {
   const rpc = new JsonRpcClient(
     USAGE_CHILD_ID,
@@ -156,7 +166,10 @@ async function requestCodexAccount<T>(
   );
 
   try {
-    await spawnChild(USAGE_CHILD_ID, path, ["app-server"], cwd);
+    await spawnChild(USAGE_CHILD_ID, path, ["app-server"], cwd, {
+      provider: "codex",
+      id: accountId,
+    });
     return await withTimeout(
       DISCOVERY_TIMEOUT_MS,
       async () => {

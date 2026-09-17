@@ -3,6 +3,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use serde_json::Value;
+#[cfg(target_os = "macos")]
+use sha2::{Digest, Sha256};
+use tauri::AppHandle;
+#[cfg(target_os = "macos")]
+use unicode_normalization::UnicodeNormalization;
 
 use crate::dirs_home;
 
@@ -49,14 +54,18 @@ fn usage_result(
 /// Fetch Claude Code 5-hour / weekly usage via the local OAuth token.
 /// The token never leaves the host process.
 #[tauri::command]
-pub async fn fetch_claude_usage() -> Result<ClaudeUsageFetch, String> {
-    tauri::async_runtime::spawn_blocking(fetch_claude_usage_sync)
+pub async fn fetch_claude_usage(
+    app: AppHandle,
+    account_id: Option<String>,
+) -> Result<ClaudeUsageFetch, String> {
+    let config_dir = crate::harness::provider_account_dir(&app, "claude", account_id.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || fetch_claude_usage_sync(config_dir))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn fetch_claude_usage_sync() -> Result<ClaudeUsageFetch, String> {
-    let Some(creds) = read_claude_credentials() else {
+fn fetch_claude_usage_sync(config_dir: Option<PathBuf>) -> Result<ClaudeUsageFetch, String> {
+    let Some(creds) = read_claude_credentials(config_dir.as_deref()) else {
         return Ok(usage_result(
             "unavailable",
             None,
@@ -119,23 +128,27 @@ fn usage_error(status: u16) -> ClaudeUsageFetch {
     usage_result("error", Some(status), None, Some(message))
 }
 
-fn read_claude_credentials() -> Option<ClaudeCredentials> {
+fn read_claude_credentials(config_dir: Option<&std::path::Path>) -> Option<ClaudeCredentials> {
     #[cfg(target_os = "macos")]
     {
-        if let Some(creds) = read_macos_keychain_credentials() {
+        let service = claude_keychain_service(config_dir);
+        if let Some(creds) = read_macos_keychain_credentials(&service) {
             return Some(creds);
         }
     }
-    read_credentials_file()
+    read_credentials_file(config_dir)
 }
 
-fn read_credentials_file() -> Option<ClaudeCredentials> {
-    let path = claude_credentials_path()?;
+fn read_credentials_file(config_dir: Option<&std::path::Path>) -> Option<ClaudeCredentials> {
+    let path = claude_credentials_path(config_dir)?;
     let raw = std::fs::read_to_string(&path).ok()?;
     credentials_from_blob(&raw)
 }
 
-fn claude_credentials_path() -> Option<PathBuf> {
+fn claude_credentials_path(config_dir: Option<&std::path::Path>) -> Option<PathBuf> {
+    if let Some(dir) = config_dir {
+        return Some(dir.join(".credentials.json"));
+    }
     let home = dirs_home().or_else(|| {
         std::env::var_os("USERPROFILE").map(|value| value.to_string_lossy().into_owned())
     })?;
@@ -201,20 +214,20 @@ fn now_ms() -> i64 {
 }
 
 #[cfg(target_os = "macos")]
-fn read_macos_keychain_credentials() -> Option<ClaudeCredentials> {
+fn read_macos_keychain_credentials(service: &str) -> Option<ClaudeCredentials> {
     let candidates = [
         {
-            let mut args = keychain_find_args();
+            let mut args = keychain_find_args(service);
             args.push("-w".into());
             args
         },
         {
-            let mut args = keychain_find_args();
+            let mut args = keychain_find_args(service);
             args.extend(["-a".into(), keychain_user(), "-w".into()]);
             args
         },
         {
-            let mut args = keychain_find_args();
+            let mut args = keychain_find_args(service);
             args.extend(["-a".into(), KEYCHAIN_FALLBACK_USER.into(), "-w".into()]);
             args
         },
@@ -230,12 +243,21 @@ fn read_macos_keychain_credentials() -> Option<ClaudeCredentials> {
 }
 
 #[cfg(target_os = "macos")]
-fn keychain_find_args() -> Vec<String> {
-    vec![
-        "find-generic-password".into(),
-        "-s".into(),
-        LEGACY_KEYCHAIN_SERVICE.into(),
-    ]
+fn keychain_find_args(service: &str) -> Vec<String> {
+    vec!["find-generic-password".into(), "-s".into(), service.into()]
+}
+
+#[cfg(target_os = "macos")]
+fn claude_keychain_service(config_dir: Option<&std::path::Path>) -> String {
+    let Some(config_dir) = config_dir else {
+        return LEGACY_KEYCHAIN_SERVICE.into();
+    };
+    // Claude Code hashes the exact, NFC-normalized selector string and uses
+    // the first eight lowercase hex characters as its Keychain service suffix.
+    let selector: String = config_dir.to_string_lossy().nfc().collect();
+    let digest = Sha256::digest(selector.as_bytes());
+    let suffix = format!("{digest:x}");
+    format!("{LEGACY_KEYCHAIN_SERVICE}-{}", &suffix[..8])
 }
 
 #[cfg(target_os = "macos")]
@@ -336,5 +358,15 @@ mod tests {
         assert!(token_expired(Some(now), now));
         assert!(token_expired(Some(now - 1), now));
         assert!(!token_expired(None, now));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn custom_config_dir_selects_claudes_hashed_keychain_service() {
+        assert_eq!(
+            claude_keychain_service(Some(std::path::Path::new("/tmp/profile"))),
+            "Claude Code-credentials-902e721c"
+        );
+        assert_eq!(claude_keychain_service(None), "Claude Code-credentials");
     }
 }

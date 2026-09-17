@@ -14,7 +14,7 @@ export {
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const LOGIN_CHILD_PREFIX = "monocode-provider-login-";
 
-function loginChildId(harness: HarnessId): string {
+function loginChildId(harness: HarnessId, accountId?: string): string {
   let windowLabel = "main";
   try {
     windowLabel = getCurrentWindow().label || windowLabel;
@@ -22,7 +22,10 @@ function loginChildId(harness: HarnessId): string {
     // Keep the login helper usable in browser previews and isolated tests.
   }
   const safeWindowLabel = windowLabel.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return `${LOGIN_CHILD_PREFIX}${safeWindowLabel}-${harness}`;
+  const legacyId = `${LOGIN_CHILD_PREFIX}${safeWindowLabel}-${harness}`;
+  if (!accountId || accountId === "default") return legacyId;
+  const safeAccount = accountId.replace(/[^a-zA-Z0-9_-]/g, "-");
+  return `${legacyId}-${safeAccount}`;
 }
 
 const LOGIN_RESOLVERS: Partial<
@@ -38,25 +41,32 @@ const LOGIN_RESOLVERS: Partial<
   fx: () => child.resolveFxBinary(),
 };
 
-const inflight = new Map<HarnessId, Promise<void>>();
+const inflight = new Map<string, Promise<void>>();
 
 /**
  * Launch the provider's own login flow. The child owns browser opening and
  * credential storage; MonoCode only supervises its exit status. Duplicate
  * clicks share one run so two OAuth flows cannot race each other.
  */
-export function loginHarness(harness: HarnessId): Promise<void> {
-  const current = inflight.get(harness);
+export function loginHarness(
+  harness: HarnessId,
+  accountId?: string,
+): Promise<void> {
+  const key = `${harness}:${accountId ?? "default"}`;
+  const current = inflight.get(key);
   if (current) return current;
 
-  const run = runHarnessLogin(harness).finally(() => {
-    if (inflight.get(harness) === run) inflight.delete(harness);
+  const run = runHarnessLogin(harness, accountId).finally(() => {
+    if (inflight.get(key) === run) inflight.delete(key);
   });
-  inflight.set(harness, run);
+  inflight.set(key, run);
   return run;
 }
 
-async function runHarnessLogin(harness: HarnessId): Promise<void> {
+async function runHarnessLogin(
+  harness: HarnessId,
+  accountId?: string,
+): Promise<void> {
   const args = harnessLoginArgs(harness);
   const resolve = LOGIN_RESOLVERS[harness];
   if (!args || !resolve) {
@@ -66,7 +76,7 @@ async function runHarnessLogin(harness: HarnessId): Promise<void> {
   }
 
   const [{ path }, cwd] = await Promise.all([resolve(), homeDir()]);
-  const childId = loginChildId(harness);
+  const childId = loginChildId(harness, accountId);
   await child.killChild(childId).catch(() => undefined);
 
   return new Promise<void>((resolve, reject) => {
@@ -120,7 +130,16 @@ async function runHarnessLogin(harness: HarnessId): Promise<void> {
         });
     }, LOGIN_TIMEOUT_MS);
 
-    void child.spawnChild(childId, path, [...args], cwd).catch((error) => {
+    const account =
+      accountId &&
+      accountId !== "default" &&
+      (harness === "claude" || harness === "codex")
+        ? { provider: harness, id: accountId }
+        : undefined;
+    const spawn = account
+      ? child.spawnChild(childId, path, [...args], cwd, account)
+      : child.spawnChild(childId, path, [...args], cwd);
+    void spawn.catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       finish(
         new Error(

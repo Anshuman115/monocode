@@ -145,6 +145,7 @@ type Live = {
 type Resume = {
   sessionId: string;
   cwd: string;
+  providerAccountId?: string;
 };
 
 const INIT_TIMEOUT_MS = 8_000;
@@ -320,10 +321,11 @@ export function bindClaudeSession(
   threadId: string,
   providerSessionId: string,
   cwd: string,
+  providerAccountId?: string,
 ): void {
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
-  resumeByThread.set(threadId, { sessionId, cwd });
+  resumeByThread.set(threadId, { sessionId, cwd, providerAccountId });
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
@@ -349,8 +351,15 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   }
 
   const resume = resumeByThread.get(input.sessionId);
-  const canResume = resume != null && resume.cwd === input.cwd;
-  if (resume && resume.cwd !== input.cwd) {
+  const canResume =
+    resume != null &&
+    resume.cwd === input.cwd &&
+    resume.providerAccountId === input.providerAccountId;
+  if (
+    resume &&
+    (resume.cwd !== input.cwd ||
+      resume.providerAccountId !== input.providerAccountId)
+  ) {
     resumeByThread.delete(input.sessionId);
   }
 
@@ -424,12 +433,14 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     path,
     buildClaudeSpawnArgs(launch),
     input.cwd,
+    { provider: "claude", id: input.providerAccountId ?? "default" },
   );
 
   liveByThread.set(input.sessionId, live);
   resumeByThread.set(input.sessionId, {
     sessionId: claudeSessionId,
     cwd: input.cwd,
+    providerAccountId: input.providerAccountId,
   });
 
   try {
@@ -1348,7 +1359,7 @@ function writeJson(
 }
 
 function settingsKeyFor(input: HarnessSessionInput): string {
-  return claudeSettingsKey({
+  return `${input.providerAccountId ?? "default"}:${claudeSettingsKey({
     model: nativeModelId(input.model),
     effort: input.modelSettings?.effort,
     fast: input.modelSettings?.fast,
@@ -1356,7 +1367,7 @@ function settingsKeyFor(input: HarnessSessionInput): string {
     context: input.modelSettings?.context,
     runtimeMode: input.runtimeMode,
     hooks: loadClaudeHooks(),
-  });
+  })}`;
 }
 
 function launchOptions(

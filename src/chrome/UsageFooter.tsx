@@ -35,6 +35,14 @@ import {
   ProviderSignInPanel,
   type ProviderSignInState,
 } from "./ProviderSignInPanel";
+import {
+  newProviderAccount,
+  providerAccounts,
+  saveProviderAccount,
+  selectProviderAccount,
+  selectedProviderAccountId,
+  subscribeProviderAccounts,
+} from "../lib/providerAccounts";
 
 const CLOCK_MS = 30_000;
 
@@ -42,6 +50,7 @@ export type UsageFooterSession = {
   id?: string;
   harness: HarnessId;
   authRequired?: boolean;
+  providerAccountId?: string;
 };
 
 export function UsageFooter({
@@ -54,6 +63,7 @@ export function UsageFooter({
   onNewTerminal,
   onShowTerminal,
   projectTerminalActive = false,
+  onSelectAccount,
 }: {
   providers: RateLimitProvider[];
   session?: UsageFooterSession;
@@ -64,6 +74,7 @@ export function UsageFooter({
   onNewTerminal?: () => void;
   onShowTerminal?: () => void;
   projectTerminalActive?: boolean;
+  onSelectAccount?: (provider: RateLimitProvider, accountId: string) => void;
 }) {
   const wantClaude = providers.includes("claude");
   const wantCodex = providers.includes("codex");
@@ -75,11 +86,32 @@ export function UsageFooter({
   );
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  const [, setAccountsVersion] = useState(0);
   const inflight = useRef<Promise<void> | null>(null);
   const claudeRef = useRef(claude);
   const codexRef = useRef(codex);
   claudeRef.current = claude;
   codexRef.current = codex;
+  const claudeAccountId =
+    session?.harness === "claude" && session.providerAccountId
+      ? session.providerAccountId
+      : selectedProviderAccountId("claude", project);
+  const codexAccountId =
+    session?.harness === "codex" && session.providerAccountId
+      ? session.providerAccountId
+      : selectedProviderAccountId("codex", project);
+  const claudeAccounts = providerAccounts("claude");
+  const codexAccounts = providerAccounts("codex");
+  const claudeAccountRef = useRef(claudeAccountId);
+  const codexAccountRef = useRef(codexAccountId);
+  claudeAccountRef.current = claudeAccountId;
+  codexAccountRef.current = codexAccountId;
+
+  useEffect(
+    () =>
+      subscribeProviderAccounts(() => setAccountsVersion((value) => value + 1)),
+    [],
+  );
 
   const refresh = useCallback(
     (force = false) => {
@@ -94,18 +126,20 @@ export function UsageFooter({
       if (force) setRefreshing(true);
       const jobs: Promise<void>[] = [];
       if (fetchClaude) {
+        const accountId = claudeAccountId;
         setClaude((current) => fetchingRateLimits("claude", current));
         jobs.push(
-          fetchClaudeRateLimits().then((value) => {
-            setClaude(value);
+          fetchClaudeRateLimits(accountId).then((value) => {
+            if (accountId === claudeAccountRef.current) setClaude(value);
           }),
         );
       }
       if (fetchCodex) {
+        const accountId = codexAccountId;
         setCodex((current) => fetchingRateLimits("codex", current));
         jobs.push(
-          fetchCodexRateLimits().then((value) => {
-            setCodex(value);
+          fetchCodexRateLimits(accountId).then((value) => {
+            if (accountId === codexAccountRef.current) setCodex(value);
           }),
         );
       }
@@ -118,8 +152,24 @@ export function UsageFooter({
       inflight.current = run;
       return run;
     },
-    [wantClaude, wantCodex],
+    [claudeAccountId, codexAccountId, wantClaude, wantCodex],
   );
+
+  useEffect(() => {
+    const idle = idleRateLimits("claude");
+    claudeRef.current = idle;
+    setClaude(idle);
+    const pending = inflight.current;
+    if (pending) void pending.finally(() => refresh(true));
+  }, [claudeAccountId]);
+
+  useEffect(() => {
+    const idle = idleRateLimits("codex");
+    codexRef.current = idle;
+    setCodex(idle);
+    const pending = inflight.current;
+    if (pending) void pending.finally(() => refresh(true));
+  }, [codexAccountId]);
 
   useEffect(() => {
     void refresh();
@@ -139,34 +189,43 @@ export function UsageFooter({
     return () => window.clearInterval(timer);
   }, []);
 
-  const consumeCodexReset = useCallback(async (creditId?: string) => {
-    while (inflight.current) await inflight.current;
-    setRefreshing(true);
-    setCodex((current) => fetchingRateLimits("codex", current));
-    let outcome: Awaited<ReturnType<typeof consumeCodexRateLimitResetCredit>>;
-    const operation = (async () => {
-      try {
-        outcome = await consumeCodexRateLimitResetCredit(creditId);
-        setCodex(await fetchCodexRateLimits());
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Could not use Codex reset";
-        setCodex((current) => errorRateLimits("codex", message, current));
-        throw error;
-      }
-    })();
-    const tracked = operation.finally(() => {
-      inflight.current = null;
-      setRefreshing(false);
-    });
-    inflight.current = tracked.catch(() => undefined);
-    await tracked;
-    return outcome!;
-  }, []);
+  const consumeCodexReset = useCallback(
+    async (creditId?: string) => {
+      while (inflight.current) await inflight.current;
+      setRefreshing(true);
+      setCodex((current) => fetchingRateLimits("codex", current));
+      let outcome: Awaited<ReturnType<typeof consumeCodexRateLimitResetCredit>>;
+      const operation = (async () => {
+        try {
+          outcome = await consumeCodexRateLimitResetCredit(
+            creditId,
+            codexAccountId,
+          );
+          setCodex(await fetchCodexRateLimits(codexAccountId));
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Could not use Codex reset";
+          setCodex((current) => errorRateLimits("codex", message, current));
+          throw error;
+        }
+      })();
+      const tracked = operation.finally(() => {
+        inflight.current = null;
+        setRefreshing(false);
+      });
+      inflight.current = tracked.catch(() => undefined);
+      await tracked;
+      return outcome!;
+    },
+    [codexAccountId],
+  );
 
   const reconnectProvider = useCallback(
     async (
       provider: RateLimitProvider,
+      accountId: string,
       fetchLimits: () => Promise<ProviderRateLimits>,
       setLimits: Dispatch<SetStateAction<ProviderRateLimits>>,
     ) => {
@@ -175,7 +234,9 @@ export function UsageFooter({
       setLimits((current) => fetchingRateLimits(provider, current));
       const operation = (async () => {
         try {
-          await loginHarness(provider);
+          await (accountId === "default"
+            ? loginHarness(provider)
+            : loginHarness(provider, accountId));
           const value = await fetchLimits();
           setLimits(value);
           if (value.status !== "ok") {
@@ -204,13 +265,44 @@ export function UsageFooter({
   );
 
   const reconnectClaude = useCallback(
-    () => reconnectProvider("claude", fetchClaudeRateLimits, setClaude),
-    [reconnectProvider],
+    () =>
+      reconnectProvider(
+        "claude",
+        claudeAccountId,
+        () => fetchClaudeRateLimits(claudeAccountId),
+        setClaude,
+      ),
+    [claudeAccountId, reconnectProvider],
   );
 
   const reconnectCodex = useCallback(
-    () => reconnectProvider("codex", fetchCodexRateLimits, setCodex),
-    [reconnectProvider],
+    () =>
+      reconnectProvider(
+        "codex",
+        codexAccountId,
+        () => fetchCodexRateLimits(codexAccountId),
+        setCodex,
+      ),
+    [codexAccountId, reconnectProvider],
+  );
+
+  const selectAccount = useCallback(
+    (provider: RateLimitProvider, accountId: string) => {
+      selectProviderAccount(provider, project, accountId);
+      onSelectAccount?.(provider, accountId);
+    },
+    [onSelectAccount, project],
+  );
+
+  const addAccount = useCallback(
+    async (provider: RateLimitProvider, label: string) => {
+      const account = newProviderAccount(provider, label);
+      await loginHarness(provider, account.id);
+      saveProviderAccount(account);
+      selectAccount(provider, account.id);
+      return account;
+    },
+    [selectAccount],
   );
 
   const showUsage = wantClaude || wantCodex;
@@ -241,6 +333,12 @@ export function UsageFooter({
             <UsageProviderChip
               limits={claude}
               now={now}
+              accounts={claudeAccounts}
+              accountId={claudeAccountId}
+              onSelectAccount={(accountId) =>
+                selectAccount("claude", accountId)
+              }
+              onAddAccount={(label) => addAccount("claude", label)}
               onReconnect={reconnectClaude}
             />
           ) : null}
@@ -249,6 +347,10 @@ export function UsageFooter({
               limits={codex}
               now={now}
               project={project}
+              accounts={codexAccounts}
+              accountId={codexAccountId}
+              onSelectAccount={(accountId) => selectAccount("codex", accountId)}
+              onAddAccount={(label) => addAccount("codex", label)}
               onConsumeReset={consumeCodexReset}
               onReconnect={reconnectCodex}
             />
