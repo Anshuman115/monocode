@@ -83,6 +83,14 @@ export {
   forgetGrokSession,
   bindGrokSession,
 } from "./grok";
+export {
+  sendHermesTurn,
+  cancelHermesTurn,
+  respondHermesApproval,
+  stopHermesSession,
+  forgetHermesSession,
+  bindHermesSession,
+} from "./hermes";
 export { generateCursorSessionTitle } from "./cursorTitle";
 export { generateCodexSessionTitle } from "./codexTitle";
 export { generateOpenCodeSessionTitle } from "./opencodeTitle";
@@ -122,6 +130,7 @@ export { refreshClaudeCatalog } from "./claudeCatalog";
 export { refreshPiCatalog, refreshOmpCatalog } from "./piCatalog";
 export { refreshFxCatalog } from "./fxCatalog";
 export { refreshGrokCatalog } from "./grokCatalog";
+export { refreshHermesCatalog } from "./hermesCatalog";
 export { registerBuiltinHarnesses } from "./register";
 export {
   getHarnessAvailabilitySnapshot,
