@@ -69,6 +69,7 @@ type Props = {
   onLogoChange: () => void;
   onPick: (action: TabGroupMenuAction) => void;
   onClose: () => void;
+  ariaLabel?: string;
   /** When false, only name / logo / color controls are shown. */
   showActions?: boolean;
   /** Active state action shown before the name and appearance controls. */
@@ -139,6 +140,7 @@ export function TabGroupMenu({
   onLogoChange,
   onPick,
   onClose,
+  ariaLabel = "Tab group actions",
   showActions = true,
   leadingAction,
   extraItems,
@@ -205,7 +207,7 @@ export function TabGroupMenu({
         data-menu-owner={menuId}
         role="menu"
         tabIndex={-1}
-        aria-label="Tab group actions"
+        aria-label={ariaLabel}
         onKeyDown={onMenuKey}
         onContextMenu={(e) => e.preventDefault()}
         onMouseEnter={cancelSubmenuClose}
