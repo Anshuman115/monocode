@@ -305,12 +305,14 @@ pub fn control_attach_worker(
 
 fn create_worker_scratch() -> Result<PathBuf, String> {
     let path = std::env::temp_dir().join(format!("monocode-worker-{}", uuid::Uuid::new_v4()));
-    let mut builder = std::fs::DirBuilder::new();
+    let builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = builder;
         builder.mode(0o700);
-    }
+        builder
+    };
     builder.create(&path).map_err(|e| e.to_string())?;
     std::fs::canonicalize(path).map_err(|e| e.to_string())
 }
