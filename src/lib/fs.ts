@@ -383,6 +383,11 @@ export function clipboardFilePaths(): Promise<string[]> {
   );
 }
 
+/** Put the original file on the macOS clipboard, preserving its name and type. */
+export function copyFileToClipboard(path: string): Promise<void> {
+  return invoke<void>("copy_file_to_clipboard", { path });
+}
+
 export function revealPath(path: string): Promise<void> {
   return invoke<void>("reveal_path", { path });
 }
