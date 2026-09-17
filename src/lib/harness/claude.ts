@@ -114,6 +114,7 @@ type LiveAgentTask = {
 type Live = {
   cwd: string;
   claudeSessionId: string;
+  providerAccountId?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
   settingsKey: string;
@@ -376,6 +377,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   const live: Live = {
     cwd: input.cwd,
     claudeSessionId,
+    providerAccountId: input.providerAccountId,
     runtimeMode: input.runtimeMode,
     planning,
     settingsKey,
@@ -552,6 +554,7 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     resumeByThread.set(sessionId, {
       sessionId: sessionIdFromLine,
       cwd: live.cwd,
+      providerAccountId: live.providerAccountId,
     });
     live.onEvent({
       type: "session.providerBound",

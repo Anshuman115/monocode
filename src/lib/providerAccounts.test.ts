@@ -41,6 +41,36 @@ describe("provider accounts", () => {
     expect(providerAccountLabel("claude", work.id)).toBe("Work account");
   });
 
+  it("falls back to the default account for malformed stored profiles", () => {
+    localStorage.setItem(
+      "monocode.providerAccounts.v1",
+      JSON.stringify({ claude: { id: "not-an-array" } }),
+    );
+
+    expect(providerAccounts("claude").map((account) => account.id)).toEqual([
+      DEFAULT_PROVIDER_ACCOUNT_ID,
+    ]);
+  });
+
+  it("replaces malformed provider storage when saving an account", () => {
+    localStorage.setItem(
+      "monocode.providerAccounts.v1",
+      JSON.stringify({ codex: "not-an-array" }),
+    );
+
+    expect(() =>
+      saveProviderAccount({
+        id: "account-work",
+        provider: "codex",
+        label: "Work",
+      }),
+    ).not.toThrow();
+    expect(providerAccounts("codex").map((account) => account.label)).toEqual([
+      "Default account",
+      "Work",
+    ]);
+  });
+
   it("remembers a selection per project and ignores unknown ids", () => {
     const work = {
       id: "account-work",

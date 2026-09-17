@@ -25,7 +25,8 @@ export function providerAccounts(
 ): ProviderAccount[] {
   const stored = readJson<StoredAccounts>(ACCOUNTS_KEY, {});
   const seen = new Set<string>([DEFAULT_PROVIDER_ACCOUNT_ID]);
-  const profiles = (stored[provider] ?? []).flatMap((account) => {
+  const accounts = Array.isArray(stored[provider]) ? stored[provider] : [];
+  const profiles = accounts.flatMap((account) => {
     const id = validAccountId(account?.id) ? account.id : "";
     const label = cleanLabel(account?.label);
     if (!id || id === DEFAULT_PROVIDER_ACCOUNT_ID || !label || seen.has(id)) {
@@ -67,9 +68,10 @@ export function saveProviderAccount(account: ProviderAccount): void {
   const label = cleanLabel(account.label);
   if (!label) return;
   const stored = readJson<StoredAccounts>(ACCOUNTS_KEY, {});
-  const next = (stored[account.provider] ?? []).filter(
-    (entry) => entry.id !== account.id,
-  );
+  const accounts = Array.isArray(stored[account.provider])
+    ? stored[account.provider]
+    : [];
+  const next = accounts.filter((entry) => entry.id !== account.id);
   stored[account.provider] = [
     ...next,
     { ...account, label, isDefault: undefined },
