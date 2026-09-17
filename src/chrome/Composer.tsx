@@ -141,6 +141,8 @@ import { SessionFolderPicker } from "./SessionFolderPicker";
 type Props = {
   enabled?: boolean;
   focused: boolean;
+  /** Bump to force a refocus even when `focused` was already true (e.g. window regains OS focus). */
+  focusToken?: number;
   shell?: boolean;
   harness: HarnessId;
   model: string;
@@ -397,6 +399,7 @@ function MessageQueue({
 export function Composer({
   enabled = true,
   focused,
+  focusToken,
   hotkeys = false,
   shell = false,
   harness,
@@ -868,14 +871,28 @@ export function Composer({
 
   useEffect(() => {
     if (!focused) return;
+
+    const composer = ref.current?.closest("[data-composer]");
+    const activeComposer = document.activeElement?.closest("[data-composer]");
+    if (activeComposer && activeComposer !== composer) return;
+
+    if (
+      composer?.querySelector(
+        "[data-skill-picker], [data-session-folder-picker], [data-mention-picker], [data-composer-plus], [data-question-form]",
+      )
+    )
+      return;
+    // Model/access/branch/settings/file pickers render through a portal into
+    // document.body (see Popover.tsx), so they never appear under this
+    // composer's own DOM subtree — check the whole document for those.
     if (
       document.querySelector(
-        "[data-model-picker], [data-access-picker], [data-model-settings], [data-file-picker], [data-branch-picker], [data-skill-picker], [data-session-folder-picker], [data-mention-picker], [data-composer-plus]",
+        "[data-model-picker], [data-access-picker], [data-model-settings], [data-file-picker], [data-branch-picker]",
       )
     )
       return;
     ref.current?.focus();
-  }, [focused]);
+  }, [focused, question, busy, focusToken]);
 
   useEffect(() => {
     if (!enabled) {
