@@ -1418,14 +1418,14 @@ header[data-tauri-drag-region] button {
   }
 }
 
-/* Keep the original content tint in dark mode. In light mode, use the base
-   color at the same opacity so the surface stays translucent without graying. */
+/* Keep the original glass tint in dark mode. Light popovers use an opaque
+   surface so underlying content cannot show through. */
 .popover-backdrop {
   background: color-mix(in srgb, var(--color-content) 2%, transparent);
 }
 
 html.theme-light .popover-backdrop {
-  background: color-mix(in srgb, var(--color-background-base) 10%, transparent);
+  background: var(--color-background-base);
 }
 
 /* Animate content only; its sibling glass stays still. Finish at `none` and
