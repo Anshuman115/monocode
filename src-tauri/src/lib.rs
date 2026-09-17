@@ -5,6 +5,7 @@ mod checkpoint;
 mod control;
 pub mod control_cli;
 mod cursor_store;
+mod external_editor;
 mod fs;
 mod gitlab;
 mod harness;
@@ -247,6 +248,8 @@ pub fn run() {
             reminders::reminder_take_open,
             reminders::reminder_register_window,
             reminders::reminder_open,
+            external_editor::list_external_editors,
+            external_editor::open_in_external_editor,
             fs::list_dir,
             fs::list_project_files,
             fs::git_diff_stats,
