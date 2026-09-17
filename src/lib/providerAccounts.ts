@@ -23,7 +23,7 @@ type StoredSelections = Record<
 export function providerAccounts(
   provider: RateLimitProvider,
 ): ProviderAccount[] {
-  const stored = readJson<StoredAccounts>(ACCOUNTS_KEY, {});
+  const stored = readRecord<StoredAccounts>(ACCOUNTS_KEY);
   const seen = new Set<string>([DEFAULT_PROVIDER_ACCOUNT_ID]);
   const accounts = Array.isArray(stored[provider]) ? stored[provider] : [];
   const profiles = accounts.flatMap((account) => {
@@ -67,10 +67,23 @@ export function saveProviderAccount(account: ProviderAccount): void {
   }
   const label = cleanLabel(account.label);
   if (!label) return;
-  const stored = readJson<StoredAccounts>(ACCOUNTS_KEY, {});
+  const stored = readRecord<StoredAccounts>(ACCOUNTS_KEY);
   const storedAccounts = stored[account.provider];
   const accounts = Array.isArray(storedAccounts) ? storedAccounts : [];
-  const next = accounts.filter((entry) => entry.id !== account.id);
+  const next = accounts.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const id = validAccountId(entry.id) ? entry.id : "";
+    const storedLabel = cleanLabel(entry.label);
+    if (
+      !id ||
+      id === DEFAULT_PROVIDER_ACCOUNT_ID ||
+      id === account.id ||
+      !storedLabel
+    ) {
+      return [];
+    }
+    return [{ id, provider: account.provider, label: storedLabel }];
+  });
   stored[account.provider] = [
     ...next,
     { ...account, label, isDefault: undefined },
@@ -83,7 +96,7 @@ export function selectedProviderAccountId(
   provider: RateLimitProvider,
   project: string | undefined,
 ): string {
-  const selections = readJson<StoredSelections>(SELECTIONS_KEY, {});
+  const selections = readRecord<StoredSelections>(SELECTIONS_KEY);
   const id = selections[selectionKey(project)]?.[provider];
   return providerAccounts(provider).some((account) => account.id === id)
     ? id!
@@ -98,7 +111,7 @@ export function selectProviderAccount(
   if (!providerAccounts(provider).some((account) => account.id === accountId)) {
     return;
   }
-  const selections = readJson<StoredSelections>(SELECTIONS_KEY, {});
+  const selections = readRecord<StoredSelections>(SELECTIONS_KEY);
   const key = selectionKey(project);
   selections[key] = { ...selections[key], [provider]: accountId };
   writeJson(SELECTIONS_KEY, selections);
@@ -145,6 +158,15 @@ function validAccountId(value: unknown): value is string {
     value.length <= 80 &&
     /^[A-Za-z0-9_-]+$/.test(value)
   );
+}
+
+function readRecord<T>(key: string): T {
+  const value = readJson<unknown>(key, {});
+  return isRecord(value) ? (value as T) : ({} as T);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readJson<T>(key: string, fallback: T): T {

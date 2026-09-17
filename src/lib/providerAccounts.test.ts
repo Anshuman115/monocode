@@ -52,6 +52,20 @@ describe("provider accounts", () => {
     ]);
   });
 
+  it("falls back when the stored root is not a record", () => {
+    for (const malformed of ["null", "[]", "42"]) {
+      localStorage.setItem("monocode.providerAccounts.v1", malformed);
+      expect(providerAccounts("claude").map((account) => account.id)).toEqual([
+        DEFAULT_PROVIDER_ACCOUNT_ID,
+      ]);
+    }
+
+    localStorage.setItem("monocode.providerAccountSelections.v1", "null");
+    expect(selectedProviderAccountId("claude", "/repo")).toBe(
+      DEFAULT_PROVIDER_ACCOUNT_ID,
+    );
+  });
+
   it("replaces malformed provider storage when saving an account", () => {
     localStorage.setItem(
       "monocode.providerAccounts.v1",
@@ -67,6 +81,33 @@ describe("provider accounts", () => {
     ).not.toThrow();
     expect(providerAccounts("codex").map((account) => account.label)).toEqual([
       "Default account",
+      "Work",
+    ]);
+  });
+
+  it("discards malformed account entries when saving an account", () => {
+    localStorage.setItem(
+      "monocode.providerAccounts.v1",
+      JSON.stringify({
+        codex: [
+          null,
+          42,
+          { id: "account-missing-label", provider: "codex" },
+          { id: "account-keep", provider: "codex", label: "Keep" },
+        ],
+      }),
+    );
+
+    expect(() =>
+      saveProviderAccount({
+        id: "account-work",
+        provider: "codex",
+        label: "Work",
+      }),
+    ).not.toThrow();
+    expect(providerAccounts("codex").map((account) => account.label)).toEqual([
+      "Default account",
+      "Keep",
       "Work",
     ]);
   });
