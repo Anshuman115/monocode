@@ -85,6 +85,24 @@ describe("harness login", () => {
     await expect(login).resolves.toBeUndefined();
   });
 
+  it("isolates a named Codex account during sign-in", async () => {
+    const login = loginHarness("codex", "account-work");
+    await vi.waitFor(() => expect(child.watchChild).toHaveBeenCalledOnce());
+    expect(child.spawnChild).toHaveBeenCalledWith(
+      "monocode-provider-login-test-window-codex-account-work",
+      "/bin/codex",
+      ["login"],
+      "/home/alice",
+      { provider: "codex", id: "account-work" },
+    );
+
+    const onExit = child.watchChild.mock.calls[0]?.[2] as
+      | ((code: number | null) => void)
+      | undefined;
+    onExit?.(0);
+    await expect(login).resolves.toBeUndefined();
+  });
+
   it("deduplicates repeated login clicks", async () => {
     const first = loginHarness("codex");
     const second = loginHarness("codex");

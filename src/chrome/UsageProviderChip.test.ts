@@ -143,6 +143,69 @@ describe("UsageProviderChip", () => {
     ).toBe("81");
   });
 
+  it("switches between named accounts from the usage popover", async () => {
+    const onSelectAccount = vi.fn();
+    act(() =>
+      root.render(
+        createElement(UsageProviderChip, {
+          limits: codexLimits(),
+          now,
+          accountId: "default",
+          accounts: [
+            {
+              id: "default",
+              provider: "codex",
+              label: "Default account",
+              isDefault: true,
+            },
+            { id: "account-work", provider: "codex", label: "Work" },
+          ],
+          onSelectAccount,
+          onAddAccount: vi.fn(),
+        }),
+      ),
+    );
+
+    await act(async () => button("Codex usage details").click());
+    await act(async () => button("Switch Codex account").click());
+    expect(document.body.textContent).toContain("Codex accounts");
+    expect(document.body.textContent).toContain("Default account");
+    await act(async () => button("Work").click());
+
+    expect(onSelectAccount).toHaveBeenCalledWith("account-work");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("does not display another account when the pinned account is missing", async () => {
+    act(() =>
+      root.render(
+        createElement(UsageProviderChip, {
+          limits: codexLimits(),
+          now,
+          accountId: "account-missing",
+          accounts: [
+            {
+              id: "default",
+              provider: "codex",
+              label: "Default account",
+              isDefault: true,
+            },
+            { id: "account-work", provider: "codex", label: "Work" },
+          ],
+          onSelectAccount: vi.fn(),
+          onAddAccount: vi.fn(),
+        }),
+      ),
+    );
+
+    const trigger = button("Codex usage details");
+    expect(trigger.textContent).not.toContain("Default account");
+    await act(async () => trigger.click());
+    expect(
+      document.querySelector('[aria-label="Switch Codex account"]'),
+    ).toBeNull();
+  });
+
   it("shows and deliberately consumes a banked reset", async () => {
     const onConsumeReset = vi.fn(async () => "reset" as const);
     act(() =>

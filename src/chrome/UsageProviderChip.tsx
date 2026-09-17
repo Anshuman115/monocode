@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import {
   clampUsedPercent,
   formatRateLimitWindowChipLabel,
@@ -23,12 +23,13 @@ import {
   resolveTabGroupMascot,
 } from "../lib/tabGroups";
 import { HarnessIcon } from "./HarnessIcon";
-import { RefreshCw } from "./icons";
+import { ArrowLeft, Check, ChevronRight, Plus, RefreshCw } from "./icons";
 import { Popover, type PopoverDismissReason } from "./Popover";
 import {
   ProviderSignInPanel,
   type ProviderSignInState,
 } from "./ProviderSignInPanel";
+import type { ProviderAccount } from "../lib/providerAccounts";
 
 type UsageWindowEntry = {
   key: "session" | "weekly";
@@ -42,17 +43,28 @@ export function UsageProviderChip({
   limits,
   now,
   project,
+  accounts = [],
+  accountId,
+  onSelectAccount,
+  onAddAccount,
   onConsumeReset,
   onReconnect,
 }: {
   limits: ProviderRateLimits;
   now: number;
   project?: string;
+  accounts?: ProviderAccount[];
+  accountId?: string;
+  onSelectAccount?: (accountId: string) => void;
+  onAddAccount?: (label: string) => Promise<ProviderAccount>;
   onConsumeReset?: (creditId?: string) => Promise<CodexRateLimitResetOutcome>;
   onReconnect?: () => Promise<void>;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [accountView, setAccountView] = useState<"usage" | "accounts" | "add">(
+    "usage",
+  );
   const [resetAction, setResetAction] = useState<ResetActionState>("idle");
   const [activeResetKey, setActiveResetKey] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -79,6 +91,10 @@ export function UsageProviderChip({
     .map((entry) => rateLimitWindowTooltip(entry.window, now))
     .join(" · ");
   const providerLabel = HARNESS_TITLE[limits.provider];
+  const activeAccount = accounts.find((account) => account.id === accountId);
+  const canManageAccounts = Boolean(
+    activeAccount && onSelectAccount && onAddAccount,
+  );
   const mascotProject = project ? projectName(project) : providerLabel;
   const appearanceKey = project ? projectKey(project) : mascotProject;
   const mascotName = resolveTabGroupMascot(
@@ -99,6 +115,7 @@ export function UsageProviderChip({
     setResetError(null);
     setReconnectState("idle");
     setReconnectError(null);
+    setAccountView("usage");
   }, [open]);
 
   const dismiss = (reason: PopoverDismissReason) => {
@@ -170,6 +187,11 @@ export function UsageProviderChip({
           <span className="text-content/35">{emptyUsageLabel(limits)}</span>
         ) : (
           <>
+            {accounts.length > 1 && activeAccount ? (
+              <span className="max-w-24 truncate text-content/45">
+                {activeAccount.label}
+              </span>
+            ) : null}
             {tightest ? <MiniBar usedPct={tightest.usedPercent} /> : null}
             <span className="flex min-w-0 items-center gap-1 tabular-nums">
               {windows.map((entry, index) => (
@@ -203,15 +225,42 @@ export function UsageProviderChip({
           role="dialog"
           aria-label={`${providerLabel} usage details`}
           tabIndex={-1}
-          className={`overflow-y-auto text-content ${loginView ? "" : "p-2.5"}`}
+          className={`overflow-y-auto text-content ${accountView === "usage" && loginView ? "" : "p-2.5"}`}
         >
-          {loginView ? (
-            <ProviderSignInPanel
-              harness={limits.provider}
-              state={reconnectState}
-              error={reconnectError}
-              onSignIn={() => void reconnect()}
+          {accountView === "accounts" && activeAccount ? (
+            <ProviderAccountPicker
+              providerLabel={providerLabel}
+              accounts={accounts}
+              accountId={activeAccount.id}
+              onBack={() => setAccountView("usage")}
+              onAdd={() => setAccountView("add")}
+              onSelect={(nextAccountId) => {
+                onSelectAccount?.(nextAccountId);
+                setOpen(false);
+              }}
             />
+          ) : accountView === "add" ? (
+            <AddProviderAccount
+              providerLabel={providerLabel}
+              onBack={() => setAccountView("accounts")}
+              onAdd={onAddAccount}
+              onComplete={() => setOpen(false)}
+            />
+          ) : loginView ? (
+            <>
+              {canManageAccounts && activeAccount ? (
+                <AccountSwitchRow
+                  account={activeAccount}
+                  onClick={() => setAccountView("accounts")}
+                />
+              ) : null}
+              <ProviderSignInPanel
+                harness={limits.provider}
+                state={reconnectState}
+                error={reconnectError}
+                onSignIn={() => void reconnect()}
+              />
+            </>
           ) : (
             <>
               <div className="flex items-start gap-2.5 px-1 pb-2.5 pt-0.5">
@@ -225,6 +274,21 @@ export function UsageProviderChip({
                   <p className="mt-0.5 text-[10px] leading-4 text-content/40">
                     {updatedLabel(limits, now)}
                   </p>
+                  {canManageAccounts && activeAccount ? (
+                    <button
+                      type="button"
+                      className="mt-1 -ml-1 inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-content/55 hover:bg-content/10 hover:text-content"
+                      aria-label={`Switch ${providerLabel} account`}
+                      onClick={() => setAccountView("accounts")}
+                    >
+                      <span className="truncate">{activeAccount.label}</span>
+                      <ChevronRight
+                        className="size-2.5 shrink-0"
+                        strokeWidth={1.75}
+                        aria-hidden
+                      />
+                    </button>
+                  ) : null}
                 </div>
                 {limits.status === "fetching" ? (
                   <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-content/40">
@@ -286,6 +350,184 @@ export function UsageProviderChip({
         </Popover>
       ) : null}
     </>
+  );
+}
+
+function AccountSwitchRow({
+  account,
+  onClick,
+}: {
+  account: ProviderAccount;
+  onClick: () => void;
+}) {
+  return (
+    <div className="px-2.5 pt-2.5">
+      <button
+        type="button"
+        className="flex h-8 w-full items-center gap-2 rounded-lg bg-content/[0.045] px-2.5 text-left text-[11px] ring-1 ring-inset ring-content/[0.06] hover:bg-content/[0.08]"
+        aria-label={`Switch account from ${account.label}`}
+        onClick={onClick}
+      >
+        <span className="min-w-0 flex-1 truncate">{account.label}</span>
+        <span className="text-[10px] text-content/40">Switch</span>
+        <ChevronRight
+          className="size-3 shrink-0 text-content/35"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+      </button>
+    </div>
+  );
+}
+
+function ProviderAccountPicker({
+  providerLabel,
+  accounts,
+  accountId,
+  onBack,
+  onAdd,
+  onSelect,
+}: {
+  providerLabel: string;
+  accounts: ProviderAccount[];
+  accountId: string;
+  onBack: () => void;
+  onAdd: () => void;
+  onSelect: (accountId: string) => void;
+}) {
+  return (
+    <div>
+      <div className="flex h-7 items-center gap-1">
+        <button
+          type="button"
+          className="grid size-6 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
+          aria-label="Back to usage"
+          onClick={onBack}
+        >
+          <ArrowLeft className="size-3.5" strokeWidth={1.75} aria-hidden />
+        </button>
+        <h2 className="text-[13px] font-medium">{providerLabel} accounts</h2>
+      </div>
+      <p className="mt-1 px-1 text-[10px] leading-4 text-content/40">
+        Each conversation stays pinned to the account that started it.
+      </p>
+      <div className="mt-2 flex flex-col gap-1" role="listbox">
+        {accounts.map((account) => {
+          const selected = account.id === accountId;
+          return (
+            <button
+              key={account.id}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[11px] ring-1 ring-inset transition-colors ${
+                selected
+                  ? "bg-accent/10 text-content ring-accent/20"
+                  : "bg-content/[0.035] text-content/70 ring-content/[0.06] hover:bg-content/[0.075] hover:text-content"
+              }`}
+              onClick={() => onSelect(account.id)}
+            >
+              <span className="min-w-0 flex-1 truncate">{account.label}</span>
+              {selected ? (
+                <Check
+                  className="size-3.5 shrink-0 text-accent"
+                  strokeWidth={1.9}
+                  aria-hidden
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="mt-2 flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[11px] text-content/55 hover:bg-content/[0.07] hover:text-content"
+        onClick={onAdd}
+      >
+        <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+        Add account
+      </button>
+    </div>
+  );
+}
+
+function AddProviderAccount({
+  providerLabel,
+  onBack,
+  onAdd,
+  onComplete,
+}: {
+  providerLabel: string;
+  onBack: () => void;
+  onAdd?: (label: string) => Promise<ProviderAccount>;
+  onComplete: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!onAdd || !label.trim() || running) return;
+    setRunning(true);
+    setError(null);
+    try {
+      await onAdd(label);
+      onComplete();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not add this account",
+      );
+      setRunning(false);
+    }
+  };
+
+  return (
+    <form onSubmit={(event) => void submit(event)}>
+      <div className="flex h-7 items-center gap-1">
+        <button
+          type="button"
+          className="grid size-6 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
+          aria-label="Back to accounts"
+          disabled={running}
+          onClick={onBack}
+        >
+          <ArrowLeft className="size-3.5" strokeWidth={1.75} aria-hidden />
+        </button>
+        <h2 className="text-[13px] font-medium">Add {providerLabel} account</h2>
+      </div>
+      <p className="mt-1 px-1 text-[10px] leading-4 text-content/40">
+        Give this account a local name, then finish sign-in in your browser.
+      </p>
+      <label className="mt-3 block text-[10px] font-medium text-content/55">
+        Account name
+        <input
+          autoFocus
+          type="text"
+          maxLength={48}
+          value={label}
+          disabled={running}
+          placeholder="Work or Personal"
+          className="mt-1.5 h-8 w-full rounded-lg border border-content/10 bg-content/[0.04] px-2.5 text-[11px] text-content outline-none placeholder:text-content/25 focus:border-accent/45 disabled:opacity-55"
+          onChange={(event) => setLabel(event.target.value)}
+        />
+      </label>
+      <button
+        type="submit"
+        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-content px-3 text-[11px] font-medium text-background-base hover:bg-content/85 disabled:cursor-default disabled:opacity-45"
+        disabled={running || !label.trim()}
+      >
+        {running ? (
+          <RefreshCw className="size-3.5 animate-spin" aria-hidden />
+        ) : null}
+        {running ? "Waiting for browser…" : "Sign in and add account"}
+      </button>
+      {error ? (
+        <p className="mt-2 text-[10px] leading-4 text-red-500" role="status">
+          {error}
+        </p>
+      ) : null}
+    </form>
   );
 }
 
