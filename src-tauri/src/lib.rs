@@ -25,6 +25,8 @@ mod reminders;
 mod search;
 mod session_store;
 mod skills;
+#[cfg(target_os = "windows")]
+mod tray;
 mod window;
 mod window_transfer;
 #[cfg(windows)]
@@ -205,6 +207,8 @@ pub fn run() {
             reminders::init(app.handle());
             checkpoint::init(app.handle())?;
             menu::install(app.handle())?;
+            #[cfg(target_os = "windows")]
+            tray::install(app.handle())?;
             #[cfg(target_os = "macos")]
             {
                 macos::install_dock_menu(app.handle());
@@ -387,7 +391,9 @@ pub fn run() {
             open_new_window,
             window::hide_window,
             window::destroy_window,
-            window::confirm_quit,
+            window::quit_poll_reply,
+            window::quit_decision,
+            window::quit_ready,
             window::set_window_glass_enabled,
             window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
@@ -425,6 +431,7 @@ pub fn run() {
             event: tauri::WindowEvent::Destroyed,
             ..
         } => {
+            window::forget_quit_window(handle, &label);
             let other_window = handle.webview_windows().keys().any(|name| name != &label);
             control::window_closed(handle, &label);
             if !other_window {
