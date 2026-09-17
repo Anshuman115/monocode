@@ -68,9 +68,8 @@ export function saveProviderAccount(account: ProviderAccount): void {
   const label = cleanLabel(account.label);
   if (!label) return;
   const stored = readJson<StoredAccounts>(ACCOUNTS_KEY, {});
-  const accounts = Array.isArray(stored[account.provider])
-    ? stored[account.provider]
-    : [];
+  const storedAccounts = stored[account.provider];
+  const accounts = Array.isArray(storedAccounts) ? storedAccounts : [];
   const next = accounts.filter((entry) => entry.id !== account.id);
   stored[account.provider] = [
     ...next,
