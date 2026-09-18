@@ -75,6 +75,7 @@ pub struct CursorBinary {
 }
 
 struct LiveChild {
+    cwd: PathBuf,
     stdin: Mutex<ChildStdin>,
     pid: u32,
     account: Option<HarnessAccount>,
@@ -97,6 +98,13 @@ pub struct HarnessHost {
 }
 
 impl HarnessHost {
+    pub(crate) fn has_working_dir(&self, path: &Path) -> bool {
+        self.lock_inner()
+            .children
+            .values()
+            .any(|child| crate::worktrees::contains_working_dir(path, &child.cwd))
+    }
+
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HarnessInner {
@@ -424,6 +432,7 @@ pub fn harness_spawn(
         .ok_or_else(|| "Failed to open harness stderr".to_string())?;
 
     let live = Arc::new(LiveChild {
+        cwd: workdir.clone(),
         stdin: Mutex::new(stdin),
         pid,
         account,
@@ -2245,6 +2254,7 @@ mod tests {
         let stdin = child.stdin.take().expect("test child stdin");
         (
             Arc::new(LiveChild {
+                cwd: PathBuf::from("/test"),
                 stdin: Mutex::new(stdin),
                 pid,
                 account: None,
@@ -2375,6 +2385,7 @@ mod tests {
         let stdin = child.stdin.take().expect("grouped child stdin");
         (
             Arc::new(LiveChild {
+                cwd: PathBuf::from("/test"),
                 stdin: Mutex::new(stdin),
                 pid,
                 account: None,

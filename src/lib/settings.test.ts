@@ -261,6 +261,7 @@ describe("settings navigation", () => {
       "skills",
       "inbox",
       "archive",
+      "worktrees",
     ]);
   });
 

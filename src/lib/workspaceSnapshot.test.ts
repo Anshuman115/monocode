@@ -266,6 +266,27 @@ describe("collectWorkspaceSnapshot", () => {
     expect(restored?.path).toBe("/tmp/a/src/lib.rs");
   });
 
+  it("preserves a worktree editor's execution directory and owning project", () => {
+    const file = newFileTab(
+      "/repo-worktrees/feature/readme.md",
+      "/repo-worktrees/feature",
+      false,
+      undefined,
+      "/repo",
+    );
+    const tab = {
+      ...newTab("editor"),
+      editorPanes: [{ id: "editor", files: [file], activeFileId: file.id }],
+    };
+    const snapshot = collectWorkspaceSnapshot([tab], [], tab.id, "/repo", new Map());
+    const restored = hydrateWorkspaceSnapshot(snapshot, new Map())?.tabs[0]
+      ?.editorPanes[0]?.files[0];
+    expect(restored).toMatchObject({
+      cwd: "/repo-worktrees/feature",
+      projectCwd: "/repo",
+    });
+  });
+
   it("round-trips a commit review tab", () => {
     const file = newCommitTab("/tmp/a", {
       sha: "abc1234deadbeef",

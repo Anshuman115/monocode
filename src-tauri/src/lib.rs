@@ -31,6 +31,7 @@ mod window;
 mod window_transfer;
 #[cfg(windows)]
 mod windows;
+mod worktrees;
 
 // Phase 1 seam: spawn / kill harness children per MonoCode thread.
 // Adapters own the protocol; this host only supervises processes.
@@ -310,6 +311,10 @@ pub fn run() {
             fs::git_checkout,
             fs::git_create_branch,
             fs::git_stash,
+            worktrees::git_worktrees,
+            worktrees::git_worktree_create,
+            worktrees::git_worktree_check_remove,
+            worktrees::git_worktree_remove,
             fs::create_path,
             fs::rename_path,
             fs::delete_path,

@@ -50,7 +50,13 @@ export function ModalPanel({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        (event.target instanceof Element &&
+          event.target.closest("[data-dialog-popover]"))
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       onClose();

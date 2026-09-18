@@ -10,6 +10,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "../chrome/Composer";
+import type { Worktree } from "../lib/worktrees";
+import { isBlankSession } from "../lib/projectReturn";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { LinkedWorkItemUpdateNotice } from "../chrome/LinkedWorkItemUpdateNotice";
@@ -77,6 +79,8 @@ type Props = {
   onClose: (sessionId: string) => void;
   onCwdChange: (sessionId: string, cwd: string) => void;
   onBranchChange: (sessionId: string) => void;
+  onWorktreeChange?: (sessionId: string, tree: Worktree) => Promise<void>;
+  onManageWorktrees?: () => void;
   onModelChange: (sessionId: string, harness: HarnessId, model: string) => void;
   onModelSettingsChange: (
     sessionId: string,
@@ -158,6 +162,8 @@ export const SessionPane = memo(function SessionPane({
   onClose,
   onCwdChange,
   onBranchChange,
+  onWorktreeChange,
+  onManageWorktrees,
   onModelChange,
   onModelSettingsChange,
   onRuntimeModeChange,
@@ -375,6 +381,11 @@ export const SessionPane = memo(function SessionPane({
       onFocus={() => onFocus(session.id)}
       onCwdChange={(cwd) => onCwdChange(session.id, cwd)}
       onBranchChange={() => onBranchChange(session.id)}
+      onWorktreeChange={
+        onWorktreeChange ? (tree) => onWorktreeChange(session.id, tree) : undefined
+      }
+      worktreeOpensNewSession={!isBlankSession(session)}
+      onManageWorktrees={onManageWorktrees}
       onNewTerminal={() => onNewTerminal(session.id)}
       onModelChange={(harness, model) => {
         onModelChange(session.id, harness, model);

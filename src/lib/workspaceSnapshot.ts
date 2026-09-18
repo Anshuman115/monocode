@@ -541,6 +541,9 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     id: value.id,
     path: value.path,
     cwd: value.cwd,
+    ...(typeof value.projectCwd === "string" && value.projectCwd
+      ? { projectCwd: value.projectCwd }
+      : {}),
     ...(plan ? { plan } : {}),
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),

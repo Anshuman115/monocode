@@ -38,6 +38,7 @@ export type SessionSummary = {
   title: string;
   providerSessionId?: string;
   branch?: string;
+  worktreeCwd?: string;
   repo?: string;
   additions?: number;
   deletions?: number;

@@ -115,6 +115,8 @@ pub struct SessionSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
     pub additions: i64,
     pub deletions: i64,
@@ -770,13 +772,24 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
-    let branch = session
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(
+        session
+            .worktree_cwd
+            .as_deref()
+            .filter(|cwd| !cwd.is_empty())
+            .unwrap_or(&session.cwd),
+    ));
+    let branch = git
         .branch
         .as_deref()
-        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .or_else(|| git.branch.as_deref().filter(|value| !value.is_empty()));
+        .or_else(|| {
+            session
+                .branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
     let worktree_cwd = session
         .worktree_cwd
         .as_deref()
@@ -869,6 +882,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         title: session.title.clone(),
         provider_session_id: provider_session_id.map(str::to_owned),
         branch: branch.map(str::to_owned),
+        worktree_cwd: worktree_cwd.map(str::to_owned),
         repo: git.repo,
         additions: 0,
         deletions: 0,
@@ -1132,7 +1146,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
-                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd
          FROM sessions
          WHERE cwd = ?1
            AND has_user_message = 1
@@ -1158,6 +1172,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
             branch: nonempty(stored_branch).or_else(|| git.branch.clone()),
+            worktree_cwd: row.get(14)?,
             repo: git.repo.clone(),
             additions: 0,
             deletions: 0,
@@ -1174,7 +1189,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
-                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
@@ -1198,6 +1213,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
             branch: nonempty(row.get(9)?),
+            worktree_cwd: row.get(14)?,
             repo: None,
             additions: 0,
             deletions: 0,
@@ -2206,11 +2222,13 @@ mod tests {
         session.worktree_cwd = Some("/tmp/a-feat".into());
         let summary = upsert_session(&conn, &session).unwrap();
         assert_eq!(summary.branch.as_deref(), Some("feat/picker"));
+        assert_eq!(summary.worktree_cwd.as_deref(), Some("/tmp/a-feat"));
         let record = get_session(&conn, "s1").unwrap().unwrap();
         assert_eq!(record.branch.as_deref(), Some("feat/picker"));
         assert_eq!(record.worktree_cwd.as_deref(), Some("/tmp/a-feat"));
         let listed = list_by_project(&conn, "/tmp/a").unwrap();
         assert_eq!(listed[0].branch.as_deref(), Some("feat/picker"));
+        assert_eq!(listed[0].worktree_cwd.as_deref(), Some("/tmp/a-feat"));
     }
 
     #[test]

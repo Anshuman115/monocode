@@ -23,7 +23,6 @@ import {
   type ProjectTerminalDock,
 } from "./projectTerminal";
 import { sessionWorkCwd, type Session } from "./session";
-import { restoreSessionCheckout } from "./fs";
 import { sessionChildHarnesses } from "./handoff";
 import {
   getSession,
@@ -302,15 +301,6 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
       sessions.push(markTurnInterrupted(record));
     }
     workspace = workspaceFromResumed(sessions);
-  }
-
-  if (workspace) {
-    workspace = {
-      ...workspace,
-      sessions: await Promise.all(
-        workspace.sessions.map((session) => restoreSessionCheckout(session)),
-      ),
-    };
   }
 
   bootingResumed = workspace;
