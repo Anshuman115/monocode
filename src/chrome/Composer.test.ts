@@ -71,6 +71,7 @@ describe("Composer question focus", () => {
     onQuestionReply: (requestId: number, reply: unknown) => void,
     busy = false,
     focusToken = 0,
+    initialDraft?: string,
   ) {
     await act(async () =>
       root.render(
@@ -81,6 +82,7 @@ describe("Composer question focus", () => {
           model: "claude-sonnet",
           runtimeMode: "supervised",
           executionCwd: "/repo",
+          initialDraft,
           hideProjectPicker: true,
           hideBranchPicker: true,
           onFocus: () => {},
@@ -95,6 +97,16 @@ describe("Composer question focus", () => {
       ),
     );
   }
+
+  it("places the caret at the end of an initial draft", async () => {
+    const initialDraft = "Comment on src/App.tsx:42\n\n";
+    await renderComposer(undefined, vi.fn(), false, 0, initialDraft);
+
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.value).toBe(initialDraft);
+    expect(textarea.selectionStart).toBe(initialDraft.length);
+    expect(textarea.selectionEnd).toBe(initialDraft.length);
+  });
 
   it("returns focus to the composer textarea once a question is answered", async () => {
     const onQuestionReply = vi.fn();

@@ -258,10 +258,16 @@ import {
   applyPlaceSessionOnPane,
   filterTabsForProject,
   findOpenSessionTab,
+  openAddToChatSessionPane,
   planWorkspaceTabClose,
   workspaceTabCwd,
   focusedWorkspaceTabCwd,
 } from "./lib/workspaceTabGroups";
+import {
+  ADD_TO_CHAT_EVENT,
+  composerSeedForAddToChat,
+  type AddToChatRequest,
+} from "./lib/quoteDraft";
 import { runSessionRemoval } from "./lib/sessionRemoval";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
@@ -1076,6 +1082,60 @@ export default function App({
   }, [tabs]);
 
   const sessionDefaults = active ?? sessions[0];
+
+  useEffect(() => {
+    const openSessionForAddToChat = (event: Event) => {
+      const detail = (event as CustomEvent<AddToChatRequest>).detail;
+      if (!detail?.text) return;
+
+      const currentTabs = tabsRef.current;
+      const currentSessions = sessionsRef.current;
+      const tab =
+        currentTabs.find((entry) => entry.id === activeTabIdRef.current) ??
+        currentTabs[0];
+      if (!tab) return;
+      const mountedSessionIds = new Set(
+        currentSessions.map((session) => session.id),
+      );
+      if (leafIds(tab.layout).some((id) => mountedSessionIds.has(id))) return;
+
+      const cwd =
+        focusedWorkspaceTabCwd(tab, currentSessions) ??
+        sessionDefaults?.cwd ??
+        projectCwdRef.current;
+      const composerSeed = composerSeedForAddToChat(detail.text, detail.mode);
+      if (!composerSeed) return;
+
+      const session = {
+        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        composerSeed,
+      };
+      const openedTab = openAddToChatSessionPane({
+        tab,
+        sessions: currentSessions,
+        sessionId: session.id,
+      });
+      // A mounted session pane owns the normal add-to-chat path.
+      if (!openedTab) return;
+
+      const nextSessions = [...currentSessions, session];
+      const nextTabs = currentTabs.map((entry) =>
+        entry.id === tab.id ? openedTab : entry,
+      );
+      sessionsRef.current = nextSessions;
+      tabsRef.current = nextTabs;
+      setSessions(nextSessions);
+      setTabs(nextTabs);
+      setActiveTabId(tab.id);
+      setProjectTerminalFocused(false);
+      setComposerFocused(true);
+    };
+
+    window.addEventListener(ADD_TO_CHAT_EVENT, openSessionForAddToChat);
+    return () =>
+      window.removeEventListener(ADD_TO_CHAT_EVENT, openSessionForAddToChat);
+  }, [sessionDefaults?.cwd, sessionDefaults?.runtimeMode]);
+
   const activeSkillContext = active
     ? nativeSkillContextForSession(active)
     : null;
