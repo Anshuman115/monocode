@@ -21,6 +21,7 @@ import {
   idleRateLimits,
   RATE_LIMIT_POLL_MS,
   shouldFetchProvider,
+  unavailableRateLimits,
   type ProviderRateLimits,
   type RateLimitProvider,
 } from "../lib/rateLimits";
@@ -38,11 +39,13 @@ import {
 } from "./ProviderSignInPanel";
 import {
   newProviderAccount,
+  providerAccountExists,
   providerAccounts,
   saveProviderAccount,
   selectProviderAccount,
   selectedProviderAccountId,
   subscribeProviderAccounts,
+  type ProviderAccountProvider,
 } from "../lib/providerAccounts";
 
 const CLOCK_MS = 30_000;
@@ -65,6 +68,7 @@ export function UsageFooter({
   onShowTerminal,
   projectTerminalActive = false,
   onSelectAccount,
+  onManageAccounts,
 }: {
   providers: RateLimitProvider[];
   session?: UsageFooterSession;
@@ -75,7 +79,11 @@ export function UsageFooter({
   onNewTerminal?: () => void;
   onShowTerminal?: () => void;
   projectTerminalActive?: boolean;
-  onSelectAccount?: (provider: RateLimitProvider, accountId: string) => void;
+  onSelectAccount?: (
+    provider: ProviderAccountProvider,
+    accountId: string,
+  ) => void;
+  onManageAccounts?: (provider: ProviderAccountProvider) => void;
 }) {
   const wantClaude = providers.includes("claude");
   const wantCodex = providers.includes("codex");
@@ -109,6 +117,11 @@ export function UsageFooter({
       : selectedProviderAccountId("codex", project);
   const claudeAccounts = providerAccounts("claude");
   const codexAccounts = providerAccounts("codex");
+  const claudeAccountAvailable = providerAccountExists(
+    "claude",
+    claudeAccountId,
+  );
+  const codexAccountAvailable = providerAccountExists("codex", codexAccountId);
   const claudeAccountRef = useRef(claudeAccountId);
   const codexAccountRef = useRef(codexAccountId);
   claudeAccountRef.current = claudeAccountId;
@@ -126,9 +139,12 @@ export function UsageFooter({
       const visible = document.visibilityState === "visible";
       const fetchClaude =
         wantClaude &&
+        claudeAccountAvailable &&
         shouldFetchProvider(claudeRef.current, { force, visible });
       const fetchCodex =
-        wantCodex && shouldFetchProvider(codexRef.current, { force, visible });
+        wantCodex &&
+        codexAccountAvailable &&
+        shouldFetchProvider(codexRef.current, { force, visible });
       const fetchOpencode =
         wantOpencode &&
         shouldFetchProvider(opencodeRef.current, { force, visible });
@@ -170,24 +186,42 @@ export function UsageFooter({
       inflight.current = run;
       return run;
     },
-    [claudeAccountId, codexAccountId, wantClaude, wantCodex, wantOpencode],
+    [
+      claudeAccountAvailable,
+      claudeAccountId,
+      codexAccountAvailable,
+      codexAccountId,
+      wantClaude,
+      wantCodex,
+      wantOpencode,
+    ],
   );
 
   useEffect(() => {
-    const idle = idleRateLimits("claude");
-    claudeRef.current = idle;
-    setClaude(idle);
+    const next = claudeAccountAvailable
+      ? idleRateLimits("claude")
+      : unavailableRateLimits(
+          "claude",
+          "This conversation uses a removed account",
+        );
+    claudeRef.current = next;
+    setClaude(next);
     const pending = inflight.current;
     if (pending) void pending.finally(() => refresh(true));
-  }, [claudeAccountId]);
+  }, [claudeAccountAvailable, claudeAccountId, refresh]);
 
   useEffect(() => {
-    const idle = idleRateLimits("codex");
-    codexRef.current = idle;
-    setCodex(idle);
+    const next = codexAccountAvailable
+      ? idleRateLimits("codex")
+      : unavailableRateLimits(
+          "codex",
+          "This conversation uses a removed account",
+        );
+    codexRef.current = next;
+    setCodex(next);
     const pending = inflight.current;
     if (pending) void pending.finally(() => refresh(true));
-  }, [codexAccountId]);
+  }, [codexAccountAvailable, codexAccountId, refresh]);
 
   useEffect(() => {
     void refresh();
@@ -305,7 +339,7 @@ export function UsageFooter({
   );
 
   const selectAccount = useCallback(
-    (provider: RateLimitProvider, accountId: string) => {
+    (provider: ProviderAccountProvider, accountId: string) => {
       selectProviderAccount(provider, project, accountId);
       onSelectAccount?.(provider, accountId);
     },
@@ -313,7 +347,7 @@ export function UsageFooter({
   );
 
   const addAccount = useCallback(
-    async (provider: RateLimitProvider, label: string) => {
+    async (provider: ProviderAccountProvider, label: string) => {
       const account = newProviderAccount(provider, label);
       await loginHarness(provider, account.id);
       saveProviderAccount(account);
@@ -323,8 +357,7 @@ export function UsageFooter({
     [selectAccount],
   );
 
-  const showOpencodeChip =
-    wantOpencode && opencode.status !== "unavailable";
+  const showOpencodeChip = wantOpencode && opencode.status !== "unavailable";
   const showUsage = wantClaude || wantCodex || showOpencodeChip;
   const showTerminals = terminals.length > 0;
   const showTerminalButton = Boolean(onNewTerminal || onShowTerminal);
@@ -359,6 +392,9 @@ export function UsageFooter({
                 selectAccount("claude", accountId)
               }
               onAddAccount={(label) => addAccount("claude", label)}
+              onManageAccounts={
+                onManageAccounts ? () => onManageAccounts("claude") : undefined
+              }
               onReconnect={reconnectClaude}
             />
           ) : null}
@@ -371,6 +407,9 @@ export function UsageFooter({
               accountId={codexAccountId}
               onSelectAccount={(accountId) => selectAccount("codex", accountId)}
               onAddAccount={(label) => addAccount("codex", label)}
+              onManageAccounts={
+                onManageAccounts ? () => onManageAccounts("codex") : undefined
+              }
               onConsumeReset={consumeCodexReset}
               onReconnect={reconnectCodex}
             />

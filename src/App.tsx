@@ -271,9 +271,11 @@ import {
 import { runSessionRemoval } from "./lib/sessionRemoval";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
+  providerAccountExists,
   selectedProviderAccountId,
+  supportsProviderAccounts,
+  type ProviderAccountProvider,
 } from "./lib/providerAccounts";
-import type { RateLimitProvider } from "./lib/rateLimits";
 import {
   HARNESSES,
   HARNESS_LABEL,
@@ -1769,7 +1771,7 @@ export default function App({
   );
 
   const onSelectProviderAccount = useCallback(
-    (provider: RateLimitProvider, accountId: string) => {
+    (provider: ProviderAccountProvider, accountId: string) => {
       if (!active || active.harness !== provider) return;
       const currentId = active.providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID;
       if (currentId === accountId) return;
@@ -4704,11 +4706,26 @@ export default function App({
       if (isPreparingHandoff(current)) return false;
       saveRecentModelChoice(current.harness, current.model);
       const workCwd = sessionWorkCwd(current);
-      const providerAccountId =
-        current.harness === "claude" || current.harness === "codex"
-          ? (current.providerAccountId ??
-            selectedProviderAccountId(current.harness, current.cwd))
-          : undefined;
+      const accountProvider = supportsProviderAccounts(current.harness)
+        ? current.harness
+        : undefined;
+      const providerAccountId = accountProvider
+        ? (current.providerAccountId ??
+          selectedProviderAccountId(accountProvider, current.cwd))
+        : undefined;
+      if (
+        accountProvider &&
+        providerAccountId &&
+        !providerAccountExists(accountProvider, providerAccountId)
+      ) {
+        enqueueHarnessEvent(sessionId, {
+          type: "session.error",
+          message:
+            "This conversation uses a removed provider account. Switch accounts from the usage control to start a new conversation.",
+        });
+        flushHarnessEvents();
+        return false;
+      }
       const submittedText = intent === "build" ? "Build approved plan" : text;
       const rawCommand = isNativeCommandPrompt(submittedText, current.harness);
       const harnessText = rawCommand
@@ -5792,11 +5809,10 @@ export default function App({
             cwd: workCwd,
             model: current.model,
             modelSettings: current.modelSettings,
-            providerAccountId:
-              current.harness === "claude" || current.harness === "codex"
-                ? (current.providerAccountId ??
-                  selectedProviderAccountId(current.harness, current.cwd))
-                : undefined,
+            providerAccountId: supportsProviderAccounts(current.harness)
+              ? (current.providerAccountId ??
+                selectedProviderAccountId(current.harness, current.cwd))
+              : undefined,
             runtimeMode: current.runtimeMode,
             onEvent: (event) => {
               if (turnGen.current.get(sessionId) !== gen) return;
@@ -7510,6 +7526,9 @@ export default function App({
                 session={usageSession}
                 project={active?.cwd ?? projectCwd}
                 onSelectAccount={onSelectProviderAccount}
+                onManageAccounts={() =>
+                  openSettings("providers", "provider-accounts")
+                }
                 terminals={runningTerminals}
                 terminalOpen={runningTerminalOpen}
                 onToggleTerminal={onToggleRunningTerminal}
