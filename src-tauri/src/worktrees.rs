@@ -566,7 +566,8 @@ mod tests {
         let mut removed = remove_with_sessions(&conn, path, path, true, true).unwrap();
         removed.session_ids.sort();
         assert_eq!(removed.session_ids, vec!["archived", "direct", "shared"]);
-        assert_eq!(removed.project_cwd, path_to_js(&root));
+        // Git omits the verbatim prefix added by canonicalize() on Windows.
+        assert!(same_path(Path::new(&removed.project_cwd), &root));
         assert!(!path.exists());
         assert!(session_ids(&conn, path).unwrap().is_empty());
         for id in &removed.session_ids {
@@ -574,10 +575,15 @@ mod tests {
                 "SELECT cwd, title, blocks_json, created_at, updated_at, worktree_removed, branch, provider_session_id, worktree_cwd FROM sessions WHERE id = ?1", [id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?)),
             ).unwrap();
+            let expected_cwd = if id == "direct" {
+                removed.project_cwd.clone()
+            } else {
+                path_to_js(&root)
+            };
             assert_eq!(
                 row,
                 (
-                    path_to_js(&root),
+                    expected_cwd,
                     "Keep title".into(),
                     blocks.into(),
                     10,
