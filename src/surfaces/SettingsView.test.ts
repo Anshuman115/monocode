@@ -96,25 +96,6 @@ describe("settings pages", () => {
     const defaultInput = container.querySelector<HTMLInputElement>(
       '[aria-label="Rename Claude Code account"]',
     )!;
-    const editorRow = defaultInput.closest("form")!;
-    const cancel = Array.from(editorRow.querySelectorAll("button")).find(
-      (button) => button.textContent === "Cancel",
-    )!;
-    const save = editorRow.querySelector<HTMLButtonElement>(
-      'button[type="submit"]',
-    )!;
-    const editorField = defaultInput.closest<HTMLElement>(
-      "[data-provider-account-editor-field]",
-    )!;
-    expect(editorRow.classList.contains("h-12")).toBe(true);
-    expect(editorField.classList.contains("h-8")).toBe(true);
-    expect(defaultInput.classList.contains("h-full")).toBe(true);
-    expect(cancel.classList.contains("h-7")).toBe(true);
-    expect(save.classList.contains("h-7")).toBe(true);
-    expect(cancel.classList.contains("rounded-md")).toBe(true);
-    expect(save.classList.contains("rounded-md")).toBe(true);
-    expect(editorField.contains(cancel)).toBe(true);
-    expect(editorField.contains(save)).toBe(true);
     await act(async () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,

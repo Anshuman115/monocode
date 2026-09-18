@@ -727,11 +727,13 @@ export type KeybindingRow = {
 export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: Search", keys: `${MOD}K`, when: "Always" },
   { command: "App: Go to File", keys: `${MOD}P`, when: "Always" },
+  { command: "App: Command Palette", keys: `${MOD}${SHIFT}P`, when: "Always" },
   { command: "App: Find in Files", keys: `${MOD}${SHIFT}F`, when: "Always" },
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
   { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
+  { command: "View: Reload", keys: `${MOD}${SHIFT}R`, when: "Always" },
   { command: "View: Zoom In", keys: `${MOD}+`, when: "Always" },
   { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },
   { command: "View: Reset Zoom", keys: `${MOD}0`, when: "Always" },

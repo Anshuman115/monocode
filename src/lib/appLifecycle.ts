@@ -345,6 +345,17 @@ export async function closeCurrentWindow(): Promise<void> {
   await invoke("destroy_window");
 }
 
+export async function confirmReload(
+  hasUnsavedFiles: boolean,
+): Promise<boolean> {
+  if (!hasUnsavedFiles) return true;
+  return ask("Reload MonoCode and discard unsaved changes?", {
+    title: "MonoCode",
+    kind: "warning",
+    okLabel: "Reload",
+  });
+}
+
 export async function persistLiveTranscripts(
   sessions: Session[],
 ): Promise<void> {
