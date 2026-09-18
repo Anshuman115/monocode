@@ -3,6 +3,7 @@ import { newFileTab, newTerminalFile } from "./layout";
 import { newSession, sessionWorkCwd } from "./session";
 import {
   sessionInWorktree,
+  detachSessionWorktree,
   assertWorktreeFilesClosed,
   worktreeSessionIds,
   type Worktree,
@@ -164,4 +165,56 @@ describe("working-copy context", () => {
       "saved",
     ]);
   });
+});
+
+
+describe("sessions kept after worktree deletion", () => {
+  const source = {
+    ...newSession("codex", "/repo"),
+    worktreeCwd: tree.path,
+    branch: "feature",
+    providerSessionId: "old-agent-thread",
+    title: "Build feature",
+    blocks: [{ id: "u", role: "user" as const, text: "Build feature" }],
+  };
+
+  it("keeps the transcript and clears the selected branch and provider", () => {
+    const kept = detachSessionWorktree(source, "/repo", tree.path);
+    expect(kept.id).toBe(source.id);
+    expect(kept.blocks).toBe(source.blocks);
+    expect(kept.title).toBe(source.title);
+    expect(kept.worktreeRemoved).toBe(true);
+    expect(kept.branch).toBeUndefined();
+    expect(kept.providerSessionId).toBeUndefined();
+    expect(
+      worktreeSessionIds({ ...tree, sessionIds: [source.id] }, [kept]),
+    ).toEqual([]);
+  });
+
+  it("moves a directly opened worktree's project identity to the surviving repository", () => {
+    const direct = {
+      ...source,
+      cwd: `${tree.path}/src`,
+      worktreeCwd: undefined,
+    };
+    const kept = detachSessionWorktree(direct, "/repo", tree.path);
+    expect(kept.cwd).toBe("/repo");
+    expect(kept.worktreeCwd).toBe(`${tree.path}/src`);
+  });
+
+  it.each(["/repo", tree.path, "/repo-worktrees/other"])(
+    "continues the same conversation in %s",
+    (path) => {
+      const kept = detachSessionWorktree(source, "/repo", tree.path);
+      const selected = sessionInWorktree(kept, { ...tree, path });
+      expect(selected.id).toBe(source.id);
+      expect(selected.title).toBe(source.title);
+      expect(selected.blocks[0]).toEqual(source.blocks[0]);
+      expect(selected.blocks.at(-1)?.handoff?.pending).toBe(true);
+      expect(selected.blocks.at(-1)?.text).toContain("Build feature");
+      expect(sessionWorkCwd(selected)).toBe(path);
+      expect(selected.worktreeRemoved).toBeUndefined();
+      expect(selected.providerSessionId).toBeUndefined();
+    },
+  );
 });

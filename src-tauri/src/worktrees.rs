@@ -102,7 +102,7 @@ pub(crate) fn contains_working_dir(root: &Path, cwd: &Path) -> bool {
 
 fn session_ids(conn: &rusqlite::Connection, path: &Path) -> Result<Vec<String>, String> {
     let mut query = conn
-        .prepare("SELECT id, COALESCE(NULLIF(worktree_cwd, ''), cwd) FROM sessions")
+        .prepare("SELECT id, COALESCE(NULLIF(worktree_cwd, ''), cwd) FROM sessions WHERE worktree_removed = 0")
         .map_err(|e| e.to_string())?;
     let rows = query
         .query_map([], |row| {
@@ -302,26 +302,85 @@ fn remove(root: &Path, path: &Path, force: bool) -> Result<(), String> {
     git_checked(root, &args)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeRemoval {
+    session_ids: Vec<String>,
+    project_cwd: String,
+}
+
+/// Keep the database transition and Git failure handling together: a failed
+/// removal rolls back the session changes, including archived conversations.
+fn remove_with_sessions(
+    conn: &rusqlite::Connection,
+    root: &Path,
+    path: &Path,
+    force: bool,
+    keep_sessions: bool,
+) -> Result<WorktreeRemoval, String> {
+    let worktrees = list(root)?;
+    let main = worktrees
+        .iter()
+        .find(|tree| tree.is_main)
+        .ok_or("No main working copy found")?;
+    let ids = session_ids(conn, path)?;
+    if !keep_sessions && !ids.is_empty() {
+        return Err("Sessions still use this worktree. Move or delete those sessions first (including archived sessions).".into());
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    for id in &ids {
+        let cwd: String = tx
+            .query_row("SELECT cwd FROM sessions WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .map_err(|e| e.to_string())?;
+        let project_cwd = if contains_working_dir(path, &expand_home(&cwd)) {
+            &main.path
+        } else {
+            &cwd
+        };
+        tx.execute(
+            "UPDATE sessions SET worktree_removed = 1,
+               worktree_cwd = COALESCE(NULLIF(worktree_cwd, ''), cwd),
+               cwd = ?2, branch = NULL, provider_session_id = NULL,
+               context_used = NULL, context_window = NULL WHERE id = ?1",
+            rusqlite::params![id, project_cwd],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM in_flight_sessions WHERE session_id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+    }
+    // Use the main copy even if Settings was opened directly on the target.
+    remove(Path::new(&main.path), path, force)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(WorktreeRemoval {
+        session_ids: ids,
+        project_cwd: main.path.clone(),
+    })
+}
+
 #[tauri::command(async)]
 pub fn git_worktree_remove(
     cwd: String,
     path: String,
     force: bool,
+    keep_sessions: Option<bool>,
     store: State<'_, SessionStore>,
     terminals: State<'_, crate::pty::PtyHost>,
     agents: State<'_, crate::harness::HarnessHost>,
-) -> Result<(), String> {
+) -> Result<WorktreeRemoval, String> {
     let path = expand_home(&path);
     if terminals.has_working_dir(&path) || agents.has_working_dir(&path) {
         return Err("Close the terminals and agent processes using this worktree first.".into());
     }
-    // Hold the store lock through deletion so a concurrent save cannot attach
-    // a conversation between the reference check and git worktree remove.
     let conn = store.lock_conn()?;
-    if !session_ids(&conn, &path)?.is_empty() {
-        return Err("Sessions still use this worktree. Move or delete those sessions first (including archived sessions).".into());
-    }
-    remove(&expand_home(&cwd), &path, force)
+    remove_with_sessions(
+        &conn,
+        &expand_home(&cwd),
+        &path,
+        force,
+        keep_sessions.unwrap_or(false),
+    )
 }
 
 #[cfg(test)]
@@ -477,5 +536,75 @@ mod tests {
             &root,
             &PathBuf::from(format!("{}-other", root.display()))
         ));
+    }
+
+    #[test]
+    fn removal_preserves_shared_archived_and_direct_sessions() {
+        let repo = repo();
+        let root = repo.0.join("repo").canonicalize().unwrap();
+        let tree = create(&root, "feature", "main", false).unwrap();
+        let path = Path::new(&tree.path);
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let blocks = r#"[{"id":"u","role":"user","text":"Keep my conversation"}]"#;
+        for (id, cwd, worktree, archived) in [
+            ("shared", path_to_js(&root), Some(tree.path.clone()), 0),
+            ("archived", path_to_js(&root), Some(tree.path.clone()), 1),
+            ("direct", tree.path.clone(), None, 0),
+            ("main", path_to_js(&root), None, 0),
+        ] {
+            conn.execute(
+                "INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at, worktree_cwd, archived, branch, provider_session_id) VALUES (?1, ?2, 'codex', 'test', 'supervised', 'Keep title', ?3, 10, 20, ?4, ?5, 'feature', 'provider')",
+                rusqlite::params![id, cwd, blocks, worktree, archived],
+            ).unwrap();
+        }
+        assert!(remove_with_sessions(&conn, &root, path, true, false).is_err());
+        // An actual Git removal failure must roll back the database changes.
+        std::fs::write(path.join("dirty"), "uncommitted").unwrap();
+        assert!(remove_with_sessions(&conn, &root, path, false, true).is_err());
+        assert_eq!(session_ids(&conn, path).unwrap().len(), 3);
+        let mut removed = remove_with_sessions(&conn, path, path, true, true).unwrap();
+        removed.session_ids.sort();
+        assert_eq!(removed.session_ids, vec!["archived", "direct", "shared"]);
+        assert_eq!(removed.project_cwd, path_to_js(&root));
+        assert!(!path.exists());
+        assert!(session_ids(&conn, path).unwrap().is_empty());
+        for id in &removed.session_ids {
+            let row: (String, String, String, i64, i64, i64, Option<String>, Option<String>, String) = conn.query_row(
+                "SELECT cwd, title, blocks_json, created_at, updated_at, worktree_removed, branch, provider_session_id, worktree_cwd FROM sessions WHERE id = ?1", [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?)),
+            ).unwrap();
+            assert_eq!(
+                row,
+                (
+                    path_to_js(&root),
+                    "Keep title".into(),
+                    blocks.into(),
+                    10,
+                    20,
+                    1,
+                    None,
+                    None,
+                    tree.path.clone()
+                )
+            );
+        }
+        let archived: bool = conn
+            .query_row(
+                "SELECT archived FROM sessions WHERE id = 'archived'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(archived);
+        let main_removed: bool = conn
+            .query_row(
+                "SELECT worktree_removed FROM sessions WHERE id = 'main'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!main_removed);
+        assert!(git(&root, &["rev-parse", "--verify", "refs/heads/feature"]).is_ok());
     }
 }

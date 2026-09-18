@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { prettyCwd, projectName } from "../lib/paths";
-import { type RemoveWorktree, type Worktree } from "../lib/worktrees";
+import { type Worktree } from "../lib/worktrees";
 import { Modal } from "./Modal";
 import {
   CircleAlert,
@@ -53,11 +53,17 @@ export function DeleteWorktreeDialog({
   cwd: string;
   tree: Worktree;
   sessionCount?: number;
-  onRemove: RemoveWorktree;
+  onRemove: (
+    cwd: string,
+    path: string,
+    force: boolean,
+    deleteSessions: boolean,
+  ) => Promise<void>;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [deleteSessions, setDeleteSessions] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
@@ -77,7 +83,7 @@ export function DeleteWorktreeDialog({
     try {
       // Confirmation covers the complete destructive action, including any
       // local changes that appeared after the last status refresh.
-      await onRemove(cwd, tree.path, true);
+      await onRemove(cwd, tree.path, true, deleteSessions);
       onDeleted();
     } catch (e) {
       setError(String(e));
@@ -109,9 +115,15 @@ export function DeleteWorktreeDialog({
           </p>
           <ul className="mt-2.5 flex flex-col gap-2 border-t border-content/8 pt-2.5 text-[12.5px] text-content/75">
             {sessionCount > 0 && (
-              <Consequence icon={MessageSquare} tone="danger">
+              <Consequence
+                icon={MessageSquare}
+                tone={deleteSessions ? "danger" : "muted"}
+              >
                 {sessionCount} session{sessionCount === 1 ? "" : "s"} using this
-                worktree {sessionCount === 1 ? "is" : "are"} deleted with it.
+                worktree {sessionCount === 1 ? "is" : "are"}{" "}
+                {deleteSessions
+                  ? "permanently deleted."
+                  : "kept. Select a branch or worktree to continue them."}
               </Consequence>
             )}
             {tree.dirty && (
@@ -128,7 +140,8 @@ export function DeleteWorktreeDialog({
             <Consequence icon={GitBranch}>
               {tree.branch ? (
                 <>
-                  The <span className="font-medium text-content">
+                  The{" "}
+                  <span className="font-medium text-content">
                     {tree.branch}
                   </span>{" "}
                   branch and its commits are kept.
@@ -139,12 +152,35 @@ export function DeleteWorktreeDialog({
             </Consequence>
             {!!tree.unpushed && (
               <Consequence icon={CloudUpload}>
-                {tree.unpushed} commit{tree.unpushed === 1 ? " is" : "s are"} not
-                on a remote. They stay on the branch.
+                {tree.unpushed} commit{tree.unpushed === 1 ? " is" : "s are"}{" "}
+                not on a remote. They stay on the branch.
               </Consequence>
             )}
           </ul>
         </div>
+        {sessionCount > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-content/10 p-3">
+            <span
+              id="delete-worktree-sessions-label"
+              className="text-[12.5px] text-content/75"
+            >
+              Also delete associated sessions
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-labelledby="delete-worktree-sessions-label"
+              aria-checked={deleteSessions}
+              disabled={busy}
+              onClick={() => setDeleteSessions(!deleteSessions)}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-40 ${deleteSessions ? "bg-red-500" : "bg-content/20"}`}
+            >
+              <span
+                className={`absolute top-0.5 size-4 rounded-full bg-white transition-[left] ${deleteSessions ? "left-4.5" : "left-0.5"}`}
+              />
+            </button>
+          </div>
+        )}
         <label className="flex flex-col gap-1.5">
           <span className="text-[12.5px] text-content/70">
             Type <span className="font-mono text-content">{folder}</span> to
@@ -183,7 +219,7 @@ export function DeleteWorktreeDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-red-500/20 px-3 py-1.5 font-medium text-red-400 hover:bg-red-500/30 disabled:opacity-40 disabled:hover:bg-red-500/20 active:scale-[0.97]"
           >
             {busy && <Loader className="size-3.5 animate-spin" />}
-            {sessionCount
+            {sessionCount && deleteSessions
               ? `Delete worktree and session${sessionCount === 1 ? "" : "s"}`
               : "Delete worktree"}
           </button>

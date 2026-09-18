@@ -50,6 +50,7 @@ import {
 } from "./chrome/DeleteSessionDialog";
 import {
   assertWorktreeFilesClosed,
+  detachSessionWorktree,
   checkWorktreeRemoval,
   listWorktrees,
   removeWorktree,
@@ -332,6 +333,7 @@ import {
   setSessionPinned,
   shouldPersistSession,
   upsertSession,
+  flushSessionWrites,
   type SessionSummary,
 } from "./lib/sessionStore";
 import { rememberLoadedSession } from "./lib/sessionCache";
@@ -697,7 +699,8 @@ export default function App({
     unusedWorktree?: string;
     resolve: (choice: SessionDeleteChoice) => void;
   }>();
-  const switchingWorktreeIds = useRef(new Set<string>());
+  const switchingWorktrees = useRef(new Map<string, string>());
+  const removingWorktreePaths = useRef(new Set<string>());
   const deleteConfirmationPending = useRef(false);
   const [tabs, setTabs] = useState<WorkspaceTab[]>(
     () => windowTransfer?.tabs ?? resumed?.tabs ?? [seed.tab],
@@ -1506,7 +1509,8 @@ export default function App({
     if (
       !session ||
       !shouldPersistSession(session) ||
-      removingSessionIds.current.has(session.id)
+      removingSessionIds.current.has(session.id) ||
+      switchingWorktrees.current.has(session.id)
     )
       return;
     const fingerprint = persistFingerprint(session);
@@ -1525,7 +1529,7 @@ export default function App({
     const liveIds = new Set(sessions.map((session) => session.id));
     const visibleIds = openSessionIds(tabsRef.current);
     for (const session of sessions) {
-      if (removingSessionIds.current.has(session.id)) continue;
+      if (removingSessionIds.current.has(session.id) || switchingWorktrees.current.has(session.id)) continue;
       if (observedSessions.current.get(session.id) === session) continue;
       observedSessions.current.set(session.id, session);
       const parked = !visibleIds.has(session.id);
@@ -1568,7 +1572,7 @@ export default function App({
       pendingPersist.current.clear();
       void Promise.all(
         dirty.map(async (session) => {
-          if (removingSessionIds.current.has(session.id)) return;
+          if (removingSessionIds.current.has(session.id) || switchingWorktrees.current.has(session.id)) return;
           const fingerprint = persistFingerprint(session);
           if (lastPersisted.current.get(session.id) === fingerprint) return;
           const summary = await upsertSession(session).catch(() => null);
@@ -2148,6 +2152,7 @@ export default function App({
       const session = sessionsRef.current.find(
         (entry) => entry.id === sessionId,
       );
+      if (session?.worktreeRemoved) return;
       onOpenTerminal(
         session ? sessionWorkCwd(session) : projectCwd,
         false,
@@ -3339,7 +3344,11 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (appeared) return appeared;
-      if (restored.providerSessionId && isLiveHarness(restored.harness)) {
+      if (
+        !restored.worktreeRemoved &&
+        restored.providerSessionId &&
+        isLiveHarness(restored.harness)
+      ) {
         bindHarnessSession(
           restored.harness,
           restored.id,
@@ -3817,20 +3826,132 @@ export default function App({
   );
 
   const onRemoveWorktree = useCallback(
-    async (cwd: string, path: string, force: boolean) => {
-      if (
-        sessionsRef.current.some((session) =>
-          isEqualOrInside(sessionWorkCwd(session), path),
-        )
-      ) {
-        throw new Error(
-          "Move or delete the sessions using this worktree first.",
-        );
+    async (cwd: string, path: string, force: boolean, keepSessions = false) => {
+      if (removingWorktreePaths.current.has(path)) {
+        throw new Error("This worktree is already being deleted.");
       }
-      checkOpenWorktreeFiles(path);
-      await removeWorktree(cwd, path, force);
+      removingWorktreePaths.current.add(path);
+      const lockedIds = new Set<string>();
+      const forgottenIds = new Set<string>();
+      try {
+        if (
+          [...switchingWorktrees.current.values()].some((target) =>
+            isEqualOrInside(target, path),
+          )
+        ) {
+          throw new Error(
+            "A session is selecting this worktree. Try deleting it again once selection finishes.",
+          );
+        }
+        await onCheckWorktreeRemoval(cwd, path, force);
+        const listed = await listWorktrees(cwd);
+        const tree = listed.worktrees.find(
+          (entry) => pathKey(entry.path) === pathKey(path),
+        );
+        if (!tree) throw new Error("This worktree is no longer available.");
+        const ids = worktreeSessionIds(tree, sessionsRef.current);
+        if (!keepSessions && ids.length) {
+          throw new Error(
+            "Move or delete the sessions using this worktree first.",
+          );
+        }
+        if (
+          ids.some(
+            (id) =>
+              removingSessionIds.current.has(id) ||
+              switchingWorktrees.current.has(id),
+          )
+        ) {
+          throw new Error(
+            "Wait for these sessions to finish changing before deleting the worktree.",
+          );
+        }
+        for (const id of ids) {
+          removingSessionIds.current.add(id);
+          lockedIds.add(id);
+          pendingPersist.current.delete(id);
+          invalidateLoadedSession(id);
+        }
+        for (const id of ids) {
+          await stopSessionForRemoval(id);
+          const session = sessionsRef.current.find((entry) => entry.id === id);
+          if (!session) continue;
+          await flushSessionCheckpoint(id);
+          forgottenIds.add(id);
+          for (const harness of sessionChildHarnesses(session)) {
+            await forgetHarnessSession(harness, id);
+          }
+          const latest = sessionsRef.current.find((entry) => entry.id === id);
+          if (!latest) continue;
+          const stopped = {
+            ...stopStreaming(latest),
+            busy: false,
+            queueStatus: "paused" as const,
+            pendingQuestion: undefined,
+          };
+          sessionsRef.current = sessionsRef.current.map((entry) =>
+            entry.id === id ? stopped : entry,
+          );
+          setSessions(sessionsRef.current);
+          if (shouldPersistSession(stopped)) await upsertSession(stopped);
+        }
+        await flushSessionWrites();
+        checkOpenWorktreeFiles(path);
+        const removed = await removeWorktree(cwd, path, force, keepSessions);
+        const affected = new Set([...ids, ...removed.sessionIds]);
+        if (isEqualOrInside(projectCwdRef.current, path)) {
+          setProjectCwd(removed.projectCwd);
+          setRecents(rememberProject(removed.projectCwd));
+        }
+        for (const id of affected) {
+          invalidateLoadedSession(id);
+          pendingPersist.current.delete(id);
+          lastPersisted.current.delete(id);
+        }
+        sessionsRef.current = sessionsRef.current.map((session) =>
+          affected.has(session.id)
+            ? detachSessionWorktree(session, removed.projectCwd, path)
+            : session,
+        );
+        setSessions(sessionsRef.current);
+        const patchSummary = (entry: SessionSummary) =>
+          affected.has(entry.id)
+            ? detachSessionWorktree(entry, removed.projectCwd, path)
+            : entry;
+        setHistory((current) => current.map(patchSummary));
+        setStoredLinkedSessions((current) => current.map(patchSummary));
+        for (const id of affected) notifyReviewChanged(id);
+      } catch (error) {
+        // Removal may fail after idle agent processes were stopped. Rebind
+        // their saved threads so the unchanged working copy can still resume.
+        const kept = sessionsRef.current.filter(
+          (session) => forgottenIds.has(session.id) && !session.worktreeRemoved,
+        );
+        bindResumedSessions(kept);
+        for (const session of kept) {
+          const pending = session.pendingSwitch;
+          if (pending?.fromProviderSessionId) {
+            bindHarnessSession(
+              pending.from,
+              session.id,
+              pending.fromProviderSessionId,
+              sessionWorkCwd(session),
+              pending.fromProviderAccountId,
+            );
+          }
+        }
+        throw error;
+      } finally {
+        removingWorktreePaths.current.delete(path);
+        for (const id of lockedIds) removingSessionIds.current.delete(id);
+      }
     },
-    [checkOpenWorktreeFiles],
+    [
+      checkOpenWorktreeFiles,
+      invalidateLoadedSession,
+      onCheckWorktreeRemoval,
+      stopSessionForRemoval,
+    ],
   );
 
   const onRemoveHistorySession = useCallback(
@@ -3841,7 +3962,7 @@ export default function App({
     ): Promise<boolean> => {
       if (
         removingSessionIds.current.has(sessionId) ||
-        switchingWorktreeIds.current.has(sessionId) ||
+        switchingWorktrees.current.has(sessionId) ||
         deleteConfirmationPending.current
       )
         return false;
@@ -4282,6 +4403,7 @@ export default function App({
                 cwd: normalized,
                 branch: undefined,
                 worktreeCwd: undefined,
+                worktreeRemoved: undefined,
               }
             : s,
         ),
@@ -4338,14 +4460,27 @@ export default function App({
         !current ||
         current.busy ||
         removingSessionIds.current.has(sessionId) ||
-        switchingWorktreeIds.current.has(sessionId)
+        switchingWorktrees.current.has(sessionId)
       ) {
         throw new Error(
           "Wait for this session to finish before changing working copies.",
         );
       }
-      if (pathKey(sessionWorkCwd(current)) === pathKey(tree.path)) return;
-      if (current.queuedMessages?.length) {
+      if (
+        !current.worktreeRemoved &&
+        pathKey(sessionWorkCwd(current)) === pathKey(tree.path)
+      )
+        return;
+      if (
+        [...removingWorktreePaths.current].some((path) =>
+          isEqualOrInside(tree.path, path),
+        )
+      ) {
+        throw new Error(
+          "This worktree is being deleted. Select another working copy.",
+        );
+      }
+      if (!current.worktreeRemoved && current.queuedMessages?.length) {
         throw new Error(
           "Clear queued messages before changing working copies.",
         );
@@ -4356,7 +4491,8 @@ export default function App({
           "Stop this orchestration run before changing working copies.",
         );
       }
-      switchingWorktreeIds.current.add(sessionId);
+      switchingWorktrees.current.set(sessionId, tree.path);
+      pendingPersist.current.delete(sessionId);
       try {
         const listed = await listWorktrees(current.cwd);
         const target = listed.worktrees.find(
@@ -4398,7 +4534,7 @@ export default function App({
         const latest = sessionsRef.current.find((s) => s.id === sessionId);
         if (
           !latest ||
-          !isBlankSession(latest) ||
+          (!latest.worktreeRemoved && !isBlankSession(latest)) ||
           latest.cwd !== current.cwd ||
           sessionWorkCwd(latest) !== sessionWorkCwd(current)
         ) {
@@ -4407,18 +4543,20 @@ export default function App({
           );
         }
         const next = sessionInWorktree(latest, target);
+        if (latest.worktreeRemoved)
+          await keepSessionChanges(sessionId, target.path);
         pendingPersist.current.delete(sessionId);
         if (shouldPersistSession(next)) await upsertSession(next);
         invalidateLoadedSession(sessionId);
         sessionsRef.current = sessionsRef.current.map((s) =>
-          s.id === sessionId ? sessionInWorktree(s, target) : s,
+          s.id === sessionId ? next : s,
         );
         setSessions(sessionsRef.current);
         notifyGitChanged();
         notifyReviewChanged(sessionId);
         void refreshHistory(next.cwd);
       } finally {
-        switchingWorktreeIds.current.delete(sessionId);
+        switchingWorktrees.current.delete(sessionId);
       }
     },
     [appendTab, invalidateLoadedSession, refreshHistory],
@@ -4907,11 +5045,18 @@ export default function App({
       }
       if (
         removingSessionIds.current.has(sessionId) ||
-        switchingWorktreeIds.current.has(sessionId)
+        switchingWorktrees.current.has(sessionId)
       )
         return false;
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!storedCurrent) return false;
+      if (
+        !storedCurrent ||
+        storedCurrent.worktreeRemoved ||
+        [...removingWorktreePaths.current].some((path) =>
+          isEqualOrInside(sessionWorkCwd(storedCurrent), path),
+        )
+      )
+        return false;
       const current = options?.buildTarget
         ? withPlanBuildTarget(storedCurrent, options.buildTarget)
         : storedCurrent;
@@ -5925,7 +6070,7 @@ export default function App({
       const source = sessionsRef.current.find(
         (session) => session.id === sourceId,
       );
-      if (!source) return;
+      if (!source || source.worktreeRemoved) return;
       const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
@@ -5965,7 +6110,7 @@ export default function App({
       const source = sessionsRef.current.find(
         (session) => session.id === sourceId,
       );
-      if (!source) return;
+      if (!source || source.worktreeRemoved) return;
       const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
@@ -6031,7 +6176,7 @@ export default function App({
       const current = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      if (!current || current.busy) return false;
+      if (!current || current.busy || current.worktreeRemoved) return false;
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
@@ -6199,7 +6344,7 @@ export default function App({
   const onApproval = useCallback(
     (sessionId: string, requestId: number, decision: ApprovalDecision) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!session) return;
+      if (!session || session.worktreeRemoved) return;
       respondHarnessApproval(session.harness, sessionId, requestId, decision);
     },
     [],
@@ -6208,7 +6353,7 @@ export default function App({
   const onQuestionReply = useCallback(
     (sessionId: string, requestId: number, reply: UserQuestionReply) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!session) return;
+      if (!session || session.worktreeRemoved) return;
       respondHarnessQuestion(session.harness, sessionId, requestId, reply);
     },
     [],
@@ -6217,7 +6362,7 @@ export default function App({
   const onQuestionInteraction = useCallback(
     (sessionId: string, requestId: number) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (session)
+      if (session && !session.worktreeRemoved)
         keepHarnessQuestionOpen(session.harness, sessionId, requestId);
     },
     [],

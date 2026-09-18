@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { appendReadyHandoff, buildDeterministicHandoff } from "./handoff";
 import { notifyGitChanged } from "./fs";
 import { isFilesystemTab, type FilePaneTab } from "./layout";
 import { isEqualOrInside, pathKey } from "./paths";
@@ -38,9 +39,18 @@ export async function createWorktree(
   return tree;
 }
 
-export async function removeWorktree(cwd: string, path: string, force = false) {
-  await invoke("git_worktree_remove", { cwd, path, force });
+export async function removeWorktree(
+  cwd: string,
+  path: string,
+  force = false,
+  keepSessions = false,
+) {
+  const result = await invoke<{ sessionIds: string[]; projectCwd: string }>(
+    "git_worktree_remove",
+    { cwd, path, force, keepSessions },
+  );
   notifyGitChanged();
+  return result;
 }
 
 /** Read-only preflight; final removal must still recheck for new blockers. */
@@ -66,35 +76,77 @@ export function assertWorktreeFilesClosed(
 
 export function worktreeSessionIds(
   tree: Worktree,
-  sessions: readonly Pick<Session, "id" | "cwd" | "worktreeCwd">[],
+  sessions: readonly Pick<
+    Session,
+    "id" | "cwd" | "worktreeCwd" | "worktreeRemoved"
+  >[],
 ) {
   const ids = new Set(tree.sessionIds);
   for (const session of sessions) {
     // Live sessions override their last saved context.
     ids.delete(session.id);
-    if (isEqualOrInside(session.worktreeCwd || session.cwd, tree.path))
+    if (
+      !session.worktreeRemoved &&
+      isEqualOrInside(session.worktreeCwd || session.cwd, tree.path)
+    )
       ids.add(session.id);
   }
   return [...ids];
 }
 
-/** Started conversations stay in their working copy; selecting another starts fresh. */
+export const NO_BRANCH_LABEL = "No branch selected";
+
+/** Keep the transcript and project identity while requiring a new working copy. */
+export function detachSessionWorktree<T extends { cwd: string; worktreeCwd?: string }>(
+  session: T,
+  projectCwd: string,
+  path: string,
+) {
+  return {
+    ...session,
+    cwd: isEqualOrInside(session.cwd, path) ? projectCwd : session.cwd,
+    worktreeCwd: session.worktreeCwd || session.cwd,
+    worktreeRemoved: true,
+    branch: undefined,
+    providerSessionId: undefined,
+    context: undefined,
+    pendingSwitch: undefined,
+    pendingQuestion: undefined,
+    busy: false,
+    queueStatus: "paused" as const,
+  };
+}
+
+/** Existing working copies stay bound; removed ones can be replaced in place. */
 export function sessionInWorktree(session: Session, tree: Worktree): Session {
-  if (pathKey(sessionWorkCwd(session)) === pathKey(tree.path)) return session;
-  const target = isBlankSession(session)
-    ? session
-    : {
-        ...newSession(
+  if (
+    !session.worktreeRemoved &&
+    pathKey(sessionWorkCwd(session)) === pathKey(tree.path)
+  )
+    return session;
+  const target =
+    session.worktreeRemoved && !isBlankSession(session)
+      ? appendReadyHandoff(
+          session,
           session.harness,
-          session.cwd,
-          session.model,
-          session.runtimeMode,
-          session.modelSettings,
-        ),
-        providerAccountId: session.providerAccountId,
-      };
+          session.harness,
+          `The previous working copy was deleted. Continue this conversation in ${tree.path}. Recheck the files before making changes.\n\n${buildDeterministicHandoff(session)}`,
+        )
+      : isBlankSession(session)
+        ? session
+        : {
+            ...newSession(
+              session.harness,
+              session.cwd,
+              session.model,
+              session.runtimeMode,
+              session.modelSettings,
+            ),
+            providerAccountId: session.providerAccountId,
+          };
   return {
     ...target,
+    worktreeRemoved: undefined,
     worktreeCwd:
       pathKey(tree.path) === pathKey(session.cwd) ? undefined : tree.path,
     branch: tree.branch ?? undefined,
@@ -108,4 +160,5 @@ export type RemoveWorktree = (
   cwd: string,
   path: string,
   force: boolean,
-) => Promise<void>;
+  keepSessions?: boolean,
+) => Promise<void | { sessionIds: string[]; projectCwd: string }>;

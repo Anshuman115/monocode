@@ -100,7 +100,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     id: "worktrees",
     group: "workspace",
     label: "Worktrees",
-    description: "Manage the working copies and branches for each project.",
+    description: "Manage additional worktrees for each project.",
     keywords: "git branch worktree working copy project create delete",
   },
 ];

@@ -13,7 +13,7 @@ import {
 } from "../chrome/icons";
 import { revealPath } from "../lib/fs";
 import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
-import { pathKey, prettyCwd } from "../lib/paths";
+import { isEqualOrInside, pathKey, prettyCwd, projectName } from "../lib/paths";
 import { loadArchivedProjects, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import {
@@ -59,6 +59,7 @@ export function WorktreesPage({
     cwd === "~" ? (projects[0]?.path ?? "") : cwd,
   );
   const { data, error: loadError, refresh } = useProjectWorktrees(project);
+  const worktrees = data?.worktrees.filter((tree) => !tree.isMain) ?? [];
   const [error, setError] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Worktree>();
@@ -92,8 +93,9 @@ export function WorktreesPage({
       </div>
       <div className="flex items-center justify-between gap-3">
         <p className="min-w-0 flex-1 text-[12px] text-content/50">
-          Sessions can share a worktree. Deleting one also deletes its sessions
-          and uncommitted changes. Its branch and commits are kept.
+          Sessions can share a worktree. Deleting one keeps its sessions by
+          default and discards uncommitted changes. Its branch and commits are
+          kept.
         </p>
         <button
           type="button"
@@ -129,9 +131,17 @@ export function WorktreesPage({
           <Loader className="size-4 animate-spin" />
           Loading worktrees…
         </p>
+      ) : !worktrees.length ? (
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-stroke px-4 py-8 text-center">
+          <FolderTree className="size-5 text-content/35" />
+          <p className="text-[13px] font-medium">No additional worktrees</p>
+          <p className="text-[12px] text-content/50">
+            Create a worktree to work on another branch in a separate folder.
+          </p>
+        </div>
       ) : (
         <div className="divide-y divide-stroke overflow-hidden rounded-xl border border-stroke">
-          {data.worktrees.map((tree) => {
+          {worktrees.map((tree) => {
             const count = worktreeSessionIds(tree, liveSessions).length;
             const blocked = tree.locked
               ? "Unlock this worktree in Git first"
@@ -140,34 +150,32 @@ export function WorktreesPage({
                 : undefined;
             return (
               <div key={tree.path} className="flex items-start gap-3 p-4">
-                {tree.isMain ? (
-                  <GitBranch className="mt-0.5 size-4 shrink-0 text-content/45" />
-                ) : (
-                  <FolderTree className="mt-0.5 size-4 shrink-0 text-content/45" />
-                )}
+                <FolderTree className="mt-0.5 size-4 shrink-0 text-content/45" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-medium">
-                      {tree.branch ?? `Detached ${tree.head.slice(0, 7)}`}
+                      {projectName(tree.path)}
                     </span>
-                    {tree.isMain && (
-                      <span className="rounded bg-content/8 px-1.5 py-0.5 text-[10px] text-content/50">
-                        Main working copy
+                    {pathKey(tree.path) === pathKey(project) && (
+                      <span className="text-[10px] text-content/40">
+                        Selected project folder
                       </span>
                     )}
-                    {pathKey(tree.path) === pathKey(project) &&
-                      !tree.isMain && (
-                        <span className="text-[10px] text-content/40">
-                          Project working copy
-                        </span>
-                      )}
                   </div>
                   <p className="mt-1 break-all text-[11px] text-content/40">
                     {prettyCwd(tree.path)}
                   </p>
+                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content/55">
+                    <GitBranch className="size-3 shrink-0" />
+                    <span className="min-w-0 break-all">
+                      {tree.branch
+                        ? `Current branch: ${tree.branch}`
+                        : `Detached at ${tree.head.slice(0, 7)}`}
+                    </span>
+                  </p>
                   <p className="mt-2 flex flex-wrap gap-x-3 text-[11px] text-content/55">
                     <span>
-                      {count} session{count === 1 ? "" : "s"}
+                      {count} session{count === 1 ? "" : "s"} in this worktree
                     </span>
                     <span className={tree.dirty ? "text-amber-400" : ""}>
                       {tree.missing
@@ -199,18 +207,16 @@ export function WorktreesPage({
                 >
                   <FolderOpen className="size-4" />
                 </button>
-                {!tree.isMain && (
-                  <button
-                    type="button"
-                    disabled={!!blocked}
-                    aria-label={`Delete ${tree.branch ?? "worktree"}`}
-                    title={blocked ?? "Delete worktree"}
-                    onClick={() => setDeleting(tree)}
-                    className="rounded-md p-1.5 text-content/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-25"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={!!blocked}
+                  aria-label={`Delete ${tree.branch ?? "worktree"}`}
+                  title={blocked ?? "Delete worktree"}
+                  onClick={() => setDeleting(tree)}
+                  className="rounded-md p-1.5 text-content/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-25"
+                >
+                  <Trash2 className="size-4" />
+                </button>
               </div>
             );
           })}
@@ -238,11 +244,11 @@ export function WorktreesPage({
           cwd={project}
           tree={deleting}
           sessionCount={worktreeSessionIds(deleting, liveSessions).length}
-          onRemove={async (cwd, path, force) => {
+          onRemove={async (cwd, path, force, deleteSessions) => {
             // Check predictable blockers before any conversation is destroyed.
             await onCheckRemove(cwd, path, force);
             const sessionIds = worktreeSessionIds(deleting, liveSessions);
-            if (sessionIds.length) {
+            if (sessionIds.length && deleteSessions) {
               if (!onDeleteSessions) {
                 throw new Error(
                   "Sessions still use this worktree and could not be deleted.",
@@ -255,9 +261,9 @@ export function WorktreesPage({
               }
             }
             try {
-              await onRemove(cwd, path, force);
+              await onRemove(cwd, path, force, !deleteSessions);
             } catch (error) {
-              if (sessionIds.length) {
+              if (sessionIds.length && deleteSessions) {
                 refresh();
                 throw new Error(
                   `The sessions were deleted, but the worktree was kept. ${String(error)}`,
@@ -268,6 +274,10 @@ export function WorktreesPage({
           }}
           onClose={() => setDeleting(undefined)}
           onDeleted={() => {
+            if (isEqualOrInside(project, deleting.path)) {
+              const main = data?.worktrees.find((tree) => tree.isMain);
+              if (main) setProject(main.path);
+            }
             setDeleting(undefined);
             refresh();
           }}

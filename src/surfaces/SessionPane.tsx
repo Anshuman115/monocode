@@ -264,9 +264,9 @@ export const SessionPane = memo(function SessionPane({
   }, [visible]);
   // Restore a saved run for this lead; its agents render on the sidebar card.
   useEffect(() => {
-    if (!session.inboxAsk)
+    if (!session.inboxAsk && !session.worktreeRemoved)
       void orchestrator.hydrate(session.id).catch(console.error);
-  }, [session.id, session.inboxAsk]);
+  }, [session.id, session.inboxAsk, session.worktreeRemoved]);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
@@ -382,9 +382,14 @@ export const SessionPane = memo(function SessionPane({
       onCwdChange={(cwd) => onCwdChange(session.id, cwd)}
       onBranchChange={() => onBranchChange(session.id)}
       onWorktreeChange={
-        onWorktreeChange ? (tree) => onWorktreeChange(session.id, tree) : undefined
+        onWorktreeChange
+          ? (tree) => onWorktreeChange(session.id, tree)
+          : undefined
       }
-      worktreeOpensNewSession={!isBlankSession(session)}
+      worktreeOpensNewSession={
+        !session.worktreeRemoved && !isBlankSession(session)
+      }
+      worktreeRemoved={session.worktreeRemoved}
       onManageWorktrees={onManageWorktrees}
       onNewTerminal={() => onNewTerminal(session.id)}
       onModelChange={(harness, model) => {
@@ -542,7 +547,7 @@ export const SessionPane = memo(function SessionPane({
                 model={session.model}
                 modelSettings={session.modelSettings}
                 pendingQuestion={!!session.pendingQuestion}
-                onApproval={approve}
+                onApproval={session.worktreeRemoved ? undefined : approve}
                 onAddToChat={addSelectionToChat}
                 onSaveNote={notesEnabled ? saveNote : undefined}
                 onSaveSelectionNote={
@@ -551,15 +556,17 @@ export const SessionPane = memo(function SessionPane({
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}
                 onOpenPlan={openPlan}
-                onBuildPlan={buildPlan}
+                onBuildPlan={session.worktreeRemoved ? undefined : buildPlan}
                 onSecondOpinion={
-                  !session.inboxAsk && onSecondOpinion
+                  !session.inboxAsk &&
+                  !session.worktreeRemoved &&
+                  onSecondOpinion
                     ? (target, turn) =>
                         onSecondOpinion(session.id, target, turn)
                     : undefined
                 }
                 onHandoff={
-                  !session.inboxAsk && onHandoff
+                  !session.inboxAsk && !session.worktreeRemoved && onHandoff
                     ? (target, turn) => onHandoff(session.id, target, turn)
                     : undefined
                 }
@@ -567,7 +574,7 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
                 latestTurnAccessory={
-                  session.inboxAsk ? undefined : (
+                  session.inboxAsk || session.worktreeRemoved ? undefined : (
                     <SessionReview
                       sessionId={session.id}
                       cwd={workCwd}

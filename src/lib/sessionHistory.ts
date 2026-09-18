@@ -112,10 +112,11 @@ export function summaryFromSession(
     title: session.title,
     providerSessionId: session.providerSessionId,
     worktreeCwd: session.worktreeCwd,
+    worktreeRemoved: session.worktreeRemoved,
     ...(session.linkedWorkItem
       ? { linkedWorkItem: session.linkedWorkItem }
       : {}),
-    ...(session.branch || git?.branch
+    ...(!session.worktreeRemoved && (session.branch || git?.branch)
       ? { branch: session.branch || git?.branch }
       : {}),
     ...(git?.repo ? { repo: git.repo } : {}),

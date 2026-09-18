@@ -179,6 +179,7 @@ type Props = {
   onBranchChange?: () => void;
   onWorktreeChange?: (tree: Worktree) => Promise<void>;
   worktreeOpensNewSession?: boolean;
+  worktreeRemoved?: boolean;
   onManageWorktrees?: () => void;
   onNewTerminal?: () => void;
   onModelChange: (harness: HarnessId, model: string) => void;
@@ -439,6 +440,7 @@ export function Composer({
   onBranchChange,
   onWorktreeChange,
   worktreeOpensNewSession = false,
+  worktreeRemoved = false,
   onManageWorktrees,
   onNewTerminal,
   onModelChange,
@@ -1048,6 +1050,7 @@ export function Composer({
   }, [addAttachments, attachmentsSupported, enabled]);
 
   const submit = (value: string) => {
+    if (worktreeRemoved) return;
     const folderCommand = consumeSessionFolderCommand(value);
     if (folderCommand.matched && onPlaceInFolder && !sessionFolderSelected) {
       openSessionFolderPicker();
@@ -1390,7 +1393,7 @@ export function Composer({
                   projectLogoPath={projectLogoPath}
                   enabled={enabled}
                   onCwdChange={onCwdChange}
-                  onNewTerminal={onNewTerminal}
+                  onNewTerminal={worktreeRemoved ? undefined : onNewTerminal}
                   onClose={() => ref.current?.focus()}
                 />
               )}
@@ -1401,6 +1404,7 @@ export function Composer({
                   enabled={enabled && !busy}
                   onSelect={onWorktreeChange}
                   opensNewSession={worktreeOpensNewSession}
+                  worktreeRemoved={worktreeRemoved}
                   onBranchChange={onBranchChange}
                   onManage={onManageWorktrees}
                   onClose={() => ref.current?.focus()}
@@ -1417,7 +1421,11 @@ export function Composer({
               <div className="ml-auto flex shrink-0 items-center">
                 <ContextMeter
                   usage={context}
-                  onCompact={compactSupported ? onCompactContext : undefined}
+                  onCompact={
+                    compactSupported && !worktreeRemoved
+                      ? onCompactContext
+                      : undefined
+                  }
                   compactDisabled={busy}
                 />
               </div>
@@ -1472,15 +1480,17 @@ export function Composer({
               spellCheck={false}
               defaultValue={initialDraft}
               placeholder={
-                inboxCard
-                  ? "Add a note, or send to start…"
-                  : noteCard
-                    ? "Add a message, or send…"
-                    : handoffCard
-                      ? "Add context, or send to continue…"
-                      : shell
-                        ? "Ask, build, / for commands, @ for references... "
-                        : "Ask, build, / for commands, @ for references... "
+                worktreeRemoved
+                  ? "Select a branch or worktree to continue…"
+                  : inboxCard
+                    ? "Add a note, or send to start…"
+                    : noteCard
+                      ? "Add a message, or send…"
+                      : handoffCard
+                        ? "Add context, or send to continue…"
+                        : shell
+                          ? "Ask, build, / for commands, @ for references... "
+                          : "Ask, build, / for commands, @ for references... "
               }
               className={`composer-field scrollbar-none relative max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
                 shell ? "py-4" : "py-3"
@@ -1693,7 +1703,7 @@ export function Composer({
             <div className="flex shrink-0 items-center gap-1">
               <ComposerAction
                 busy={busy}
-                hasValue={hasValue}
+                hasValue={hasValue && !worktreeRemoved}
                 onSend={() => submit(ref.current?.value ?? "")}
                 onStop={() => onStop?.()}
               />

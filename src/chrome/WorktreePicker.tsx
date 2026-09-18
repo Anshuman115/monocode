@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useProjectBranchesState } from "../hooks/useProjectBranches";
 import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
 import { pathKey, prettyCwd } from "../lib/paths";
-import { type Worktree } from "../lib/worktrees";
+import { NO_BRANCH_LABEL, type Worktree } from "../lib/worktrees";
 import { BranchPicker } from "./BranchPicker";
 import { CreateWorktreeDialog } from "./CreateWorktreeDialog";
 import { GitPickerTrigger } from "./GitPickerTrigger";
@@ -22,6 +22,7 @@ export function WorktreePicker({
   executionCwd,
   enabled = true,
   opensNewSession = false,
+  worktreeRemoved = false,
   onSelect,
   onBranchChange,
   onManage,
@@ -31,6 +32,7 @@ export function WorktreePicker({
   executionCwd: string;
   enabled?: boolean;
   opensNewSession?: boolean;
+  worktreeRemoved?: boolean;
   onSelect: (tree: Worktree) => Promise<void>;
   onBranchChange?: () => void;
   onManage?: () => void;
@@ -47,7 +49,7 @@ export function WorktreePicker({
   const search = useRef<HTMLInputElement>(null);
   const activeOption = useRef<HTMLButtonElement>(null);
   const { branches, settled } = useProjectBranchesState(
-    executionCwd,
+    worktreeRemoved ? cwd : executionCwd,
     !!cwd && cwd !== "~",
   );
   const inWorktree = pathKey(cwd) !== pathKey(executionCwd);
@@ -55,7 +57,10 @@ export function WorktreePicker({
     data,
     error: loadError,
     refresh,
-  } = useProjectWorktrees(cwd, enabled && (!!branches?.current || inWorktree));
+  } = useProjectWorktrees(
+    cwd,
+    enabled && (worktreeRemoved || !!branches?.current || inWorktree),
+  );
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => search.current?.focus());
@@ -123,8 +128,14 @@ export function WorktreePicker({
   return (
     <div ref={anchor} className="relative flex min-w-0 shrink-0">
       <GitPickerTrigger
-        disabled={!enabled || (!branches?.current && !inWorktree)}
-        title={`Working copy: ${prettyCwd(executionCwd)}`}
+        disabled={
+          !enabled || (!worktreeRemoved && !branches?.current && !inWorktree)
+        }
+        title={
+          worktreeRemoved
+            ? "Select a branch or worktree to continue this session"
+            : `Working copy: ${prettyCwd(executionCwd)}`
+        }
         aria-label="Choose working copy"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -136,17 +147,19 @@ export function WorktreePicker({
           setOpen(!open);
         }}
         label={
-          branches?.current
-            ? branches.detached
-              ? `detached ${branches.current}`
-              : branches.current
-            : settled
-              ? inWorktree
-                ? "Worktree unavailable"
-                : "No repo"
-              : "Loading…"
+          worktreeRemoved
+            ? NO_BRANCH_LABEL
+            : branches?.current
+              ? branches.detached
+                ? `detached ${branches.current}`
+                : branches.current
+              : settled
+                ? inWorktree
+                  ? "Worktree unavailable"
+                  : "No repo"
+                : "Loading…"
         }
-        worktree={inWorktree}
+        worktree={!worktreeRemoved && inWorktree}
       />
       {open && (
         <Popover
@@ -193,7 +206,13 @@ export function WorktreePicker({
               className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
             />
           </label>
-          {opensNewSession && (
+          {worktreeRemoved && (
+            <p className="shrink-0 px-3 pt-2 pb-1 text-[11px] text-content/50">
+              This session’s worktree was deleted. Select a working copy to
+              continue.
+            </p>
+          )}
+          {opensNewSession && !worktreeRemoved && (
             <p className="shrink-0 px-3 pt-2 pb-1 text-[11px] text-content/50">
               Another working copy opens a new session.
             </p>
@@ -215,7 +234,10 @@ export function WorktreePicker({
                 ref={index === active ? activeOption : undefined}
                 type="button"
                 role="option"
-                aria-selected={pathKey(tree.path) === pathKey(executionCwd)}
+                aria-selected={
+                  !worktreeRemoved &&
+                  pathKey(tree.path) === pathKey(executionCwd)
+                }
                 disabled={busy || tree.missing}
                 onMouseEnter={() => setActivePath(tree.path)}
                 onClick={() => void select(tree)}
@@ -232,13 +254,14 @@ export function WorktreePicker({
                     {tree.branch ?? `Detached ${tree.head.slice(0, 7)}`}
                   </span>
                   <span className="block truncate text-[10px] text-content/40">
-                    {tree.isMain ? "Main working copy" : prettyCwd(tree.path)}
+                    {tree.isMain ? "Project folder" : prettyCwd(tree.path)}
                     {tree.missing ? " · Missing" : ""}
                   </span>
                 </span>
-                {pathKey(tree.path) === pathKey(executionCwd) && (
-                  <Check className="size-3.5" />
-                )}
+                {!worktreeRemoved &&
+                  pathKey(tree.path) === pathKey(executionCwd) && (
+                    <Check className="size-3.5" />
+                  )}
               </button>
             ))}
             {data && !rows.length && (
@@ -267,12 +290,12 @@ export function WorktreePicker({
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || worktreeRemoved}
               onClick={() => {
                 setOpen(false);
                 setBranchPicker(true);
               }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-content/55 hover:bg-content/8"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-content/55 hover:bg-content/8 disabled:opacity-40"
             >
               <GitBranch className="size-3.5" />
               Switch branch in this working copy…
@@ -297,7 +320,7 @@ export function WorktreePicker({
       {creating && (
         <CreateWorktreeDialog
           cwd={cwd}
-          baseCwd={executionCwd}
+          baseCwd={worktreeRemoved ? cwd : executionCwd}
           defaultRoot={data?.defaultRoot}
           onCreated={async (tree) => {
             setCreating(false);

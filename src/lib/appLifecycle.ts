@@ -316,7 +316,12 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
 
 export function bindResumedSessions(sessions: Session[]): void {
   for (const session of sessions) {
-    if (!session.providerSessionId || !isLiveHarness(session.harness)) continue;
+    if (
+      session.worktreeRemoved ||
+      !session.providerSessionId ||
+      !isLiveHarness(session.harness)
+    )
+      continue;
     bindHarnessSession(
       session.harness,
       session.id,

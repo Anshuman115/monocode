@@ -39,6 +39,7 @@ export type SessionSummary = {
   providerSessionId?: string;
   branch?: string;
   worktreeCwd?: string;
+  worktreeRemoved?: boolean;
   repo?: string;
   additions?: number;
   deletions?: number;
@@ -65,6 +66,7 @@ type SessionRecord = {
   contextWindow?: number | null;
   branch?: string | null;
   worktreeCwd?: string | null;
+  worktreeRemoved?: boolean;
   linkedWorkItem?: LinkedWorkItem | null;
   createdAt: number;
   updatedAt: number;
@@ -85,6 +87,7 @@ type SessionUpsertPayload = {
   contextWindow?: number;
   branch?: string;
   worktreeCwd?: string;
+  worktreeRemoved?: boolean;
   linkedWorkItem?: LinkedWorkItem;
 };
 
@@ -126,6 +129,7 @@ function persistableMeta(
       : {}),
     ...(session.branch ? { branch: session.branch } : {}),
     ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}),
+    ...(session.worktreeRemoved ? { worktreeRemoved: true } : {}),
     ...(linkedWorkItem ? { linkedWorkItem } : {}),
   };
 }
@@ -364,6 +368,11 @@ export async function setSessionPinned(
   pinned: boolean,
 ): Promise<void> {
   await invoke<void>("session_set_pinned", { sessionId, pinned });
+}
+
+/** Drain pending saves before a worktree removal changes stored session context. */
+export async function flushSessionWrites(): Promise<void> {
+  await Promise.all([...sessionWriteQueues.values()]);
 }
 
 /**
@@ -719,10 +728,12 @@ function recordToSession(record: SessionRecord): Session {
     title: record.title,
     blocks,
     busy: false,
-    orchestrationLeadId: record.orchestrationLeadId ?? blocks.find(
-      (block) =>
-        block.orchestrationLeadId && block.orchestrationLeadId !== record.id,
-    )?.orchestrationLeadId,
+    orchestrationLeadId:
+      record.orchestrationLeadId ??
+      blocks.find(
+        (block) =>
+          block.orchestrationLeadId && block.orchestrationLeadId !== record.id,
+      )?.orchestrationLeadId,
     ...(record.providerSessionId
       ? { providerSessionId: record.providerSessionId }
       : {}),
@@ -731,6 +742,7 @@ function recordToSession(record: SessionRecord): Session {
       : {}),
     ...(record.branch ? { branch: record.branch } : {}),
     ...(record.worktreeCwd ? { worktreeCwd: record.worktreeCwd } : {}),
+    ...(record.worktreeRemoved ? { worktreeRemoved: true } : {}),
     ...(linkedWorkItem ? { linkedWorkItem } : {}),
     ...(contextFromRecord(record) ?? {}),
   };
