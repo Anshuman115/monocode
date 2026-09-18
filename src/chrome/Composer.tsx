@@ -884,7 +884,14 @@ export function Composer({
 
     const composer = ref.current?.closest("[data-composer]");
     const activeComposer = document.activeElement?.closest("[data-composer]");
-    if (activeComposer && activeComposer !== composer) return;
+    const activeComposerHidden = activeComposer?.closest(
+      '[aria-hidden="true"], [inert]',
+    );
+    // Inactive workspace tabs stay mounted, so focus can still be sitting in
+    // their composer when a new session becomes active. Only preserve focus
+    // for another composer that is still visible (for example, a split pane).
+    if (activeComposer && activeComposer !== composer && !activeComposerHidden)
+      return;
 
     if (
       composer?.querySelector(

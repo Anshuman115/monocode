@@ -186,6 +186,24 @@ describe("Composer question focus", () => {
     otherComposer.remove();
   });
 
+  it("takes focus from a composer in a hidden session", async () => {
+    const hiddenSession = document.createElement("div");
+    hiddenSession.setAttribute("aria-hidden", "true");
+    const hiddenComposer = document.createElement("div");
+    hiddenComposer.setAttribute("data-composer", "");
+    const hiddenInput = document.createElement("textarea");
+    hiddenComposer.append(hiddenInput);
+    hiddenSession.append(hiddenComposer);
+    document.body.append(hiddenSession);
+    hiddenInput.focus();
+    expect(document.activeElement).toBe(hiddenInput);
+
+    await renderComposer(undefined, vi.fn());
+
+    expect(document.activeElement).toBe(container.querySelector("textarea"));
+    hiddenSession.remove();
+  });
+
   it("does not steal focus from a picker portaled outside the composer", async () => {
     await renderComposer(undefined, vi.fn(), true);
 
