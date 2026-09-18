@@ -372,6 +372,7 @@ pub fn run() {
             session_store::session_get,
             session_store::session_delete,
             session_store::session_set_archived,
+            session_store::session_set_worktree_removed,
             session_store::session_set_pinned,
             session_store::session_set_in_flight,
             session_store::session_list_in_flight,

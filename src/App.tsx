@@ -207,6 +207,7 @@ import {
   chooseHandoffBrief,
   completeHandoff,
   consumeHandoff,
+  continueRemovedWorktreeSession,
   HANDOFF_TITLE,
   handoffTurnCard,
   isPreparingHandoff,
@@ -330,6 +331,7 @@ import {
   saveWorkspaceSnapshot,
   setSessionArchived,
   setSessionPinned,
+  setSessionsWorktreeRemoved,
   shouldPersistSession,
   upsertSession,
   type SessionSummary,
@@ -2148,6 +2150,7 @@ export default function App({
       const session = sessionsRef.current.find(
         (entry) => entry.id === sessionId,
       );
+      if (session?.worktreeRemoved) return;
       onOpenTerminal(
         session ? sessionWorkCwd(session) : projectCwd,
         false,
@@ -3819,8 +3822,10 @@ export default function App({
   const onRemoveWorktree = useCallback(
     async (cwd: string, path: string, force: boolean) => {
       if (
-        sessionsRef.current.some((session) =>
-          isEqualOrInside(sessionWorkCwd(session), path),
+        sessionsRef.current.some(
+          (session) =>
+            !session.worktreeRemoved &&
+            isEqualOrInside(sessionWorkCwd(session), path),
         )
       ) {
         throw new Error(
@@ -4192,6 +4197,98 @@ export default function App({
     [onRemoveHistorySession],
   );
 
+  const onSetSessionsWorktreeRemoved = useCallback(
+    async (
+      sessionIds: readonly string[],
+      removed: boolean,
+      projectCwd?: string,
+      worktreePath?: string,
+    ): Promise<boolean> => {
+      const ids = new Set(sessionIds);
+      for (const sessionId of ids) removingSessionIds.current.add(sessionId);
+      try {
+        if (removed) {
+          for (const sessionId of ids) {
+            const open = sessionsRef.current.find(
+              (session) => session.id === sessionId,
+            );
+            if (!open) continue;
+            await stopSessionForRemoval(sessionId);
+            const latest =
+              sessionsRef.current.find((session) => session.id === sessionId) ??
+              open;
+            await Promise.all(
+              sessionChildHarnesses(latest).map((harness) =>
+                forgetHarnessSession(harness, sessionId),
+              ),
+            );
+          }
+        }
+
+        await setSessionsWorktreeRemoved(
+          [...ids],
+          removed,
+          projectCwd,
+          worktreePath,
+        );
+        const patchSession = (session: Session): Session => {
+          if (!ids.has(session.id)) return session;
+          const directWorktree =
+            removed &&
+            projectCwd &&
+            worktreePath &&
+            !session.worktreeCwd;
+          return {
+            ...session,
+            ...(directWorktree
+              ? { cwd: projectCwd, worktreeCwd: worktreePath }
+              : {}),
+            worktreeRemoved: removed || undefined,
+            ...(removed ? { busy: false } : {}),
+          };
+        };
+        const next = sessionsRef.current.map(patchSession);
+        sessionsRef.current = next;
+        setSessions(next);
+        for (const [sessionId, cached] of loadedSessionCache.current) {
+          if (ids.has(sessionId)) {
+            loadedSessionCache.current.set(sessionId, patchSession(cached));
+          }
+        }
+        for (const [sessionId, pending] of pendingPersist.current) {
+          if (ids.has(sessionId)) {
+            pendingPersist.current.set(sessionId, patchSession(pending));
+          }
+        }
+        const patchSummary = (entry: SessionSummary): SessionSummary => {
+          if (!ids.has(entry.id)) return entry;
+          const directWorktree =
+            removed &&
+            projectCwd &&
+            worktreePath &&
+            !entry.worktreeCwd;
+          return {
+            ...entry,
+            ...(directWorktree
+              ? { cwd: projectCwd, worktreeCwd: worktreePath }
+              : {}),
+            worktreeRemoved: removed || undefined,
+          };
+        };
+        setHistory((current) => current.map(patchSummary));
+        setStoredLinkedSessions((current) => current.map(patchSummary));
+        return true;
+      } catch {
+        return false;
+      } finally {
+        for (const sessionId of ids) {
+          removingSessionIds.current.delete(sessionId);
+        }
+      }
+    },
+    [stopSessionForRemoval],
+  );
+
   const onDeleteHistorySession = useCallback(
     (sessionId: string) => onRemoveHistorySession(sessionId, "delete"),
     [onRemoveHistorySession],
@@ -4334,6 +4431,11 @@ export default function App({
   const onWorktreeChange = useCallback(
     async (sessionId: string, tree: Worktree) => {
       const current = sessionsRef.current.find((s) => s.id === sessionId);
+      if (current?.worktreeRemoved) {
+        throw new Error(
+          "This session is read-only. Continue it in a new session instead.",
+        );
+      }
       if (
         !current ||
         current.busy ||
@@ -4892,6 +4994,7 @@ export default function App({
         const target = sessionsRef.current.find((s) => s.id === sessionId);
         if (
           !target ||
+          target.worktreeRemoved ||
           target.busy ||
           target.pendingSwitch ||
           isPreparingHandoff(target) ||
@@ -4911,7 +5014,7 @@ export default function App({
       )
         return false;
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!storedCurrent) return false;
+      if (!storedCurrent || storedCurrent.worktreeRemoved) return false;
       const current = options?.buildTarget
         ? withPlanBuildTarget(storedCurrent, options.buildTarget)
         : storedCurrent;
@@ -5925,7 +6028,7 @@ export default function App({
       const source = sessionsRef.current.find(
         (session) => session.id === sourceId,
       );
-      if (!source) return;
+      if (!source || source.worktreeRemoved) return;
       const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
@@ -5965,7 +6068,7 @@ export default function App({
       const source = sessionsRef.current.find(
         (session) => session.id === sourceId,
       );
-      if (!source) return;
+      if (!source || source.worktreeRemoved) return;
       const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
@@ -5993,6 +6096,18 @@ export default function App({
           files,
         }),
       };
+      openSessionBeside(sourceId, session, source.cwd, true);
+    },
+    [openSessionBeside],
+  );
+
+  const onContinueRemovedWorktreeSession = useCallback(
+    (sourceId: string) => {
+      const source = sessionsRef.current.find(
+        (session) => session.id === sourceId,
+      );
+      if (!source?.worktreeRemoved) return;
+      const session = continueRemovedWorktreeSession(source);
       openSessionBeside(sourceId, session, source.cwd, true);
     },
     [openSessionBeside],
@@ -6031,7 +6146,7 @@ export default function App({
       const current = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      if (!current || current.busy) return false;
+      if (!current || current.busy || current.worktreeRemoved) return false;
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
@@ -6199,7 +6314,7 @@ export default function App({
   const onApproval = useCallback(
     (sessionId: string, requestId: number, decision: ApprovalDecision) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!session) return;
+      if (!session || session.worktreeRemoved) return;
       respondHarnessApproval(session.harness, sessionId, requestId, decision);
     },
     [],
@@ -6208,7 +6323,7 @@ export default function App({
   const onQuestionReply = useCallback(
     (sessionId: string, requestId: number, reply: UserQuestionReply) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!session) return;
+      if (!session || session.worktreeRemoved) return;
       respondHarnessQuestion(session.harness, sessionId, requestId, reply);
     },
     [],
@@ -6217,7 +6332,7 @@ export default function App({
   const onQuestionInteraction = useCallback(
     (sessionId: string, requestId: number) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (session)
+      if (session && !session.worktreeRemoved)
         keepHarnessQuestionOpen(session.harness, sessionId, requestId);
     },
     [],
@@ -7434,6 +7549,7 @@ export default function App({
     onBuildPlan,
     onSecondOpinion,
     onHandoff,
+    onContinueRemovedWorktreeSession,
     onNewTerminal: onNewTerminalInSession,
   };
 
@@ -7808,6 +7924,7 @@ export default function App({
                 onRemoveWorktree={onRemoveWorktree}
                 onCheckWorktreeRemoval={onCheckWorktreeRemoval}
                 onDeleteWorktreeSessions={onDeleteWorktreeSessions}
+                onSetSessionsWorktreeRemoved={onSetSessionsWorktreeRemoved}
                 besideRail
                 onClose={onCloseSettings}
                 onSelectSection={onSelectSettingsSection}

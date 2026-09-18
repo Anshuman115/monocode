@@ -66,13 +66,19 @@ export function assertWorktreeFilesClosed(
 
 export function worktreeSessionIds(
   tree: Worktree,
-  sessions: readonly Pick<Session, "id" | "cwd" | "worktreeCwd">[],
+  sessions: readonly Pick<
+    Session,
+    "id" | "cwd" | "worktreeCwd" | "worktreeRemoved"
+  >[],
 ) {
   const ids = new Set(tree.sessionIds);
   for (const session of sessions) {
     // Live sessions override their last saved context.
     ids.delete(session.id);
-    if (isEqualOrInside(session.worktreeCwd || session.cwd, tree.path))
+    if (
+      !session.worktreeRemoved &&
+      isEqualOrInside(session.worktreeCwd || session.cwd, tree.path)
+    )
       ids.add(session.id);
   }
   return [...ids];
@@ -97,6 +103,7 @@ export function sessionInWorktree(session: Session, tree: Worktree): Session {
     ...target,
     worktreeCwd:
       pathKey(tree.path) === pathKey(session.cwd) ? undefined : tree.path,
+    worktreeRemoved: undefined,
     branch: tree.branch ?? undefined,
     providerSessionId: undefined,
     context: undefined,

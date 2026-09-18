@@ -2187,18 +2187,25 @@ function SessionCard({
     compact && !orchestrationExpanded
       ? null
       : resolveModel(session.harness, session.model).name;
-  const statusClass = needsApproval
-    ? "text-amber-400"
-    : busy
-      ? "text-accent"
-      : done
-        ? "text-emerald-400"
-        : "text-content/45";
+  const statusClass = session.worktreeRemoved
+    ? "text-content/45"
+    : needsApproval
+      ? "text-amber-400"
+      : busy
+        ? "text-accent"
+        : done
+          ? "text-emerald-400"
+          : "text-content/45";
   const status = (
     <span
       className={`flex shrink-0 items-center gap-1 text-[11px] tabular-nums ${statusClass}`}
     >
-      {needsApproval ? (
+      {session.worktreeRemoved ? (
+        <>
+          <CircleAlert className="size-3" strokeWidth={1.75} />
+          <span>Worktree deleted</span>
+        </>
+      ) : needsApproval ? (
         <>
           <CircleAlert className="size-3" strokeWidth={1.75} />
           <span>{orchestration ? "Needs input" : "Need approval"}</span>

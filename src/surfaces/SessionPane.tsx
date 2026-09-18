@@ -1,4 +1,10 @@
-import { ChevronDown, GripVertical, X } from "../chrome/icons";
+import {
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  MessageSquare,
+  X,
+} from "../chrome/icons";
 import {
   memo,
   useCallback,
@@ -143,6 +149,7 @@ type Props = {
     turn: Block[],
   ) => void;
   onHandoff?: (sessionId: string, target: ModelTarget, turn: Block[]) => void;
+  onContinueRemovedWorktreeSession?: (sessionId: string) => void;
   onNewTerminal: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
@@ -192,6 +199,7 @@ export const SessionPane = memo(function SessionPane({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onContinueRemovedWorktreeSession,
   onNewTerminal,
   onPaneDragStart,
 }: Props) {
@@ -264,9 +272,9 @@ export const SessionPane = memo(function SessionPane({
   }, [visible]);
   // Restore a saved run for this lead; its agents render on the sidebar card.
   useEffect(() => {
-    if (!session.inboxAsk)
+    if (!session.inboxAsk && !session.worktreeRemoved)
       void orchestrator.hydrate(session.id).catch(console.error);
-  }, [session.id, session.inboxAsk]);
+  }, [session.id, session.inboxAsk, session.worktreeRemoved]);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
@@ -333,9 +341,33 @@ export const SessionPane = memo(function SessionPane({
   }, [addSelectionToChat, addToChatTarget]);
   const workCwd = sessionWorkCwd(session);
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
-  const dockComposer = !isEmpty || inSplit || !!session.inboxAsk;
+  const dockComposer =
+    !!session.worktreeRemoved || !isEmpty || inSplit || !!session.inboxAsk;
   const draftRef = useRef<string | undefined>(undefined);
-  const composer = (
+  const composer = session.worktreeRemoved ? (
+    <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-content/10 bg-background-base/95 px-3.5 py-3 shadow-lg backdrop-blur-md">
+      <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/8 text-content/55">
+        <MessageSquare className="size-4" />
+      </div>
+      <div className="min-w-44 flex-1">
+        <p className="text-[13px] font-medium text-content">
+          This session is read-only
+        </p>
+        <p className="mt-0.5 text-[11.5px] leading-4 text-content/50">
+          Its worktree was deleted. Continue with its context in a new session.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onContinueRemovedWorktreeSession?.(session.id)}
+        disabled={!onContinueRemovedWorktreeSession}
+        className="ml-auto flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-content px-3 text-[12px] font-medium text-background-base hover:bg-content/90 disabled:opacity-40 active:scale-[0.98]"
+      >
+        Continue in new session
+        <ChevronRight className="size-3.5" />
+      </button>
+    </div>
+  ) : (
     <Composer
       enabled={visible}
       focused={focused && composerFocused}
@@ -542,8 +574,10 @@ export const SessionPane = memo(function SessionPane({
                 model={session.model}
                 modelSettings={session.modelSettings}
                 pendingQuestion={!!session.pendingQuestion}
-                onApproval={approve}
-                onAddToChat={addSelectionToChat}
+                onApproval={session.worktreeRemoved ? undefined : approve}
+                onAddToChat={
+                  session.worktreeRemoved ? undefined : addSelectionToChat
+                }
                 onSaveNote={notesEnabled ? saveNote : undefined}
                 onSaveSelectionNote={
                   notesEnabled ? saveSelectionNote : undefined
@@ -551,15 +585,17 @@ export const SessionPane = memo(function SessionPane({
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}
                 onOpenPlan={openPlan}
-                onBuildPlan={buildPlan}
+                onBuildPlan={session.worktreeRemoved ? undefined : buildPlan}
                 onSecondOpinion={
-                  !session.inboxAsk && onSecondOpinion
+                  !session.inboxAsk &&
+                  !session.worktreeRemoved &&
+                  onSecondOpinion
                     ? (target, turn) =>
                         onSecondOpinion(session.id, target, turn)
                     : undefined
                 }
                 onHandoff={
-                  !session.inboxAsk && onHandoff
+                  !session.inboxAsk && !session.worktreeRemoved && onHandoff
                     ? (target, turn) => onHandoff(session.id, target, turn)
                     : undefined
                 }
@@ -567,7 +603,7 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
                 latestTurnAccessory={
-                  session.inboxAsk ? undefined : (
+                  session.inboxAsk || session.worktreeRemoved ? undefined : (
                     <SessionReview
                       sessionId={session.id}
                       cwd={workCwd}

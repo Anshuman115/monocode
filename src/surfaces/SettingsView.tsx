@@ -278,6 +278,12 @@ type Props = {
   onDeleteWorktreeSessions?: (
     sessionIds: readonly string[],
   ) => Promise<boolean>;
+  onSetSessionsWorktreeRemoved?: (
+    sessionIds: readonly string[],
+    removed: boolean,
+    projectCwd?: string,
+    worktreePath?: string,
+  ) => Promise<boolean>;
   besideRail?: boolean;
   onClose: () => void;
   /** Lets search jump to a setting that lives on another page. */
@@ -302,6 +308,7 @@ export function SettingsView({
   onRemoveWorktree = removeWorktree,
   onCheckWorktreeRemoval,
   onDeleteWorktreeSessions,
+  onSetSessionsWorktreeRemoved,
   besideRail = false,
   onClose,
   onSelectSection,
@@ -433,6 +440,7 @@ export function SettingsView({
                   onRemove={onRemoveWorktree}
                   onCheckRemove={onCheckWorktreeRemoval}
                   onDeleteSessions={onDeleteWorktreeSessions}
+                  onSetSessionsWorktreeRemoved={onSetSessionsWorktreeRemoved}
                 />
               ) : null}
               {section === "inbox" ? (

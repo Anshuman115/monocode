@@ -30,6 +30,7 @@ export function WorktreesPage({
   onRemove,
   onCheckRemove = checkWorktreeRemoval,
   onDeleteSessions,
+  onSetSessionsWorktreeRemoved,
 }: {
   cwd: string;
   recents?: RecentProject[];
@@ -37,6 +38,12 @@ export function WorktreesPage({
   onRemove: RemoveWorktree;
   onCheckRemove?: RemoveWorktree;
   onDeleteSessions?: (sessionIds: readonly string[]) => Promise<boolean>;
+  onSetSessionsWorktreeRemoved?: (
+    sessionIds: readonly string[],
+    removed: boolean,
+    projectCwd?: string,
+    worktreePath?: string,
+  ) => Promise<boolean>;
 }) {
   const projects = useMemo(() => {
     const choices: RecentProject[] = [];
@@ -92,8 +99,9 @@ export function WorktreesPage({
       </div>
       <div className="flex items-center justify-between gap-3">
         <p className="min-w-0 flex-1 text-[12px] text-content/50">
-          Sessions can share a worktree. Deleting one also deletes its sessions
-          and uncommitted changes. Its branch and commits are kept.
+          Sessions can share a worktree. Deleting one keeps its sessions as
+          read-only by default and discards uncommitted changes. Its branch and
+          commits are kept.
         </p>
         <button
           type="button"
@@ -238,26 +246,64 @@ export function WorktreesPage({
           cwd={project}
           tree={deleting}
           sessionCount={worktreeSessionIds(deleting, liveSessions).length}
-          onRemove={async (cwd, path, force) => {
+          onRemove={async (cwd, path, force, deleteSessions) => {
             // Check predictable blockers before any conversation is destroyed.
             await onCheckRemove(cwd, path, force);
             const sessionIds = worktreeSessionIds(deleting, liveSessions);
+            const mainCwd =
+              data?.worktrees.find((tree) => tree.isMain)?.path ?? cwd;
+            let sessionsPreserved = false;
             if (sessionIds.length) {
-              if (!onDeleteSessions) {
-                throw new Error(
-                  "Sessions still use this worktree and could not be deleted.",
-                );
-              }
-              if (!(await onDeleteSessions(sessionIds))) {
-                throw new Error(
-                  "Some sessions could not be deleted, so the worktree was kept.",
-                );
+              if (deleteSessions) {
+                if (!onDeleteSessions) {
+                  throw new Error(
+                    "Sessions still use this worktree and could not be deleted.",
+                  );
+                }
+                if (!(await onDeleteSessions(sessionIds))) {
+                  throw new Error(
+                    "Some sessions could not be deleted, so the worktree was kept.",
+                  );
+                }
+              } else {
+                if (!onSetSessionsWorktreeRemoved) {
+                  throw new Error(
+                    "Sessions still use this worktree and could not be preserved.",
+                  );
+                }
+                if (
+                  !(await onSetSessionsWorktreeRemoved(
+                    sessionIds,
+                    true,
+                    mainCwd,
+                    deleting.path,
+                  ))
+                ) {
+                  throw new Error(
+                    "Some sessions could not be made read-only, so the worktree was kept.",
+                  );
+                }
+                sessionsPreserved = true;
               }
             }
             try {
               await onRemove(cwd, path, force);
             } catch (error) {
-              if (sessionIds.length) {
+              if (sessionsPreserved) {
+                const restored = await onSetSessionsWorktreeRemoved?.(
+                  sessionIds,
+                  false,
+                  mainCwd,
+                  deleting.path,
+                );
+                refresh();
+                throw new Error(
+                  restored === false
+                    ? `The worktree was kept, but its sessions could not be restored. ${String(error)}`
+                    : String(error),
+                );
+              }
+              if (sessionIds.length && deleteSessions) {
                 refresh();
                 throw new Error(
                   `The sessions were deleted, but the worktree was kept. ${String(error)}`,

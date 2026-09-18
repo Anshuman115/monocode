@@ -39,6 +39,7 @@ export type SessionSummary = {
   providerSessionId?: string;
   branch?: string;
   worktreeCwd?: string;
+  worktreeRemoved?: boolean;
   repo?: string;
   additions?: number;
   deletions?: number;
@@ -65,6 +66,7 @@ type SessionRecord = {
   contextWindow?: number | null;
   branch?: string | null;
   worktreeCwd?: string | null;
+  worktreeRemoved?: boolean;
   linkedWorkItem?: LinkedWorkItem | null;
   createdAt: number;
   updatedAt: number;
@@ -85,6 +87,7 @@ type SessionUpsertPayload = {
   contextWindow?: number;
   branch?: string;
   worktreeCwd?: string;
+  worktreeRemoved?: boolean;
   linkedWorkItem?: LinkedWorkItem;
 };
 
@@ -126,6 +129,7 @@ function persistableMeta(
       : {}),
     ...(session.branch ? { branch: session.branch } : {}),
     ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}),
+    ...(session.worktreeRemoved ? { worktreeRemoved: true } : {}),
     ...(linkedWorkItem ? { linkedWorkItem } : {}),
   };
 }
@@ -364,6 +368,23 @@ export async function setSessionPinned(
   pinned: boolean,
 ): Promise<void> {
   await invoke<void>("session_set_pinned", { sessionId, pinned });
+}
+
+export async function setSessionsWorktreeRemoved(
+  sessionIds: readonly string[],
+  removed: boolean,
+  projectCwd?: string,
+  worktreePath?: string,
+): Promise<void> {
+  // A queued save contains the previous flag, so let it land before applying
+  // the bulk state transition. The caller prevents new saves during this call.
+  await Promise.all([...sessionWriteQueues.values()]);
+  await invoke<void>("session_set_worktree_removed", {
+    sessionIds: [...sessionIds],
+    removed,
+    projectCwd,
+    worktreePath,
+  });
 }
 
 /**
@@ -731,6 +752,7 @@ function recordToSession(record: SessionRecord): Session {
       : {}),
     ...(record.branch ? { branch: record.branch } : {}),
     ...(record.worktreeCwd ? { worktreeCwd: record.worktreeCwd } : {}),
+    ...(record.worktreeRemoved ? { worktreeRemoved: true } : {}),
     ...(linkedWorkItem ? { linkedWorkItem } : {}),
     ...(contextFromRecord(record) ?? {}),
   };

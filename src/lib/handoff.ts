@@ -2,7 +2,11 @@ import { isEditTool } from "./harness/preview";
 import { limitSection } from "./jsonText";
 import { displayPath } from "./paths";
 import {
+  formatSessionTitle,
   HARNESS_TITLE,
+  newSession,
+  sessionDisplayTitle,
+  sessionWorkCwd,
   type Block,
   type HarnessId,
   type HandoffMeta,
@@ -12,6 +16,39 @@ import {
 } from "./session";
 
 export const HANDOFF_TITLE = "Handoff";
+
+/** Start a writable conversation without reusing the deleted checkout. */
+export function continueRemovedWorktreeSession(source: Session): Session {
+  const display = sessionDisplayTitle(source.title, source.harness);
+  const latestRequest = [...source.blocks]
+    .reverse()
+    .find((block) => block.role === "user")?.text;
+  return {
+    ...newSession(
+      source.harness,
+      source.cwd,
+      source.model,
+      source.runtimeMode,
+      source.modelSettings,
+    ),
+    providerAccountId: source.providerAccountId,
+    title: formatSessionTitle(
+      source.harness,
+      display === "New session" ? HANDOFF_TITLE : display,
+    ),
+    handoffCard: buildHandoffComposerCard({
+      from: source.harness,
+      to: source.harness,
+      brief: buildDeterministicHandoff(
+        source,
+        undefined,
+        sessionWorkCwd(source),
+      ),
+      userRequest: latestRequest ?? "",
+      files: [],
+    }),
+  };
+}
 
 /** Composer chip: recap is injected on send so the user can add context first. */
 export type HandoffComposerCard = {

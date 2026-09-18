@@ -45,6 +45,7 @@ export type WorkspaceSessionStub = {
   providerAccountId?: string;
   branch?: string;
   worktreeCwd?: string;
+  worktreeRemoved?: boolean;
 };
 
 export type WorkspaceSnapshot = {
@@ -318,6 +319,7 @@ function sessionStub(session: Session): WorkspaceSessionStub | null {
       : {}),
     ...(session.branch ? { branch: session.branch } : {}),
     ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}),
+    ...(session.worktreeRemoved ? { worktreeRemoved: true } : {}),
   };
 }
 
@@ -342,6 +344,7 @@ function sessionFromStub(stub: WorkspaceSessionStub): Session {
       : {}),
     ...(stub.branch ? { branch: stub.branch } : {}),
     ...(stub.worktreeCwd ? { worktreeCwd: stub.worktreeCwd } : {}),
+    ...(stub.worktreeRemoved ? { worktreeRemoved: true } : {}),
   };
 }
 
@@ -386,6 +389,7 @@ function sanitizeStub(raw: unknown): WorkspaceSessionStub | null {
     ...(typeof value.worktreeCwd === "string" && value.worktreeCwd.trim()
       ? { worktreeCwd: value.worktreeCwd.trim() }
       : {}),
+    ...(value.worktreeRemoved === true ? { worktreeRemoved: true } : {}),
   };
 }
 

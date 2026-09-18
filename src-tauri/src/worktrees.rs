@@ -102,7 +102,11 @@ pub(crate) fn contains_working_dir(root: &Path, cwd: &Path) -> bool {
 
 fn session_ids(conn: &rusqlite::Connection, path: &Path) -> Result<Vec<String>, String> {
     let mut query = conn
-        .prepare("SELECT id, COALESCE(NULLIF(worktree_cwd, ''), cwd) FROM sessions")
+        .prepare(
+            "SELECT id, COALESCE(NULLIF(worktree_cwd, ''), cwd)
+             FROM sessions
+             WHERE worktree_removed = 0",
+        )
         .map_err(|e| e.to_string())?;
     let rows = query
         .query_map([], |row| {
@@ -459,15 +463,16 @@ mod tests {
         let tree = create(&root, "feature", "main", false).unwrap();
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.lock_conn().unwrap();
-        for (id, cwd, worktree, archived) in [
-            ("shared", path_to_js(&root), Some(tree.path.clone()), 0),
-            ("archived", path_to_js(&root), Some(tree.path.clone()), 1),
-            ("direct", tree.path.clone(), None, 0),
-            ("main", path_to_js(&root), None, 0),
+        for (id, cwd, worktree, archived, removed) in [
+            ("shared", path_to_js(&root), Some(tree.path.clone()), 0, 0),
+            ("archived", path_to_js(&root), Some(tree.path.clone()), 1, 0),
+            ("direct", tree.path.clone(), None, 0, 0),
+            ("removed", path_to_js(&root), Some(tree.path.clone()), 0, 1),
+            ("main", path_to_js(&root), None, 0, 0),
         ] {
             conn.execute(
-                "INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at, worktree_cwd, archived) VALUES (?1, ?2, 'codex', 'test', 'supervised', 'Test', '[]', 0, 0, ?3, ?4)",
-                rusqlite::params![id, cwd, worktree, archived],
+                "INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at, worktree_cwd, archived, worktree_removed) VALUES (?1, ?2, 'codex', 'test', 'supervised', 'Test', '[]', 0, 0, ?3, ?4, ?5)",
+                rusqlite::params![id, cwd, worktree, archived, removed],
             ).unwrap();
         }
         let mut ids = session_ids(&conn, Path::new(&tree.path)).unwrap();

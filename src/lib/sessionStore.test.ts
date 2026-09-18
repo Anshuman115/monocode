@@ -92,6 +92,17 @@ describe("persisting a subagent's trail", () => {
 });
 
 describe("sanitizeSessionForPersist", () => {
+  it("persists a removed worktree as an explicit read-only session state", () => {
+    const session = newSession("codex", "/repo");
+    session.worktreeCwd = "/repo-worktrees/feature";
+    session.worktreeRemoved = true;
+    session.blocks = [{ id: "u", role: "user", text: "Build feature" }];
+    expect(sanitizeSessionForPersist(session)).toMatchObject({
+      worktreeCwd: "/repo-worktrees/feature",
+      worktreeRemoved: true,
+    });
+  });
+
   it("preserves an internal worker's lead, hidden turns, and token metrics", () => {
     const session = {
       ...newSession("claude", "/repo"),
