@@ -390,12 +390,13 @@ pub fn harness_spawn(
     cwd: String,
     account: Option<HarnessAccount>,
 ) -> Result<u32, String> {
+    let workdir = expand_home(&cwd);
+    let _reservation = crate::worktree_lifecycle::reserve_spawn(&workdir)?;
     let (epoch, kill_all, prev) = host.begin_spawn(&session_id);
     if let Some(prev) = prev {
         terminate(prev.pid);
     }
 
-    let workdir = expand_home(&cwd);
     if !workdir.is_dir() {
         return Err(format!(
             "Working directory does not exist: {}",

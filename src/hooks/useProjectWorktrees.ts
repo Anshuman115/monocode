@@ -8,7 +8,7 @@ type Entry = {
   cwd: string;
   snapshot: Snapshot;
   listeners: Set<() => void>;
-  inFlight: boolean;
+  inFlight?: Promise<boolean>;
   invalidated: boolean;
   stop?: () => void;
 };
@@ -24,7 +24,6 @@ function entryFor(cwd: string): Entry {
       cwd,
       snapshot: EMPTY,
       listeners: new Set(),
-      inFlight: false,
       invalidated: false,
     };
     entries.set(key, entry);
@@ -37,28 +36,32 @@ function publish(entry: Entry, snapshot: Snapshot) {
   for (const listener of entry.listeners) listener();
 }
 
-async function load(entry: Entry, invalidated = false) {
+function load(entry: Entry, invalidated = false): Promise<boolean> {
   if (entry.inFlight) {
     // A Git mutation during a read needs a follow-up; repeated focus/open
     // events can share the request already in progress.
     entry.invalidated ||= invalidated;
-    return;
+    return entry.inFlight;
   }
-  entry.inFlight = true;
-  try {
-    const data = await listWorktrees(entry.cwd);
-    publish(entry, { data });
-  } catch (error) {
-    // A background failure must not replace a usable list with a loading or
-    // error screen. The caller can still surface the error beside the list.
-    publish(entry, { ...entry.snapshot, error: String(error) });
-  } finally {
-    entry.inFlight = false;
+  entry.inFlight = (async () => {
+    let loaded = false;
+    try {
+      const data = await listWorktrees(entry.cwd);
+      publish(entry, { data });
+      loaded = true;
+    } catch (error) {
+      // A background failure must not replace a usable list with a loading or
+      // error screen. The caller can still surface the error beside the list.
+      publish(entry, { ...entry.snapshot, error: String(error) });
+    }
+    entry.inFlight = undefined;
     if (entry.invalidated) {
       entry.invalidated = false;
-      void load(entry);
+      return load(entry);
     }
-  }
+    return loaded;
+  })();
+  return entry.inFlight;
 }
 
 function start(entry: Entry) {
@@ -103,7 +106,7 @@ export function useProjectWorktrees(cwd: string, enabled = true) {
     [active, cwd],
   );
   const refresh = useCallback(() => {
-    if (active) void load(entryFor(cwd));
+    return active ? load(entryFor(cwd), true) : Promise.resolve(false);
   }, [active, cwd]);
   return {
     ...useSyncExternalStore(subscribe, getSnapshot, getSnapshot),

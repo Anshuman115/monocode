@@ -39,6 +39,7 @@ impl SessionStore {
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
             .map_err(|e| e.to_string())?;
         migrate(&conn).map_err(|e| e.to_string())?;
+        crate::worktrees::reconcile_removals(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -617,6 +618,20 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             params![now_millis()],
         )?;
     }
+    if current < 16 {
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS sessions_cwd_cover_idx;
+             CREATE INDEX sessions_cwd_cover_idx
+               ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                            model, runtime_mode, title, provider_session_id,
+                            created_at, branch, archived, pinned,
+                            linked_work_item_json, worktree_cwd, worktree_removed);",
+        )?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (16, ?1)",
+            params![now_millis()],
+        )?;
+    }
     // Create even when a version row already exists (another build may have
     // used the same numbers, or a previous run recorded the version without
     // the table). Restore writes into these; missing tables look like a
@@ -631,6 +646,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
            id INTEGER PRIMARY KEY CHECK (id = 1),
            snapshot_json TEXT NOT NULL,
            updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS worktree_removals (
+           path TEXT PRIMARY KEY,
+           sessions_json TEXT NOT NULL
          );",
     )?;
     // Compatibility only: earlier Inbox Ask builds saved temporary chats here.
@@ -1693,12 +1712,26 @@ mod tests {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.conn.lock().unwrap();
         upsert_session(&conn, &sample("s1", "/tmp/a", "A1")).unwrap();
-        let plan: String = conn
-            .query_row(
-                "EXPLAIN QUERY PLAN
+        for upgraded in [false, true] {
+            if upgraded {
+                // Exercise an existing v15 database with the old projection.
+                conn.execute_batch(
+                    "DROP INDEX sessions_cwd_cover_idx;
+                     CREATE INDEX sessions_cwd_cover_idx
+                       ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                                    model, runtime_mode, title, provider_session_id,
+                                    created_at, branch, archived, pinned, linked_work_item_json);
+                     DELETE FROM schema_migrations WHERE version = 16;",
+                )
+                .unwrap();
+                migrate(&conn).unwrap();
+            }
+            let plan: String = conn
+                .query_row(
+                    "EXPLAIN QUERY PLAN
                  SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                         created_at, updated_at, branch, archived, pinned,
-                        linked_work_item_json,
+                        linked_work_item_json, worktree_cwd, worktree_removed,
                         (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
                  FROM sessions
                  WHERE cwd = ?1
@@ -1706,14 +1739,15 @@ mod tests {
                    AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
                    AND id NOT IN (SELECT session_id FROM orchestration_workers)
                  ORDER BY updated_at DESC, id ASC",
-                params!["/tmp/a"],
-                |row| row.get(3),
-            )
-            .unwrap();
-        assert!(
-            plan.contains("COVERING INDEX"),
-            "sidebar listing fell back to table seeks: {plan}"
-        );
+                    params!["/tmp/a"],
+                    |row| row.get(3),
+                )
+                .unwrap();
+            assert!(
+                plan.contains("COVERING INDEX"),
+                "sidebar listing fell back to table seeks: {plan}"
+            );
+        }
     }
 
     #[test]

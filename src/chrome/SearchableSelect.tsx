@@ -135,9 +135,9 @@ export function SearchableSelect({
       return;
     }
     if (event.key === "Enter") {
+      event.preventDefault();
       const option = filtered[active];
       if (!option) return;
-      event.preventDefault();
       pick(option.value);
     }
   };

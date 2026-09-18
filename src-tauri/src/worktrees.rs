@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::fs::{expand_home, git_checked, path_to_js};
@@ -309,8 +309,157 @@ pub struct WorktreeRemoval {
     project_cwd: String,
 }
 
-/// Keep the database transition and Git failure handling together: a failed
-/// removal rolls back the session changes, including archived conversations.
+#[derive(Serialize, Deserialize)]
+struct SessionBeforeRemoval {
+    id: String,
+    cwd: String,
+    worktree_cwd: Option<String>,
+    branch: Option<String>,
+    provider_session_id: Option<String>,
+    context_used: Option<i64>,
+    context_window: Option<i64>,
+    in_flight_cwd: Option<String>,
+    in_flight_sort_index: Option<i64>,
+    detached_cwd: String,
+}
+
+/// Make sessions safe to reopen *before* touching Git. A small metadata journal
+/// lets a failed/interrupted deletion restore their original working context.
+fn prepare_removal(
+    conn: &rusqlite::Connection,
+    path: &Path,
+    project_cwd: &str,
+    ids: &[String],
+) -> Result<Vec<SessionBeforeRemoval>, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut saved = Vec::new();
+    for id in ids {
+        let mut session = tx
+            .query_row(
+                "SELECT s.cwd, s.worktree_cwd, s.branch, s.provider_session_id,
+                    s.context_used, s.context_window, f.cwd, f.sort_index
+             FROM sessions s LEFT JOIN in_flight_sessions f ON f.session_id = s.id
+             WHERE s.id = ?1",
+                [id],
+                |row| {
+                    Ok(SessionBeforeRemoval {
+                        id: id.clone(),
+                        cwd: row.get(0)?,
+                        worktree_cwd: row.get(1)?,
+                        branch: row.get(2)?,
+                        provider_session_id: row.get(3)?,
+                        context_used: row.get(4)?,
+                        context_window: row.get(5)?,
+                        in_flight_cwd: row.get(6)?,
+                        in_flight_sort_index: row.get(7)?,
+                        detached_cwd: String::new(),
+                    })
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        session.detached_cwd = if contains_working_dir(path, &expand_home(&session.cwd)) {
+            project_cwd.to_owned()
+        } else {
+            session.cwd.clone()
+        };
+        tx.execute(
+            "UPDATE sessions SET worktree_removed = 1,
+               worktree_cwd = COALESCE(NULLIF(worktree_cwd, ''), cwd),
+               cwd = ?2, branch = NULL, provider_session_id = NULL,
+               context_used = NULL, context_window = NULL WHERE id = ?1",
+            rusqlite::params![id, session.detached_cwd],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM in_flight_sessions WHERE session_id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        saved.push(session);
+    }
+    tx.execute(
+        "INSERT INTO worktree_removals (path, sessions_json) VALUES (?1, ?2)",
+        rusqlite::params![
+            path_to_js(path),
+            serde_json::to_string(&saved).map_err(|e| e.to_string())?
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(saved)
+}
+
+fn finish_removal(
+    conn: &rusqlite::Connection,
+    path: &str,
+    restore: &[SessionBeforeRemoval],
+) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    for session in restore {
+        // A cleanup failure can leave a journal until the next launch. Do not
+        // overwrite sessions which the user has since reattached or deleted.
+        let changed = tx
+            .execute(
+                "UPDATE sessions SET cwd = ?2, worktree_cwd = ?3, branch = ?4,
+               provider_session_id = ?5, context_used = ?6, context_window = ?7,
+               worktree_removed = 0
+             WHERE id = ?1 AND worktree_removed = 1 AND cwd = ?8 AND worktree_cwd = ?9",
+                rusqlite::params![
+                    session.id,
+                    session.cwd,
+                    session.worktree_cwd,
+                    session.branch,
+                    session.provider_session_id,
+                    session.context_used,
+                    session.context_window,
+                    session.detached_cwd,
+                    session
+                        .worktree_cwd
+                        .as_deref()
+                        .filter(|cwd| !cwd.is_empty())
+                        .unwrap_or(&session.cwd)
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed > 0 {
+            if let (Some(cwd), Some(index)) = (&session.in_flight_cwd, session.in_flight_sort_index)
+            {
+                tx.execute(
+                    "INSERT OR REPLACE INTO in_flight_sessions (session_id, cwd, sort_index) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![session.id, cwd, index],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    tx.execute("DELETE FROM worktree_removals WHERE path = ?1", [path])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
+}
+
+pub(crate) fn reconcile_removals(conn: &rusqlite::Connection) -> Result<(), String> {
+    let pending = conn
+        .prepare("SELECT path, sessions_json FROM worktree_removals")
+        .map_err(|e| e.to_string())?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    for (path, json) in pending {
+        // A surviving Git link means removal did not finish. If the link/folder
+        // is gone, the already-persisted detached sessions are the final state.
+        let restore = if Path::new(&path)
+            .join(".git")
+            .try_exists()
+            .map_err(|e| e.to_string())?
+        {
+            serde_json::from_str::<Vec<SessionBeforeRemoval>>(&json).map_err(|e| e.to_string())?
+        } else {
+            Vec::new()
+        };
+        finish_removal(conn, &path, &restore)?;
+    }
+    Ok(())
+}
+
 fn remove_with_sessions(
     conn: &rusqlite::Connection,
     root: &Path,
@@ -318,6 +467,7 @@ fn remove_with_sessions(
     force: bool,
     keep_sessions: bool,
 ) -> Result<WorktreeRemoval, String> {
+    let tree = removal_target(root, path)?;
     let worktrees = list(root)?;
     let main = worktrees
         .iter()
@@ -327,32 +477,19 @@ fn remove_with_sessions(
     if !keep_sessions && !ids.is_empty() {
         return Err("Sessions still use this worktree. Move or delete those sessions first (including archived sessions).".into());
     }
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    for id in &ids {
-        let cwd: String = tx
-            .query_row("SELECT cwd FROM sessions WHERE id = ?1", [id], |row| {
-                row.get(0)
-            })
-            .map_err(|e| e.to_string())?;
-        let project_cwd = if contains_working_dir(path, &expand_home(&cwd)) {
-            &main.path
-        } else {
-            &cwd
-        };
-        tx.execute(
-            "UPDATE sessions SET worktree_removed = 1,
-               worktree_cwd = COALESCE(NULLIF(worktree_cwd, ''), cwd),
-               cwd = ?2, branch = NULL, provider_session_id = NULL,
-               context_used = NULL, context_window = NULL WHERE id = ?1",
-            rusqlite::params![id, project_cwd],
-        )
-        .map_err(|e| e.to_string())?;
-        tx.execute("DELETE FROM in_flight_sessions WHERE session_id = ?1", [id])
-            .map_err(|e| e.to_string())?;
-    }
+    let saved = prepare_removal(conn, Path::new(&tree.path), &main.path, &ids)?;
     // Use the main copy even if Settings was opened directly on the target.
-    remove(Path::new(&main.path), path, force)?;
-    tx.commit().map_err(|e| e.to_string())?;
+    if let Err(error) = remove(Path::new(&main.path), path, force) {
+        finish_removal(conn, &tree.path, &saved).map_err(|restore| {
+            format!("{error}. Sessions remain detached until recovery on restart: {restore}")
+        })?;
+        return Err(error);
+    }
+    // Git has succeeded and the sessions are already durably detached. A
+    // cleanup failure must not tell the UI to resume them in the deleted path.
+    if let Err(error) = finish_removal(conn, &tree.path, &[]) {
+        eprintln!("Worktree removed; recovery journal cleanup will retry on restart: {error}");
+    }
     Ok(WorktreeRemoval {
         session_ids: ids,
         project_cwd: main.path.clone(),
@@ -370,6 +507,7 @@ pub fn git_worktree_remove(
     agents: State<'_, crate::harness::HarnessHost>,
 ) -> Result<WorktreeRemoval, String> {
     let path = expand_home(&path);
+    let _reservation = crate::worktree_lifecycle::reserve_removal(&path)?;
     if terminals.has_working_dir(&path) || agents.has_working_dir(&path) {
         return Err("Close the terminals and agent processes using this worktree first.".into());
     }
@@ -612,5 +750,136 @@ mod tests {
             .unwrap();
         assert!(!main_removed);
         assert!(git(&root, &["rev-parse", "--verify", "refs/heads/feature"]).is_ok());
+    }
+
+    #[test]
+    fn startup_recovers_interruptions_before_and_after_git_removal() {
+        type StoredContext = (
+            String,
+            Option<String>,
+            bool,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        );
+        for git_removed in [false, true] {
+            let repo = repo();
+            let root = repo.0.join("repo");
+            let tree = create(&root, "feature", "main", false).unwrap();
+            let main = list(&root).unwrap().remove(0).path;
+            let db = repo.0.join("sessions.db");
+            {
+                let store = SessionStore::open(db.clone()).unwrap();
+                let conn = store.lock_conn().unwrap();
+                conn.execute(
+                    "INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title, created_at, updated_at, branch, provider_session_id, context_used, context_window)
+                     VALUES ('s1', ?1, 'codex', 'test', 'supervised', 'Keep title', 10, 20, 'feature', 'provider', 12, 100)",
+                    [&tree.path],
+                ).unwrap();
+                conn.execute(
+                    "INSERT INTO in_flight_sessions VALUES ('s1', ?1, 3)",
+                    [&tree.path],
+                )
+                .unwrap();
+                prepare_removal(&conn, Path::new(&tree.path), &main, &["s1".into()]).unwrap();
+                if git_removed {
+                    remove(&root, Path::new(&tree.path), true).unwrap();
+                }
+                // Drop the connection without finalizing, as on process exit.
+            }
+            let store = SessionStore::open(db).unwrap();
+            let conn = store.lock_conn().unwrap();
+            let state: StoredContext = conn.query_row(
+                "SELECT cwd, worktree_cwd, worktree_removed, branch, provider_session_id, context_used, context_window FROM sessions WHERE id = 's1'", [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+            ).unwrap();
+            if git_removed {
+                assert_eq!(state, (main, Some(tree.path), true, None, None, None, None));
+            } else {
+                assert_eq!(
+                    state,
+                    (
+                        tree.path.clone(),
+                        None,
+                        false,
+                        Some("feature".into()),
+                        Some("provider".into()),
+                        Some(12),
+                        Some(100)
+                    )
+                );
+                let in_flight: (String, i64) = conn
+                    .query_row(
+                        "SELECT cwd, sort_index FROM in_flight_sessions WHERE session_id = 's1'",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .unwrap();
+                assert_eq!(in_flight, (tree.path, 3));
+            }
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM worktree_removals", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+        }
+    }
+
+    #[test]
+    fn database_failures_keep_worktree_and_session_state_consistent() {
+        let repo = repo();
+        let root = repo.0.join("repo");
+        let tree = create(&root, "feature", "main", false).unwrap();
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title, created_at, updated_at)
+             VALUES ('s1', ?1, 'codex', 'test', 'supervised', 'Keep title', 10, 20)",
+            [&tree.path],
+        ).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_prepare BEFORE INSERT ON worktree_removals
+             BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
+        )
+        .unwrap();
+        assert!(remove_with_sessions(&conn, &root, Path::new(&tree.path), true, true).is_err());
+        assert!(Path::new(&tree.path).exists());
+        assert_eq!(session_ids(&conn, Path::new(&tree.path)).unwrap(), ["s1"]);
+        conn.execute_batch("DROP TRIGGER fail_prepare").unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_cleanup BEFORE DELETE ON worktree_removals
+             BEGIN SELECT RAISE(ABORT, 'cleanup unavailable'); END;",
+        )
+        .unwrap();
+        let removed =
+            remove_with_sessions(&conn, &root, Path::new(&tree.path), true, true).unwrap();
+        assert_eq!(removed.session_ids, ["s1"]);
+        assert!(!Path::new(&tree.path).exists());
+        let detached: bool = conn
+            .query_row(
+                "SELECT worktree_removed FROM sessions WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(detached);
+        let pending: i64 = conn
+            .query_row("SELECT COUNT(*) FROM worktree_removals", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(pending, 1);
+        conn.execute_batch("DROP TRIGGER fail_cleanup").unwrap();
+        reconcile_removals(&conn).unwrap();
+        let detached: bool = conn
+            .query_row(
+                "SELECT worktree_removed FROM sessions WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(detached);
     }
 }

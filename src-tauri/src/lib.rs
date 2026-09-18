@@ -31,6 +31,7 @@ mod window;
 mod window_transfer;
 #[cfg(windows)]
 mod windows;
+mod worktree_lifecycle;
 mod worktrees;
 
 // Phase 1 seam: spawn / kill harness children per MonoCode thread.

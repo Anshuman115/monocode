@@ -750,6 +750,79 @@ it("reports partial completion if worktree removal fails after successful prefli
   );
 });
 
+it.each(["partial", "rejected", "worktree", "refresh"] as const)(
+  "refreshes the session IDs before retrying a %s deletion failure",
+  async (failure) => {
+    vi.mocked(listWorktrees).mockResolvedValue({
+      ...result(),
+      worktrees: [{ ...tree, sessionIds: ["deleted", "remaining"] }],
+    });
+    const onDeleteSessions = vi.fn().mockResolvedValue(false);
+    const onRemove = vi.fn().mockResolvedValue(undefined);
+    if (failure === "rejected") {
+      onDeleteSessions.mockRejectedValue(new Error("Session deletion failed"));
+    } else if (failure === "worktree") {
+      onDeleteSessions.mockResolvedValue(true);
+      onRemove.mockRejectedValue(new Error("Disk unavailable"));
+    }
+    await act(async () =>
+      root.render(
+        createElement(WorktreesPage, {
+          cwd: `/retry-${failure}`,
+          onDeleteSessions,
+          onRemove,
+        }),
+      ),
+    );
+    const remove = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Delete feature"]',
+    )!;
+    await act(async () => remove.click());
+    await confirmWorktree("feature");
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
+    );
+    const refresh = deferred();
+    vi.mocked(listWorktrees).mockReturnValue(refresh.promise);
+    await act(async () => button("Delete worktree and sessions").click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(remove.disabled).toBe(true);
+    expect(onDeleteSessions).toHaveBeenCalledWith(["deleted", "remaining"]);
+    const sessionIds = failure === "worktree" ? [] : ["remaining"];
+    if (failure === "refresh") {
+      await act(async () => refresh.reject(new Error("Refresh unavailable")));
+      expect(remove.disabled).toBe(true);
+      vi.mocked(listWorktrees).mockResolvedValue({
+        ...result(),
+        worktrees: [{ ...tree, sessionIds }],
+      });
+      await act(async () => button("Refresh").click());
+    }
+    await act(async () =>
+      refresh.resolve({ ...result(), worktrees: [{ ...tree, sessionIds }] }),
+    );
+    expect(remove.disabled).toBe(false);
+    onDeleteSessions.mockResolvedValue(true);
+    onRemove.mockResolvedValue(undefined);
+    await act(async () => remove.click());
+    await confirmWorktree("feature");
+    if (sessionIds.length) {
+      expect(document.body.textContent).toContain(
+        "1 session using this worktree is kept.",
+      );
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
+      );
+      await act(async () => button("Delete worktree and session").click());
+      expect(onDeleteSessions).toHaveBeenLastCalledWith(["remaining"]);
+    } else {
+      await act(async () => button("Delete worktree").click());
+      expect(onDeleteSessions).toHaveBeenCalledOnce();
+    }
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  },
+);
+
 it("keeps the last session's worktree unless its unchecked option is selected", async () => {
   const onClose = vi.fn();
   await act(async () =>
@@ -861,6 +934,15 @@ it("uses searchable custom selects in the create worktree dialog", async () => {
     'input[placeholder="Search branches and refs…"]',
   )!;
   expect(search).not.toBeNull();
+  await act(async () => type(search, "no-matching-branch"));
+  const enter = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => search.dispatchEvent(enter));
+  expect(enter.defaultPrevented).toBe(true);
+  expect(search.isConnected).toBe(true);
   await act(async () =>
     search.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -872,7 +954,6 @@ it("uses searchable custom selects in the create worktree dialog", async () => {
   expect(document.body.textContent).toContain("Create worktree");
   expect(onCancel).not.toHaveBeenCalled();
 });
-
 
 it("keeps associated sessions by default when deleting a worktree", async () => {
   vi.mocked(listWorktrees).mockResolvedValue({

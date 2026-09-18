@@ -63,6 +63,7 @@ export function WorktreesPage({
   const [error, setError] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Worktree>();
+  const [refreshingAfterFailure, setRefreshingAfterFailure] = useState(false);
   return (
     <div
       data-setting-id="project-worktrees"
@@ -209,10 +210,13 @@ export function WorktreesPage({
                 </button>
                 <button
                   type="button"
-                  disabled={!!blocked}
+                  disabled={!!blocked || refreshingAfterFailure || !!loadError}
                   aria-label={`Delete ${tree.branch ?? "worktree"}`}
                   title={blocked ?? "Delete worktree"}
-                  onClick={() => setDeleting(tree)}
+                  onClick={() => {
+                    setError(undefined);
+                    setDeleting(tree);
+                  }}
                   className="rounded-md p-1.5 text-content/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-25"
                 >
                   <Trash2 className="size-4" />
@@ -248,28 +252,36 @@ export function WorktreesPage({
             // Check predictable blockers before any conversation is destroyed.
             await onCheckRemove(cwd, path, force);
             const sessionIds = worktreeSessionIds(deleting, liveSessions);
-            if (sessionIds.length && deleteSessions) {
-              if (!onDeleteSessions) {
-                throw new Error(
-                  "Sessions still use this worktree and could not be deleted.",
-                );
-              }
-              if (!(await onDeleteSessions(sessionIds))) {
-                throw new Error(
-                  "Some sessions could not be deleted, so the worktree was kept.",
-                );
-              }
-            }
+            let sessionsDeleted = false;
             try {
+              if (sessionIds.length && deleteSessions) {
+                if (!onDeleteSessions) {
+                  throw new Error(
+                    "Sessions still use this worktree and could not be deleted.",
+                  );
+                }
+                if (!(await onDeleteSessions(sessionIds))) {
+                  throw new Error(
+                    "Some sessions could not be deleted, so the worktree was kept.",
+                  );
+                }
+                sessionsDeleted = true;
+              }
               await onRemove(cwd, path, force, !deleteSessions);
             } catch (error) {
-              if (sessionIds.length && deleteSessions) {
-                refresh();
-                throw new Error(
-                  `The sessions were deleted, but the worktree was kept. ${String(error)}`,
-                );
-              }
-              throw error;
+              const failure = sessionsDeleted
+                ? new Error(
+                    `The sessions were deleted, but the worktree was kept. ${String(error)}`,
+                  )
+                : error;
+              // A partial deletion invalidates the dialog's saved session IDs.
+              // Require a fresh listing before another destructive attempt.
+              setDeleting(undefined);
+              setError(String(failure));
+              setRefreshingAfterFailure(true);
+              await refresh();
+              setRefreshingAfterFailure(false);
+              throw failure;
             }
           }}
           onClose={() => setDeleting(undefined)}

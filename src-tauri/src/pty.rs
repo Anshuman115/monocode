@@ -133,6 +133,8 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    let workdir = working_dir(&cwd);
+    let _reservation = crate::worktree_lifecycle::reserve_spawn(&workdir)?;
     if let Some(prev) = host.remove(&id) {
         terminate(prev.pid);
         #[cfg(unix)]
@@ -141,12 +143,12 @@ pub fn pty_spawn(
 
     #[cfg(unix)]
     {
-        spawn_unix(app, host, id, cwd, cols.max(2), rows.max(2))
+        spawn_unix(app, host, id, workdir, cols.max(2), rows.max(2))
     }
 
     #[cfg(windows)]
     {
-        spawn_windows(app, host, id, cwd, cols.max(2), rows.max(2))
+        spawn_windows(app, host, id, workdir, cols.max(2), rows.max(2))
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -244,7 +246,7 @@ fn spawn_unix(
     app: AppHandle,
     host: State<PtyHost>,
     id: String,
-    cwd: String,
+    workdir: std::path::PathBuf,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
@@ -253,7 +255,6 @@ fn spawn_unix(
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
-    let workdir = working_dir(&cwd);
     let (shell, args) = default_shell();
     let (master, slave) = open_pty(cols, rows)?;
 
@@ -374,13 +375,12 @@ fn spawn_windows(
     app: AppHandle,
     host: State<PtyHost>,
     id: String,
-    cwd: String,
+    workdir: std::path::PathBuf,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-    let workdir = working_dir(&cwd);
     let (shell, args) = default_shell();
     let pty_system = native_pty_system();
     let pair = pty_system
