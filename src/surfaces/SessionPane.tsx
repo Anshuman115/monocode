@@ -345,8 +345,8 @@ export const SessionPane = memo(function SessionPane({
     !!session.worktreeRemoved || !isEmpty || inSplit || !!session.inboxAsk;
   const draftRef = useRef<string | undefined>(undefined);
   const composer = session.worktreeRemoved ? (
-    <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-content/10 bg-background-base/95 px-3.5 py-3 shadow-lg backdrop-blur-md">
-      <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/8 text-content/55">
+    <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-content/10 bg-content/3 px-3 py-2.5 backdrop-blur-sm">
+      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-content/6 text-content/55">
         <MessageSquare className="size-4" />
       </div>
       <div className="min-w-44 flex-1">
@@ -354,16 +354,16 @@ export const SessionPane = memo(function SessionPane({
           This session is read-only
         </p>
         <p className="mt-0.5 text-[11.5px] leading-4 text-content/50">
-          Its worktree was deleted. Continue with its context in a new session.
+          Its worktree was deleted. Continue here with its context.
         </p>
       </div>
       <button
         type="button"
         onClick={() => onContinueRemovedWorktreeSession?.(session.id)}
         disabled={!onContinueRemovedWorktreeSession}
-        className="ml-auto flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-content px-3 text-[12px] font-medium text-background-base hover:bg-content/90 disabled:opacity-40 active:scale-[0.98]"
+        className="ml-auto flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-content/10 bg-content/8 px-3 text-[12px] font-medium text-content hover:bg-content/12 disabled:opacity-40 active:scale-[0.98]"
       >
-        Continue in new session
+        Continue
         <ChevronRight className="size-3.5" />
       </button>
     </div>
