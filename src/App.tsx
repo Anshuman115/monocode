@@ -4222,7 +4222,6 @@ export default function App({
                 forgetHarnessSession(harness, sessionId),
               ),
             );
-            if (shouldPersistSession(latest)) await upsertSession(latest);
           }
         }
 
@@ -6024,54 +6023,6 @@ export default function App({
     [appendTab],
   );
 
-  const replaceSessionInPane = useCallback(
-    (
-      sourceId: string,
-      session: Session,
-      cwd: string,
-      focusComposer = false,
-    ) => {
-      const source = sessionsRef.current.find(
-        (entry) => entry.id === sourceId,
-      );
-      if (source && shouldPersistSession(source)) {
-        rememberLoadedSession(loadedSessionCache.current, source);
-      }
-      const nextSessions = sessionsRef.current
-        .filter((entry) => entry.id !== sourceId)
-        .concat(session);
-      sessionsRef.current = nextSessions;
-      setSessions(nextSessions);
-
-      const tab = tabsRef.current.find((entry) =>
-        leafIds(entry.layout).includes(sourceId),
-      );
-      if (tab) {
-        const nextTabs = tabsRef.current.map((entry) =>
-          entry.id === tab.id
-            ? {
-                ...entry,
-                layout: replaceLeafId(entry.layout, sourceId, session.id),
-                focusedId: session.id,
-                diffFocused: false,
-              }
-            : entry,
-        );
-        tabsRef.current = nextTabs;
-        setTabs(nextTabs);
-        if (tab.id !== activeTabIdRef.current) setActiveTabId(tab.id);
-      } else {
-        const nextTab = newTab(session.id);
-        appendTab(nextTab, cwd);
-        setActiveTabId(nextTab.id);
-      }
-
-      setProjectTerminalFocused(false);
-      setComposerFocused(focusComposer);
-    },
-    [appendTab],
-  );
-
   const onSecondOpinion = useCallback(
     (sourceId: string, target: ModelTarget, turn: Block[]) => {
       const source = sessionsRef.current.find(
@@ -6157,9 +6108,9 @@ export default function App({
       );
       if (!source?.worktreeRemoved) return;
       const session = continueRemovedWorktreeSession(source);
-      replaceSessionInPane(sourceId, session, source.cwd, true);
+      openSessionBeside(sourceId, session, source.cwd, true);
     },
-    [replaceSessionInPane],
+    [openSessionBeside],
   );
 
   const autoContinueKey = sessions
