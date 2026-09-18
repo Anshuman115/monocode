@@ -40,6 +40,8 @@ import {
   assertWorktreeFilesClosed,
   checkWorktreeRemoval,
   listWorktrees,
+  namedWorktreeBranch,
+  temporaryWorktreeBranchName,
   type Worktree,
   type Worktrees,
 } from "../lib/worktrees";
@@ -47,6 +49,11 @@ import { newFileTab, newTerminalFile } from "../lib/layout";
 import { gitCheckout, notifyGitChanged } from "../lib/fs";
 import { useProjectBranchesState } from "../hooks/useProjectBranches";
 import { WorktreePicker } from "./WorktreePicker";
+import {
+  WORKSPACE_MODE_SHORTCUT,
+  WorkspaceIdentity,
+  WorkspacePicker,
+} from "./WorkspacePicker";
 import { CreateWorktreeDialog } from "./CreateWorktreeDialog";
 import { FolderTree, GitBranch } from "./icons";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
@@ -125,6 +132,120 @@ function deferred() {
 const result = (branch = "feature"): Worktrees => ({
   worktrees: [{ ...tree, branch }],
   defaultRoot: "/repo-worktrees",
+});
+
+it("builds temporary and generated worktree branch names", () => {
+  expect(
+    temporaryWorktreeBranchName("12345678-90ab-cdef-1234-567890abcdef"),
+  ).toBe("mc/12345678");
+  expect(namedWorktreeBranch("feature/faster-worktrees")).toBe(
+    "mc/feature/faster-worktrees",
+  );
+  expect(namedWorktreeBranch("monocode/already-prefixed")).toBe(
+    "mc/already-prefixed",
+  );
+  expect(namedWorktreeBranch("mc/already-short")).toBe("mc/already-short");
+  expect(namedWorktreeBranch("  ")).toBeNull();
+});
+
+it("selects a draft workspace without opening the creation dialog", async () => {
+  const onModeChange = vi.fn();
+  const onOpenSettings = vi.fn();
+  await act(async () =>
+    root.render(
+      createElement(WorkspacePicker, {
+        cwd: "/repo",
+        mode: "current",
+        onModeChange,
+        onBaseChange: vi.fn(),
+        onOpenSettings,
+      }),
+    ),
+  );
+
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Workspace Current checkout"]',
+      )!
+      .click(),
+  );
+  await act(async () => button("New worktree").click());
+
+  expect(onModeChange).toHaveBeenCalledWith("worktree", "main");
+  expect(document.querySelector('[aria-label="Create worktree"]')).toBeNull();
+  expect(
+    container
+      .querySelector('[aria-label="Workspace Current checkout"]')
+      ?.getAttribute("title"),
+  ).toContain(WORKSPACE_MODE_SHORTCUT);
+
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Workspace Current checkout"]',
+      )!
+      .click(),
+  );
+  const settings = document.querySelector<HTMLButtonElement>(
+    '[aria-label="Open worktree settings"]',
+  )!;
+  expect(settings.textContent).toContain("Worktree settings");
+  expect(settings.parentElement?.className).toContain("border-t");
+  expect(settings.parentElement?.className).toContain("h-9");
+  expect(settings.className).toContain("h-full");
+  expect(settings.parentElement?.className).not.toContain("mt-1");
+  expect(settings.parentElement?.className).not.toContain("pt-1");
+  await act(async () => settings.click());
+  expect(onOpenSettings).toHaveBeenCalledOnce();
+  expect(
+    document.querySelector('[aria-label="Open worktree settings"]'),
+  ).toBeNull();
+  expect(document.querySelector('[aria-label="Workspace"]')).toBeNull();
+});
+
+it("renders a started session's workspace as a non-interactive identity", () => {
+  const markup = renderToStaticMarkup(
+    createElement(WorkspaceIdentity, { worktree: true }),
+  );
+  expect(markup).toContain("Worktree");
+  expect(markup).toContain('aria-label="Workspace Worktree"');
+  expect(markup).not.toContain("<button");
+});
+
+it("keeps the selected worktree base visible beside the workspace mode", async () => {
+  const onBaseChange = vi.fn();
+  vi.mocked(useProjectBranchesState).mockReturnValue({
+    branches: {
+      current: "main",
+      detached: false,
+      branches: [
+        { name: "main", remote: null, current: true },
+        { name: "release", remote: null, current: false },
+      ],
+    },
+    settled: true,
+  });
+  await act(async () =>
+    root.render(
+      createElement(WorkspacePicker, {
+        cwd: "/repo",
+        mode: "worktree",
+        base: "main",
+        onModeChange: vi.fn(),
+        onBaseChange,
+      }),
+    ),
+  );
+
+  const base = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Create worktree from main"]',
+  )!;
+  expect(base.textContent).toContain("From main");
+  await act(async () => base.click());
+  await act(async () => button("release").click());
+
+  expect(onBaseChange).toHaveBeenCalledWith("release");
 });
 
 it("keeps the settings rows mounted through focus refreshes and failures", async () => {

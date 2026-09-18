@@ -11,7 +11,6 @@ import {
 } from "react";
 import { Composer } from "../chrome/Composer";
 import type { Worktree } from "../lib/worktrees";
-import { isBlankSession } from "../lib/projectReturn";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { LinkedWorkItemUpdateNotice } from "../chrome/LinkedWorkItemUpdateNotice";
@@ -34,6 +33,7 @@ import {
   type PlanBuildTarget,
   type RuntimeMode,
   type Session,
+  type WorkspaceMode,
   type ComposerTurnOptions,
 } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
@@ -80,6 +80,12 @@ type Props = {
   onCwdChange: (sessionId: string, cwd: string) => void;
   onBranchChange: (sessionId: string) => void;
   onWorktreeChange?: (sessionId: string, tree: Worktree) => Promise<void>;
+  onWorkspaceModeChange: (
+    sessionId: string,
+    mode: WorkspaceMode,
+    base?: string,
+  ) => void;
+  onWorktreeBaseChange: (sessionId: string, base: string) => void;
   onManageWorktrees?: () => void;
   onModelChange: (sessionId: string, harness: HarnessId, model: string) => void;
   onModelSettingsChange: (
@@ -163,6 +169,8 @@ export const SessionPane = memo(function SessionPane({
   onCwdChange,
   onBranchChange,
   onWorktreeChange,
+  onWorkspaceModeChange,
+  onWorktreeBaseChange,
   onManageWorktrees,
   onModelChange,
   onModelSettingsChange,
@@ -386,9 +394,19 @@ export const SessionPane = memo(function SessionPane({
           ? (tree) => onWorktreeChange(session.id, tree)
           : undefined
       }
-      worktreeOpensNewSession={
-        !session.worktreeRemoved && !isBlankSession(session)
+      draftWorkspace={
+        !session.inboxAsk &&
+        !session.worktreeRemoved &&
+        !managed &&
+        ((isEmpty && !session.worktreeCwd) ||
+          (!!session.workspaceMode && !session.worktreeCwd))
       }
+      workspaceMode={session.workspaceMode}
+      worktreeBase={session.worktreeBase}
+      onWorkspaceModeChange={(mode, base) =>
+        onWorkspaceModeChange(session.id, mode, base)
+      }
+      onWorktreeBaseChange={(base) => onWorktreeBaseChange(session.id, base)}
       worktreeRemoved={session.worktreeRemoved}
       onManageWorktrees={onManageWorktrees}
       onNewTerminal={() => onNewTerminal(session.id)}

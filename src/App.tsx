@@ -50,11 +50,15 @@ import {
 } from "./chrome/DeleteSessionDialog";
 import {
   assertWorktreeFilesClosed,
+  createWorktree,
   detachSessionWorktree,
   checkWorktreeRemoval,
   listWorktrees,
+  namedWorktreeBranch,
   removeWorktree,
+  renameWorktreeBranch,
   sessionInWorktree,
+  temporaryWorktreeBranchName,
   worktreeSessionIds,
   type Worktree,
 } from "./lib/worktrees";
@@ -181,6 +185,7 @@ import {
   compactHarnessContext,
   forgetHarnessSession,
   generateHarnessTitle,
+  generateHarnessBranchName,
   isLiveHarness,
   latestTurnNeedsHarnessLogin,
   probeHarnessAvailability,
@@ -313,6 +318,7 @@ import {
   type SecondOpinionMeta,
   type Session,
   type TurnIntent,
+  type WorkspaceMode,
 } from "./lib/session";
 
 import {
@@ -1196,6 +1202,14 @@ export default function App({
     !historyFailed;
   const gitCwd =
     activeFile?.cwd ?? (active ? sessionWorkCwd(active) : sidebarCwd);
+  const gitCwdBranches = useProjectBranches(
+    gitCwd,
+    Boolean(gitCwd) && gitCwd !== "~",
+  );
+  const explorerRootLabel =
+    active?.worktreeCwd && sameProjectPath(gitCwd, sessionWorkCwd(active))
+      ? active.branch || gitCwdBranches?.current || undefined
+      : undefined;
   const gitCwdRef = useRef(gitCwd);
   gitCwdRef.current = gitCwd;
   const projectBranches = useProjectBranches(
@@ -1529,7 +1543,11 @@ export default function App({
     const liveIds = new Set(sessions.map((session) => session.id));
     const visibleIds = openSessionIds(tabsRef.current);
     for (const session of sessions) {
-      if (removingSessionIds.current.has(session.id) || switchingWorktrees.current.has(session.id)) continue;
+      if (
+        removingSessionIds.current.has(session.id) ||
+        switchingWorktrees.current.has(session.id)
+      )
+        continue;
       if (observedSessions.current.get(session.id) === session) continue;
       observedSessions.current.set(session.id, session);
       const parked = !visibleIds.has(session.id);
@@ -1572,7 +1590,11 @@ export default function App({
       pendingPersist.current.clear();
       void Promise.all(
         dirty.map(async (session) => {
-          if (removingSessionIds.current.has(session.id) || switchingWorktrees.current.has(session.id)) return;
+          if (
+            removingSessionIds.current.has(session.id) ||
+            switchingWorktrees.current.has(session.id)
+          )
+            return;
           const fingerprint = persistFingerprint(session);
           if (lastPersisted.current.get(session.id) === fingerprint) return;
           const summary = await upsertSession(session).catch(() => null);
@@ -4057,7 +4079,9 @@ export default function App({
               await orchestrator.stopRun(run.leadId);
             await stopSessionForRemoval(sessionId);
             if (mode === "delete") {
-              const latest = sessionsRef.current.find((s) => s.id === sessionId);
+              const latest = sessionsRef.current.find(
+                (s) => s.id === sessionId,
+              );
               const harnesses: HarnessId[] = latest
                 ? sessionChildHarnesses(latest)
                 : [seed?.harness ?? "cursor"];
@@ -4404,6 +4428,8 @@ export default function App({
                 branch: undefined,
                 worktreeCwd: undefined,
                 worktreeRemoved: undefined,
+                workspaceMode: undefined,
+                worktreeBase: undefined,
               }
             : s,
         ),
@@ -4451,6 +4477,54 @@ export default function App({
       notifyReviewChanged(sessionId);
     },
     [persistSession],
+  );
+
+  const onWorkspaceModeChange = useCallback(
+    (sessionId: string, mode: WorkspaceMode, base?: string) => {
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (
+            session.id !== sessionId ||
+            (!isBlankSession(session) &&
+              !(session.workspaceMode && !session.worktreeCwd && !session.busy))
+          ) {
+            return session;
+          }
+          return mode === "worktree"
+            ? base || session.worktreeBase
+              ? {
+                  ...session,
+                  workspaceMode: "worktree",
+                  worktreeBase: base || session.worktreeBase,
+                }
+              : session
+            : {
+                ...session,
+                workspaceMode: undefined,
+                worktreeBase: undefined,
+              };
+        }),
+      );
+    },
+    [],
+  );
+
+  const onWorktreeBaseChange = useCallback(
+    (sessionId: string, base: string) => {
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId &&
+          (isBlankSession(session) ||
+            (!!session.workspaceMode &&
+              !session.worktreeCwd &&
+              !session.busy)) &&
+          session.workspaceMode === "worktree"
+            ? { ...session, worktreeBase: base }
+            : session,
+        ),
+      );
+    },
+    [],
   );
 
   const onWorktreeChange = useCallback(
@@ -5107,7 +5181,9 @@ export default function App({
       }
       if (isPreparingHandoff(current)) return false;
       saveRecentModelChoice(current.harness, current.model);
-      const workCwd = sessionWorkCwd(current);
+      const initialWorkCwd = sessionWorkCwd(current);
+      const createDraftWorktree =
+        !current.worktreeCwd && current.workspaceMode === "worktree";
       const accountProvider = supportsProviderAccounts(current.harness)
         ? current.harness
         : undefined;
@@ -5141,7 +5217,9 @@ export default function App({
 
       if (current.busy && !pendingSwitch) {
         const followUpBehavior =
-          intent === "plan" || intent === "orchestrate"
+          current.worktreePreparing ||
+          intent === "plan" ||
+          intent === "orchestrate"
             ? "queue"
             : (options?.followUpBehavior ?? loadFollowUpBehavior());
         if (followUpBehavior === "queue") {
@@ -5210,12 +5288,12 @@ export default function App({
             const prompt = await preparePrompt(harnessText, {
               harness: current.harness,
               sessionId,
-              cwd: workCwd,
+              cwd: initialWorkCwd,
             });
             await steerHarnessTurn({
               harness: current.harness,
               sessionId,
-              cwd: workCwd,
+              cwd: initialWorkCwd,
               model: current.model,
               modelSettings: current.modelSettings,
               text: inboxAskPrompt(
@@ -5308,6 +5386,9 @@ export default function App({
           let next: Session = {
             ...selected,
             providerAccountId,
+            worktreePreparing: createDraftWorktree
+              ? true
+              : selected.worktreePreparing,
             inboxCard: rawCommand ? s.inboxCard : undefined,
             noteCard: rawCommand ? s.noteCard : undefined,
             handoffCard: rawCommand ? s.handoffCard : undefined,
@@ -5378,7 +5459,8 @@ export default function App({
         }),
       );
 
-      if (isFirstTurn && live && placeholderTitle) {
+      const launchTitleGeneration = (workCwd: string) => {
+        if (!isFirstTurn || !live || !placeholderTitle) return;
         const titleMessage =
           harnessText || attachments.map((file) => file.name).join(", ");
         void generateHarnessTitle(current.harness, {
@@ -5415,7 +5497,7 @@ export default function App({
             );
           })
           .catch(() => undefined);
-      }
+      };
 
       if (!live) {
         if (pendingSwitch) {
@@ -5453,6 +5535,59 @@ export default function App({
       let nativeProposalText = "";
       let completedProposal: OrchestrationProposal | undefined;
       void (async () => {
+        let workCwd = initialWorkCwd;
+        if (createDraftWorktree) {
+          const tree = await createWorktree(
+            current.cwd,
+            temporaryWorktreeBranchName(),
+            current.worktreeBase || "HEAD",
+            false,
+          );
+          workCwd = tree.path;
+          setSessions((prev) =>
+            prev.map((session) =>
+              session.id === sessionId
+                ? {
+                    ...session,
+                    worktreeCwd: tree.path,
+                    branch: tree.branch ?? undefined,
+                    workspaceMode: undefined,
+                    worktreeBase: undefined,
+                    worktreePreparing: undefined,
+                  }
+                : session,
+            ),
+          );
+          notifyReviewChanged(sessionId);
+
+          const branchMessage =
+            harnessText || attachments.map((file) => file.name).join(", ");
+          void generateHarnessBranchName(
+            pickTextHarness(current.harness),
+            workCwd,
+            branchMessage,
+          )
+            .then(async (fragment) => {
+              const branch = fragment ? namedWorktreeBranch(fragment) : null;
+              if (!branch) return;
+              const renamed = await renameWorktreeBranch(
+                current.cwd,
+                tree.path,
+                branch,
+              );
+              setSessions((prev) =>
+                prev.map((session) =>
+                  session.id === sessionId &&
+                  pathKey(sessionWorkCwd(session)) === pathKey(tree.path)
+                    ? { ...session, branch: renamed.branch ?? undefined }
+                    : session,
+                ),
+              );
+            })
+            .catch(() => undefined);
+        }
+        launchTitleGeneration(workCwd);
+        if (turnGen.current.get(sessionId) !== gen) return;
         if (proposalDraft && proposalId) {
           const settings = await discoverOrchestrationSettings();
           if (turnGen.current.get(sessionId) !== gen) return;
@@ -5767,21 +5902,24 @@ export default function App({
             });
             flushHarnessEvents();
             setSessions((prev) =>
-              prev.map((session) =>
-                session.id === sessionId
-                  ? proposalId && proposalDraft
-                    ? withOrchestrationProposal(
-                        stopStreaming(session),
-                        proposalId,
-                        completeOrchestrationProposal(
-                          proposalDraft,
-                          "",
-                          controlOutcome.error,
-                        ),
-                      )
-                    : stopStreaming(session)
-                  : session,
-              ),
+              prev.map((session) => {
+                if (session.id !== sessionId) return session;
+                const stopped = {
+                  ...stopStreaming(session),
+                  worktreePreparing: undefined,
+                };
+                return proposalId && proposalDraft
+                  ? withOrchestrationProposal(
+                      stopped,
+                      proposalId,
+                      completeOrchestrationProposal(
+                        proposalDraft,
+                        "",
+                        controlOutcome.error,
+                      ),
+                    )
+                  : stopped;
+              }),
             );
           }
         })
@@ -6279,9 +6417,10 @@ export default function App({
           const completed = isPreparingHandoff(stopped)
             ? completeHandoff(stopped, buildDeterministicHandoff(stopped))
             : stopped;
-          return completed.queuedMessages?.length
-            ? { ...completed, queueStatus: "paused" }
-            : completed;
+          const ready = { ...completed, worktreePreparing: undefined };
+          return ready.queuedMessages?.length
+            ? { ...ready, queueStatus: "paused" }
+            : ready;
         }),
       );
       if (session) {
@@ -7550,6 +7689,8 @@ export default function App({
     onCwdChange,
     onBranchChange,
     onWorktreeChange,
+    onWorkspaceModeChange,
+    onWorktreeBaseChange,
     onManageWorktrees: () => openSettings("worktrees"),
     onModelChange,
     onModelSettingsChange,
@@ -7593,6 +7734,7 @@ export default function App({
           <Sidebar
             cwd={sidebarCwd}
             gitCwd={gitCwd}
+            explorerRootLabel={explorerRootLabel}
             open
             tab={sidebarTab}
             onTabChange={setSidebarTab}

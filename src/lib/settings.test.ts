@@ -201,6 +201,15 @@ describe("workspace navigation keybindings", () => {
       },
     ]);
   });
+  it("documents the draft workspace toggle", () => {
+    expect(
+      KEYBINDINGS.find((row) => row.command === "Composer: Toggle Workspace"),
+    ).toEqual({
+      command: "Composer: Toggle Workspace",
+      keys: `${MOD}${SHIFT}G`,
+      when: "Draft session composer",
+    });
+  });
   it("documents session and project cycling in the shortcut list", () => {
     const rows = KEYBINDINGS.filter((row) =>
       /^(Session|Project): (Previous|Next)$/.test(row.command),

@@ -7,6 +7,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
 }));
+vi.mock("../hooks/useProjectBranches", () => ({
+  useProjectBranchesState: () => ({
+    branches: {
+      current: "mc/greeting",
+      detached: false,
+      branches: [
+        { name: "mc/greeting", remote: null, current: true },
+        { name: "main", remote: null, current: false },
+      ],
+    },
+    settled: true,
+  }),
+}));
 
 import { Composer, ComposerAction } from "./Composer";
 import type { UserQuestionPrompt } from "../lib/userQuestion";
@@ -154,6 +167,140 @@ describe("Composer question focus", () => {
     expect(textarea.value).toBe(initialDraft);
     expect(textarea.selectionStart).toBe(initialDraft.length);
     expect(textarea.selectionEnd).toBe(initialDraft.length);
+  });
+
+  it("locks a started session to its worktree while keeping its branch editable", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: true,
+          harness: "claude",
+          model: "claude-sonnet",
+          runtimeMode: "supervised",
+          cwd: "/repo",
+          executionCwd: "/repo-worktrees/mc-greeting",
+          hideProjectPicker: true,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onWorktreeChange: vi.fn(async () => {}),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit: vi.fn(),
+        }),
+      ),
+    );
+
+    const workspace = container.querySelector(
+      '[aria-label="Workspace Worktree"]',
+    );
+    expect(workspace?.tagName).toBe("DIV");
+    expect(
+      container.querySelector('[aria-label="Choose working copy"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Branch mc/greeting"]'),
+    ).not.toBeNull();
+  });
+
+  it("toggles a draft between the current checkout and a new worktree", async () => {
+    const onWorkspaceModeChange = vi.fn();
+    const onWorktreeBaseChange = vi.fn();
+    const props = {
+      focused: true,
+      harness: "claude" as const,
+      model: "claude-sonnet",
+      runtimeMode: "supervised" as const,
+      cwd: "/repo",
+      executionCwd: "/repo",
+      branch: "main",
+      hideProjectPicker: true,
+      draftWorkspace: true,
+      onFocus: vi.fn(),
+      onCwdChange: vi.fn(),
+      onBranchChange: vi.fn(async () => {}),
+      onWorkspaceModeChange,
+      onWorktreeBaseChange,
+      onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(),
+      onSubmit: vi.fn(),
+    };
+    await act(async () =>
+      root.render(
+        createElement(Composer, { ...props, workspaceMode: "current" }),
+      ),
+    );
+    const textarea = container.querySelector("textarea")!;
+
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "g",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onWorkspaceModeChange).toHaveBeenLastCalledWith("worktree", "main");
+
+    await act(async () =>
+      root.render(
+        createElement(Composer, { ...props, workspaceMode: "worktree" }),
+      ),
+    );
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "G",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onWorkspaceModeChange).toHaveBeenLastCalledWith(
+      "current",
+      undefined,
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          ...props,
+          branch: undefined,
+          workspaceMode: "current",
+        }),
+      ),
+    );
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "g",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onWorkspaceModeChange).toHaveBeenLastCalledWith(
+      "worktree",
+      "mc/greeting",
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          ...props,
+          branch: undefined,
+          workspaceMode: "worktree",
+          worktreeBase: "HEAD",
+        }),
+      ),
+    );
+    expect(onWorktreeBaseChange).toHaveBeenLastCalledWith("mc/greeting");
   });
 
   it("returns focus to the composer textarea once a question is answered", async () => {

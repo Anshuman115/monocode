@@ -171,6 +171,8 @@ type Props = {
   cwd: string;
   /** Working copy for Changes / explorer git. Falls back to `cwd`. */
   gitCwd?: string;
+  /** Branch identity shown for a worktree whose folder has a temporary name. */
+  explorerRootLabel?: string;
   open: boolean;
   sessions: SessionSummary[];
   busySessionIds: Set<string>;
@@ -262,6 +264,7 @@ type Props = {
 function SidebarComponent({
   cwd,
   gitCwd,
+  explorerRootLabel,
   open,
   sessions,
   busySessionIds,
@@ -496,7 +499,10 @@ function SidebarComponent({
       return;
     }
     const available = new Set(sessionNavigationIds);
-    if (selectionAnchorRef.current && !available.has(selectionAnchorRef.current)) {
+    if (
+      selectionAnchorRef.current &&
+      !available.has(selectionAnchorRef.current)
+    ) {
       selectionAnchorRef.current = null;
     }
     setSelectedSessionIds((current) =>
@@ -1003,9 +1009,10 @@ function SidebarComponent({
           : visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1);
       selectionAnchorRef.current = start < 0 ? sessionId : anchor;
       setSelectedSessionIds(
-        (current) => new Set(
-          event.ctrlKey || event.metaKey ? [...current, ...range] : range,
-        ),
+        (current) =>
+          new Set(
+            event.ctrlKey || event.metaKey ? [...current, ...range] : range,
+          ),
       );
       return;
     }
@@ -1253,6 +1260,7 @@ function SidebarComponent({
               <FileTree
                 key={gitRoot}
                 cwd={gitRoot}
+                rootLabel={explorerRootLabel}
                 onOpenFile={onOpenFile}
                 onOpenTerminal={onOpenTerminal}
                 onFileMoved={onFileMoved}
@@ -1751,7 +1759,9 @@ function SidebarProjectPicker({
   notesActive?: boolean;
   inboxUnseen?: boolean;
 }) {
-  const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   const inboxTrigger = useRef<HTMLElement | null>(null);
   return (
     <div
@@ -1787,8 +1797,10 @@ function SidebarProjectPicker({
             active={inboxActive}
             onClick={onOpenInbox}
             onOpenContextMenu={(x, y) => {
-              inboxTrigger.current = document.activeElement instanceof HTMLElement
-                ? document.activeElement : null;
+              inboxTrigger.current =
+                document.activeElement instanceof HTMLElement
+                  ? document.activeElement
+                  : null;
               setInboxMenu({ x, y });
             }}
           >

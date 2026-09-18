@@ -39,6 +39,38 @@ export async function createWorktree(
   return tree;
 }
 
+export async function renameWorktreeBranch(
+  cwd: string,
+  path: string,
+  branch: string,
+) {
+  const tree = await invoke<Worktree>("git_worktree_rename_branch", {
+    cwd,
+    path,
+    branch,
+  });
+  notifyGitChanged();
+  return tree;
+}
+
+export function temporaryWorktreeBranchName(
+  id: string = crypto.randomUUID(),
+): string {
+  const token = id
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 8)
+    .toLowerCase();
+  return `mc/${token || Date.now().toString(36)}`;
+}
+
+export function namedWorktreeBranch(fragment: string): string | null {
+  const clean = fragment
+    .trim()
+    .replace(/^(?:mc|monocode)\/+/, "")
+    .replace(/^\/+|\/+$/g, "");
+  return clean ? `mc/${clean}` : null;
+}
+
 export async function removeWorktree(
   cwd: string,
   path: string,

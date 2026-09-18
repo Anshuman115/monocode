@@ -230,13 +230,57 @@ fn create(root: &Path, branch: &str, base: &str, existing: bool) -> Result<Workt
 }
 
 #[tauri::command(async)]
-pub fn git_worktree_create(
+pub async fn git_worktree_create(
     cwd: String,
     branch: String,
     base: String,
     existing: bool,
 ) -> Result<Worktree, String> {
-    create(&expand_home(&cwd), &branch, &base, existing)
+    tauri::async_runtime::spawn_blocking(move || {
+        create(&expand_home(&cwd), &branch, &base, existing)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn rename_branch(root: &Path, path: &Path, branch: &str) -> Result<Worktree, String> {
+    let branch = branch.trim();
+    if branch.starts_with('-') || branch.starts_with('@') || branch.is_empty() {
+        return Err("Enter a valid branch name".into());
+    }
+    git(root, &["check-ref-format", "--branch", branch])?;
+    let tree = list(root)?
+        .into_iter()
+        .find(|tree| same_path(Path::new(&tree.path), path))
+        .ok_or("This path is not a registered worktree of this repository")?;
+    if tree.is_main {
+        return Err("The main working copy cannot be renamed here".into());
+    }
+    let current = tree.branch.as_deref().ok_or("The worktree is detached")?;
+    if !current.starts_with("mc/") && !current.starts_with("monocode/") {
+        return Err("Only automatically created worktree branches can be renamed".into());
+    }
+    if current == branch {
+        return Ok(tree);
+    }
+    git(Path::new(&tree.path), &["branch", "-m", branch])?;
+    list(root)?
+        .into_iter()
+        .find(|entry| same_path(Path::new(&entry.path), path))
+        .ok_or_else(|| "Branch renamed, but its worktree could not be found".into())
+}
+
+#[tauri::command(async)]
+pub async fn git_worktree_rename_branch(
+    cwd: String,
+    path: String,
+    branch: String,
+) -> Result<Worktree, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        rename_branch(&expand_home(&cwd), &expand_home(&path), &branch)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn removal_target(root: &Path, path: &Path) -> Result<Worktree, String> {
@@ -624,6 +668,24 @@ mod tests {
         git_checked(&root, &["worktree", "lock", &tree.path]).unwrap();
         assert!(remove(&root, Path::new(&tree.path), true).is_err());
         assert!(remove(&root, &repo.0, true).is_err());
+    }
+
+    #[test]
+    fn renames_only_temporary_worktree_branches() {
+        let repo = repo();
+        let root = repo.0.join("repo");
+        let tree = create(&root, "mc/12345678", "main", false).unwrap();
+        let renamed = rename_branch(&root, Path::new(&tree.path), "mc/faster-worktrees").unwrap();
+        assert_eq!(renamed.branch.as_deref(), Some("mc/faster-worktrees"));
+        assert!(git(
+            &root,
+            &["rev-parse", "--verify", "refs/heads/mc/faster-worktrees"]
+        )
+        .is_ok());
+        assert!(rename_branch(&root, &root, "mc/nope").is_err());
+
+        let regular = create(&root, "feature/manual", "main", false).unwrap();
+        assert!(rename_branch(&root, Path::new(&regular.path), "mc/should-not-change").is_err());
     }
 
     #[test]
