@@ -702,7 +702,7 @@ export default function App({
   );
   const [sessionDeleteDialog, setSessionDeleteDialog] = useState<{
     title: string;
-    unusedWorktree?: string;
+    unusedWorktree: string;
     resolve: (choice: SessionDeleteChoice) => void;
   }>();
   const switchingWorktrees = useRef(new Map<string, string>());
@@ -4021,15 +4021,19 @@ export default function App({
             // A failed lookup must never offer filesystem cleanup.
           }
         }
-        const choice = await new Promise<SessionDeleteChoice>((resolve) => {
-          setSessionDeleteDialog({ title: label, unusedWorktree, resolve });
-        });
-        deleteConfirmationPending.current = false;
-        if (!choice.confirmed) {
-          removingSessionIds.current.delete(sessionId);
-          return false;
+        if (!unusedWorktree) {
+          deleteConfirmationPending.current = false;
+        } else {
+          const choice = await new Promise<SessionDeleteChoice>((resolve) => {
+            setSessionDeleteDialog({ title: label, unusedWorktree, resolve });
+          });
+          deleteConfirmationPending.current = false;
+          if (!choice.confirmed) {
+            removingSessionIds.current.delete(sessionId);
+            return false;
+          }
+          if (choice.deleteWorktree) deleteWorktreePath = unusedWorktree;
         }
-        if (choice.deleteWorktree) deleteWorktreePath = unusedWorktree;
       }
       invalidateLoadedSession(sessionId);
       pendingPersist.current.delete(sessionId);

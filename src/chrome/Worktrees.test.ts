@@ -944,7 +944,7 @@ it.each(["partial", "rejected", "worktree", "refresh"] as const)(
   },
 );
 
-it("keeps the last session's worktree unless its unchecked option is selected", async () => {
+it("offers to keep or delete the last session's worktree", async () => {
   const onClose = vi.fn();
   await act(async () =>
     root.render(
