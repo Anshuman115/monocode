@@ -98,6 +98,54 @@ describe("Composer question focus", () => {
     );
   }
 
+  it("keeps drafts and blocks sending until a working copy is selected", async () => {
+    const onSubmit = vi.fn();
+    const props = {
+      harness: "claude" as const,
+      model: "claude-sonnet",
+      runtimeMode: "supervised" as const,
+      executionCwd: "/deleted-worktree",
+      hideProjectPicker: true,
+      hideBranchPicker: true,
+      initialDraft: "Continue this feature",
+      onFocus: vi.fn(),
+      onCwdChange: vi.fn(),
+      onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(),
+      onSubmit,
+    };
+    await act(async () =>
+      root.render(createElement(Composer, { ...props, worktreeRemoved: true })),
+    );
+    const textarea = container.querySelector("textarea")!;
+    const send = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Send"]',
+    )!;
+    expect(send.disabled).toBe(true);
+    expect(textarea.placeholder).toContain("Select a branch or worktree");
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("Continue this feature");
+    await act(async () =>
+      root.render(
+        createElement(Composer, { ...props, worktreeRemoved: false }),
+      ),
+    );
+    expect(send.disabled).toBe(false);
+    await act(async () => send.click());
+    expect(onSubmit).toHaveBeenCalledWith("Continue this feature", [], {
+      intent: "default",
+    });
+  });
+
   it("places the caret at the end of an initial draft", async () => {
     const initialDraft = "Comment on src/App.tsx:42\n\n";
     await renderComposer(undefined, vi.fn(), false, 0, initialDraft);

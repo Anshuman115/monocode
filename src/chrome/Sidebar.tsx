@@ -1,3 +1,4 @@
+import { NO_BRANCH_LABEL } from "../lib/worktrees";
 import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -2181,7 +2182,9 @@ function SessionCard({
     orchestration?.tasks.filter((task) => task.status === "completed").length ??
     0;
   const title = sessionDisplayTitle(session.title, session.harness);
-  const gitLabel = formatGitLabel(session.repo, session.branch);
+  const gitLabel = session.worktreeRemoved
+    ? NO_BRANCH_LABEL
+    : formatGitLabel(session.repo, session.branch);
   const time = formatRelative(session.updatedAt, now);
   const model =
     compact && !orchestrationExpanded

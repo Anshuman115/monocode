@@ -343,19 +343,6 @@ export function isCheckoutBlockedByChanges(message: string): boolean {
   );
 }
 
-/** Drop leftover session-worktree pins. The composer now switches this folder. */
-export function restoreSessionCheckout<
-  T extends { cwd: string; branch?: string; worktreeCwd?: string; providerSessionId?: string },
->(session: T): T {
-  if (!session.branch && !session.worktreeCwd) return session;
-  return {
-    ...session,
-    branch: undefined,
-    worktreeCwd: undefined,
-    ...(session.worktreeCwd ? { providerSessionId: undefined } : {}),
-  };
-}
-
 const GIT_CHANGED = "monocode-git-changed";
 
 /** Tell git UIs (diff pane, branch picker) to reload after a local git mutation. */

@@ -39,6 +39,7 @@ impl SessionStore {
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
             .map_err(|e| e.to_string())?;
         migrate(&conn).map_err(|e| e.to_string())?;
+        crate::worktrees::reconcile_removals(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -94,6 +95,8 @@ pub struct SessionUpsert {
     #[serde(default)]
     pub worktree_cwd: Option<String>,
     #[serde(default)]
+    pub worktree_removed: bool,
+    #[serde(default)]
     pub linked_work_item: Option<Value>,
 }
 
@@ -114,6 +117,10 @@ pub struct SessionSummary {
     pub provider_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_cwd: Option<String>,
+    #[serde(default)]
+    pub worktree_removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
     pub additions: i64,
@@ -153,6 +160,8 @@ pub struct SessionRecord {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_cwd: Option<String>,
+    #[serde(default)]
+    pub worktree_removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_work_item: Option<Value>,
     pub created_at: i64,
@@ -517,6 +526,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("pinned", "INTEGER NOT NULL DEFAULT 0"),
         ("linked_work_item_json", "TEXT"),
         ("provider_account_id", "TEXT"),
+        ("worktree_removed", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -601,6 +611,27 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             params![now_millis()],
         )?;
     }
+    if current < 15 {
+        ensure_session_column(conn, "worktree_removed", "INTEGER NOT NULL DEFAULT 0")?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (15, ?1)",
+            params![now_millis()],
+        )?;
+    }
+    if current < 16 {
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS sessions_cwd_cover_idx;
+             CREATE INDEX sessions_cwd_cover_idx
+               ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                            model, runtime_mode, title, provider_session_id,
+                            created_at, branch, archived, pinned,
+                            linked_work_item_json, worktree_cwd, worktree_removed);",
+        )?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (16, ?1)",
+            params![now_millis()],
+        )?;
+    }
     // Create even when a version row already exists (another build may have
     // used the same numbers, or a previous run recorded the version without
     // the table). Restore writes into these; missing tables look like a
@@ -615,6 +646,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
            id INTEGER PRIMARY KEY CHECK (id = 1),
            snapshot_json TEXT NOT NULL,
            updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS worktree_removals (
+           path TEXT PRIMARY KEY,
+           sessions_json TEXT NOT NULL
          );",
     )?;
     // Compatibility only: earlier Inbox Ask builds saved temporary chats here.
@@ -770,13 +805,27 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
-    let branch = session
-        .branch
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| git.branch.as_deref().filter(|value| !value.is_empty()));
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(
+        session
+            .worktree_cwd
+            .as_deref()
+            .filter(|cwd| !cwd.is_empty())
+            .unwrap_or(&session.cwd),
+    ));
+    let branch = if session.worktree_removed {
+        None
+    } else {
+        git.branch
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                session
+                    .branch
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
+    };
     let worktree_cwd = session
         .worktree_cwd
         .as_deref()
@@ -816,8 +865,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            id, cwd, harness, model, model_settings, runtime_mode, title,
            provider_session_id, blocks_json, created_at, updated_at, branch,
            context_used, context_window, worktree_cwd, has_user_message,
-           linked_work_item_json, provider_account_id
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+           linked_work_item_json, provider_account_id, worktree_removed
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -834,7 +883,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            worktree_cwd = excluded.worktree_cwd,
            has_user_message = excluded.has_user_message,
            linked_work_item_json = excluded.linked_work_item_json,
-           provider_account_id = excluded.provider_account_id",
+           provider_account_id = excluded.provider_account_id,
+           worktree_removed = excluded.worktree_removed",
         params![
             session.id,
             session.cwd,
@@ -854,6 +904,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
             i64::from(has_user_message),
             linked_work_item_json,
             provider_account_id,
+            i64::from(session.worktree_removed),
         ],
     )?;
 
@@ -869,6 +920,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         title: session.title.clone(),
         provider_session_id: provider_session_id.map(str::to_owned),
         branch: branch.map(str::to_owned),
+        worktree_cwd: worktree_cwd.map(str::to_owned),
+        worktree_removed: session.worktree_removed,
         repo: git.repo,
         additions: 0,
         deletions: 0,
@@ -1132,7 +1185,8 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
-                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
+                worktree_removed
          FROM sessions
          WHERE cwd = ?1
            AND has_user_message = 1
@@ -1157,7 +1211,13 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             provider_session_id: row.get(6)?,
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
-            branch: nonempty(stored_branch).or_else(|| git.branch.clone()),
+            branch: if row.get::<_, i64>(15)? != 0 {
+                None
+            } else {
+                nonempty(stored_branch).or_else(|| git.branch.clone())
+            },
+            worktree_cwd: row.get(14)?,
+            worktree_removed: row.get::<_, i64>(15)? != 0,
             repo: git.repo.clone(),
             additions: 0,
             deletions: 0,
@@ -1174,7 +1234,8 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
-                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
+                worktree_removed
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
@@ -1198,6 +1259,8 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
             branch: nonempty(row.get(9)?),
+            worktree_cwd: row.get(14)?,
+            worktree_removed: row.get::<_, i64>(15)? != 0,
             repo: None,
             additions: 0,
             deletions: 0,
@@ -1366,7 +1429,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
         "SELECT id, cwd, harness, model, model_settings, runtime_mode, title,
                 provider_session_id, blocks_json, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd,
-                linked_work_item_json, provider_account_id
+                linked_work_item_json, provider_account_id, worktree_removed
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
@@ -1402,6 +1465,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 context_window: row.get(12)?,
                 branch: row.get(13)?,
                 worktree_cwd: row.get(14)?,
+                worktree_removed: row.get::<_, i64>(17)? != 0,
                 linked_work_item: optional_json(row.get(15)?),
                 provider_account_id: row.get(16)?,
                 created_at: row.get(9)?,
@@ -1520,6 +1584,7 @@ mod tests {
             context_window: None,
             branch: None,
             worktree_cwd: None,
+            worktree_removed: false,
             linked_work_item: None,
         }
     }
@@ -1647,12 +1712,26 @@ mod tests {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.conn.lock().unwrap();
         upsert_session(&conn, &sample("s1", "/tmp/a", "A1")).unwrap();
-        let plan: String = conn
-            .query_row(
-                "EXPLAIN QUERY PLAN
+        for upgraded in [false, true] {
+            if upgraded {
+                // Exercise an existing v15 database with the old projection.
+                conn.execute_batch(
+                    "DROP INDEX sessions_cwd_cover_idx;
+                     CREATE INDEX sessions_cwd_cover_idx
+                       ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                                    model, runtime_mode, title, provider_session_id,
+                                    created_at, branch, archived, pinned, linked_work_item_json);
+                     DELETE FROM schema_migrations WHERE version = 16;",
+                )
+                .unwrap();
+                migrate(&conn).unwrap();
+            }
+            let plan: String = conn
+                .query_row(
+                    "EXPLAIN QUERY PLAN
                  SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                         created_at, updated_at, branch, archived, pinned,
-                        linked_work_item_json,
+                        linked_work_item_json, worktree_cwd, worktree_removed,
                         (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
                  FROM sessions
                  WHERE cwd = ?1
@@ -1660,14 +1739,15 @@ mod tests {
                    AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
                    AND id NOT IN (SELECT session_id FROM orchestration_workers)
                  ORDER BY updated_at DESC, id ASC",
-                params!["/tmp/a"],
-                |row| row.get(3),
-            )
-            .unwrap();
-        assert!(
-            plan.contains("COVERING INDEX"),
-            "sidebar listing fell back to table seeks: {plan}"
-        );
+                    params!["/tmp/a"],
+                    |row| row.get(3),
+                )
+                .unwrap();
+            assert!(
+                plan.contains("COVERING INDEX"),
+                "sidebar listing fell back to table seeks: {plan}"
+            );
+        }
     }
 
     #[test]
@@ -2064,6 +2144,32 @@ mod tests {
     }
 
     #[test]
+    fn removed_worktree_state_round_trips_and_can_be_reselected() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut session = sample("s1", "/tmp/a", "First");
+        session.worktree_cwd = Some("/tmp/a-worktrees/feature".into());
+        session.worktree_removed = true;
+        session.branch = Some("stale-branch".into());
+        let summary = upsert_session(&conn, &session).unwrap();
+        assert!(summary.worktree_removed);
+        assert!(summary.branch.is_none());
+        let listed = list_by_project(&conn, "/tmp/a").unwrap();
+        assert!(listed[0].worktree_removed);
+        assert!(listed[0].branch.is_none());
+        let restored = get_session(&conn, "s1").unwrap().unwrap();
+        assert!(restored.worktree_removed);
+        assert_eq!(restored.blocks, session.blocks);
+        session.worktree_removed = false;
+        session.worktree_cwd = None;
+        session.branch = Some("main".into());
+        upsert_session(&conn, &session).unwrap();
+        let restored = get_session(&conn, "s1").unwrap().unwrap();
+        assert!(!restored.worktree_removed);
+        assert_eq!(restored.branch.as_deref(), Some("main"));
+    }
+
+    #[test]
     fn archive_round_trips_and_survives_upsert() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.conn.lock().unwrap();
@@ -2206,11 +2312,13 @@ mod tests {
         session.worktree_cwd = Some("/tmp/a-feat".into());
         let summary = upsert_session(&conn, &session).unwrap();
         assert_eq!(summary.branch.as_deref(), Some("feat/picker"));
+        assert_eq!(summary.worktree_cwd.as_deref(), Some("/tmp/a-feat"));
         let record = get_session(&conn, "s1").unwrap().unwrap();
         assert_eq!(record.branch.as_deref(), Some("feat/picker"));
         assert_eq!(record.worktree_cwd.as_deref(), Some("/tmp/a-feat"));
         let listed = list_by_project(&conn, "/tmp/a").unwrap();
         assert_eq!(listed[0].branch.as_deref(), Some("feat/picker"));
+        assert_eq!(listed[0].worktree_cwd.as_deref(), Some("/tmp/a-feat"));
     }
 
     #[test]

@@ -337,13 +337,12 @@ export type Session = {
    * Handoff runs on the next send, not on picker change.
    */
   pendingSwitch?: PendingHarnessSwitch;
-  /**
-   * Last composer-pinned branch. Unused after session worktrees were removed;
-   * kept so older session records still load.
-   */
+  /** Last known branch in the session's working copy. */
   branch?: string;
-  /** Extra git worktree from the old session-branch feature. Unused. */
+  /** Selected working copy; cwd remains the project identity. */
   worktreeCwd?: string;
+  /** Select a working copy before continuing after the previous one was deleted. */
+  worktreeRemoved?: boolean;
   /** One-shot composer text when opening a session from Inbox. */
   composerSeed?: string;
   /** Inbox issue/PR chip shown above the composer. In-memory, one-shot. */
@@ -475,7 +474,10 @@ export function hasPendingApproval(blocks: Block[]): boolean {
 }
 
 export function sessionNeedsInput(session: Session): boolean {
-  return hasPendingApproval(session.blocks) || session.pendingQuestion != null;
+  return (
+    !session.worktreeRemoved &&
+    (hasPendingApproval(session.blocks) || session.pendingQuestion != null)
+  );
 }
 
 /** Title without the harness prefix stored for the tab strip. */

@@ -43,6 +43,7 @@ import {
 import { FilePane } from "./FilePane";
 import { SessionPane } from "./SessionPane";
 import type { SessionFolderTarget } from "../lib/sessionFolders";
+import type { Worktree } from "../lib/worktrees";
 
 type Shared = {
   visible: boolean;
@@ -67,6 +68,8 @@ type Shared = {
   onRatio: (splitId: string, index: number, ratio: number) => void;
   onCwdChange: (sessionId: string, cwd: string) => void;
   onBranchChange: (sessionId: string) => void;
+  onWorktreeChange?: (sessionId: string, tree: Worktree) => Promise<void>;
+  onManageWorktrees?: () => void;
   onModelChange: (sessionId: string, harness: HarnessId, model: string) => void;
   onModelSettingsChange: (
     sessionId: string,
@@ -175,6 +178,8 @@ function PaneTreeComponent({
   onRatio,
   onCwdChange,
   onBranchChange,
+  onWorktreeChange,
+  onManageWorktrees,
   onModelChange,
   onModelSettingsChange,
   onRuntimeModeChange,
@@ -414,6 +419,8 @@ function PaneTreeComponent({
                 onClose={onClose}
                 onCwdChange={onCwdChange}
                 onBranchChange={onBranchChange}
+                onWorktreeChange={onWorktreeChange}
+                onManageWorktrees={onManageWorktrees}
                 onModelChange={onModelChange}
                 onModelSettingsChange={onModelSettingsChange}
                 onRuntimeModeChange={onRuntimeModeChange}

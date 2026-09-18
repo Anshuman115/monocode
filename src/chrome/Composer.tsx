@@ -96,6 +96,8 @@ import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
 import { AttachmentChip } from "./AttachmentChip";
 import { BranchPicker } from "./BranchPicker";
+import { WorktreePicker } from "./WorktreePicker";
+import type { Worktree } from "../lib/worktrees";
 import { CwdPicker } from "./CwdPicker";
 import { FileMentionPicker } from "./FileMentionPicker";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -176,6 +178,10 @@ type Props = {
   onFocus: () => void;
   onCwdChange: (cwd: string) => void;
   onBranchChange?: () => void;
+  onWorktreeChange?: (tree: Worktree) => Promise<void>;
+  worktreeOpensNewSession?: boolean;
+  worktreeRemoved?: boolean;
+  onManageWorktrees?: () => void;
   onNewTerminal?: () => void;
   onModelChange: (harness: HarnessId, model: string) => void;
   onModelSettingsChange?: (settings: Record<string, string>) => void;
@@ -433,6 +439,10 @@ export function Composer({
   onFocus,
   onCwdChange,
   onBranchChange,
+  onWorktreeChange,
+  worktreeOpensNewSession = false,
+  worktreeRemoved = false,
+  onManageWorktrees,
   onNewTerminal,
   onModelChange,
   onModelSettingsChange,
@@ -487,7 +497,7 @@ export function Composer({
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>(
-    () => peekProjectFiles(cwd) ?? [],
+    () => peekProjectFiles(executionCwd) ?? [],
   );
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
@@ -567,15 +577,19 @@ export function Composer({
   mentionIndexRef.current = mentionIndex;
   const rankedFiles = useMemo(() => {
     if (!mentionOpen) return [];
-    const fileHits = looksLikeProject(cwd)
-      ? rankMentionFiles(files, mention?.query ?? "", recentOpenedFiles(cwd))
+    const fileHits = looksLikeProject(executionCwd)
+      ? rankMentionFiles(
+          files,
+          mention?.query ?? "",
+          recentOpenedFiles(executionCwd),
+        )
       : [];
     const noteHits = notesEnabled
       ? rankNoteFiles(notes, mention?.query ?? "")
       : [];
     const seen = new Set(noteHits.map((file) => file.path));
     return [...noteHits, ...fileHits.filter((file) => !seen.has(file.path))];
-  }, [cwd, files, mention?.query, mentionOpen, notes, notesEnabled]);
+  }, [executionCwd, files, mention?.query, mentionOpen, notes, notesEnabled]);
 
   const syncHasValue = useCallback(
     (text: string, files: Attachment[]) => {
@@ -672,20 +686,20 @@ export function Composer({
     const apply = (next: ProjectFile[]) => {
       if (!cancelled) setFiles(next);
     };
-    const cached = peekProjectFiles(cwd);
-    if (cached) apply(cached);
-    void loadProjectFiles(cwd, mentionOpen)
+    const cached = peekProjectFiles(executionCwd);
+    apply(cached ?? []);
+    void loadProjectFiles(executionCwd, mentionOpen)
       .then(apply)
       .catch(() => undefined);
     const unsub = subscribeProjectFiles(() => {
-      const next = peekProjectFiles(cwd);
+      const next = peekProjectFiles(executionCwd);
       if (next) apply(next);
     });
     return () => {
       cancelled = true;
       unsub();
     };
-  }, [cwd, mentionOpen]);
+  }, [executionCwd, mentionOpen]);
 
   useEffect(() => {
     if (!mentionOpen || !notesEnabled) return;
@@ -1037,6 +1051,7 @@ export function Composer({
   }, [addAttachments, attachmentsSupported, enabled]);
 
   const submit = (value: string) => {
+    if (worktreeRemoved) return;
     const folderCommand = consumeSessionFolderCommand(value);
     if (folderCommand.matched && onPlaceInFolder && !sessionFolderSelected) {
       openSessionFolderPicker();
@@ -1304,7 +1319,7 @@ export function Composer({
               query={slash?.query ?? ""}
               active={skillActive}
               creating={creatingSkill}
-              cwd={cwd}
+              cwd={executionCwd}
               error={createError}
               busy={createBusy}
               onActive={setSkillActive}
@@ -1323,7 +1338,7 @@ export function Composer({
               onCreate={(name, scope) => {
                 setCreateBusy(true);
                 setCreateError(null);
-                void createBlankSkill({ cwd, name, scope })
+                void createBlankSkill({ cwd: executionCwd, name, scope })
                   .then((path) => {
                     const el = ref.current;
                     const token = slashRef.current;
@@ -1361,7 +1376,10 @@ export function Composer({
               files={rankedFiles}
               query={mention?.query ?? ""}
               active={mentionActive}
-              loading={looksLikeProject(cwd) && peekProjectFiles(cwd) == null}
+              loading={
+                looksLikeProject(executionCwd) &&
+                peekProjectFiles(executionCwd) == null
+              }
               includeNotes={notesEnabled}
               onActive={setMentionActive}
               onPick={pickMention}
@@ -1391,13 +1409,25 @@ export function Composer({
                   projectLogoPath={projectLogoPath}
                   enabled={enabled}
                   onCwdChange={onCwdChange}
-                  onNewTerminal={onNewTerminal}
+                  onNewTerminal={worktreeRemoved ? undefined : onNewTerminal}
                   onClose={() => ref.current?.focus()}
                 />
               )}
-              {hideBranchPicker ? null : (
-                <BranchPicker
+              {hideBranchPicker ? null : onWorktreeChange ? (
+                <WorktreePicker
                   cwd={cwd}
+                  executionCwd={executionCwd}
+                  enabled={enabled && !busy}
+                  onSelect={onWorktreeChange}
+                  opensNewSession={worktreeOpensNewSession}
+                  worktreeRemoved={worktreeRemoved}
+                  onBranchChange={onBranchChange}
+                  onManage={onManageWorktrees}
+                  onClose={() => ref.current?.focus()}
+                />
+              ) : (
+                <BranchPicker
+                  cwd={executionCwd}
                   branch={branch}
                   enabled={enabled && !busy}
                   onChange={onBranchChange}
@@ -1407,7 +1437,11 @@ export function Composer({
               <div className="ml-auto flex shrink-0 items-center">
                 <ContextMeter
                   usage={context}
-                  onCompact={compactSupported ? onCompactContext : undefined}
+                  onCompact={
+                    compactSupported && !worktreeRemoved
+                      ? onCompactContext
+                      : undefined
+                  }
                   compactDisabled={busy}
                 />
               </div>
@@ -1462,15 +1496,17 @@ export function Composer({
               spellCheck={false}
               defaultValue={initialDraft}
               placeholder={
-                inboxCard
-                  ? "Add a note, or send to start…"
-                  : noteCard
-                    ? "Add a message, or send…"
-                    : handoffCard
-                      ? "Add context, or send to continue…"
-                      : shell
-                        ? "Ask, build, / for commands, @ for references... "
-                        : "Ask, build, / for commands, @ for references... "
+                worktreeRemoved
+                  ? "Select a branch or worktree to continue…"
+                  : inboxCard
+                    ? "Add a note, or send to start…"
+                    : noteCard
+                      ? "Add a message, or send…"
+                      : handoffCard
+                        ? "Add context, or send to continue…"
+                        : shell
+                          ? "Ask, build, / for commands, @ for references... "
+                          : "Ask, build, / for commands, @ for references... "
               }
               className={`composer-field scrollbar-none relative max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
                 shell ? "py-4" : "py-3"
@@ -1683,7 +1719,7 @@ export function Composer({
             <div className="flex shrink-0 items-center gap-1">
               <ComposerAction
                 busy={busy}
-                hasValue={hasValue}
+                hasValue={hasValue && !worktreeRemoved}
                 onSend={() => submit(ref.current?.value ?? "")}
                 onStop={() => onStop?.()}
               />
