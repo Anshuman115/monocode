@@ -94,8 +94,6 @@ pub struct SessionUpsert {
     #[serde(default)]
     pub worktree_cwd: Option<String>,
     #[serde(default)]
-    pub worktree_removed: bool,
-    #[serde(default)]
     pub linked_work_item: Option<Value>,
 }
 
@@ -118,8 +116,6 @@ pub struct SessionSummary {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_cwd: Option<String>,
-    #[serde(default)]
-    pub worktree_removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
     pub additions: i64,
@@ -159,8 +155,6 @@ pub struct SessionRecord {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_cwd: Option<String>,
-    #[serde(default)]
-    pub worktree_removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_work_item: Option<Value>,
     pub created_at: i64,
@@ -306,55 +300,6 @@ pub fn session_set_pinned(
     validate_id(&session_id, "session")?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
     set_pinned(&conn, &session_id, pinned).map_err(|e| e.to_string())
-}
-
-#[tauri::command(async)]
-pub fn session_set_worktree_removed(
-    store: State<'_, SessionStore>,
-    session_ids: Vec<String>,
-    removed: bool,
-    project_cwd: Option<String>,
-    worktree_path: Option<String>,
-) -> Result<(), String> {
-    for session_id in &session_ids {
-        validate_id(session_id, "session")?;
-    }
-    let mut conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    set_worktree_removed(
-        &mut conn,
-        &session_ids,
-        removed,
-        project_cwd.as_deref(),
-        worktree_path.as_deref(),
-    )
-    .map_err(|e| e.to_string())
-}
-
-fn set_worktree_removed(
-    conn: &mut Connection,
-    session_ids: &[String],
-    removed: bool,
-    project_cwd: Option<&str>,
-    worktree_path: Option<&str>,
-) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
-    for session_id in session_ids {
-        tx.execute(
-            "UPDATE sessions
-             SET worktree_removed = ?1,
-                 worktree_cwd = CASE
-                   WHEN ?1 = 1 AND ?3 IS NOT NULL AND ?4 IS NOT NULL
-                     AND (worktree_cwd IS NULL OR TRIM(worktree_cwd) = '')
-                   THEN ?3 ELSE worktree_cwd END,
-                 cwd = CASE
-                   WHEN ?1 = 1 AND ?3 IS NOT NULL AND ?4 IS NOT NULL
-                     AND (worktree_cwd IS NULL OR TRIM(worktree_cwd) = '')
-                   THEN COALESCE(?4, cwd) ELSE cwd END
-             WHERE id = ?2",
-            params![i64::from(removed), session_id, worktree_path, project_cwd],
-        )?;
-    }
-    tx.commit()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -574,7 +519,6 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("pinned", "INTEGER NOT NULL DEFAULT 0"),
         ("linked_work_item_json", "TEXT"),
         ("provider_account_id", "TEXT"),
-        ("worktree_removed", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -656,13 +600,6 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ensure_session_column(conn, "provider_account_id", "TEXT")?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (14, ?1)",
-            params![now_millis()],
-        )?;
-    }
-    if current < 15 {
-        ensure_session_column(conn, "worktree_removed", "INTEGER NOT NULL DEFAULT 0")?;
-        conn.execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (15, ?1)",
             params![now_millis()],
         )?;
     }
@@ -892,8 +829,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            id, cwd, harness, model, model_settings, runtime_mode, title,
            provider_session_id, blocks_json, created_at, updated_at, branch,
            context_used, context_window, worktree_cwd, has_user_message,
-           linked_work_item_json, provider_account_id, worktree_removed
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+           linked_work_item_json, provider_account_id
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -910,8 +847,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            worktree_cwd = excluded.worktree_cwd,
            has_user_message = excluded.has_user_message,
            linked_work_item_json = excluded.linked_work_item_json,
-           provider_account_id = excluded.provider_account_id,
-           worktree_removed = excluded.worktree_removed",
+           provider_account_id = excluded.provider_account_id",
         params![
             session.id,
             session.cwd,
@@ -931,7 +867,6 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
             i64::from(has_user_message),
             linked_work_item_json,
             provider_account_id,
-            i64::from(session.worktree_removed),
         ],
     )?;
 
@@ -948,7 +883,6 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         provider_session_id: provider_session_id.map(str::to_owned),
         branch: branch.map(str::to_owned),
         worktree_cwd: worktree_cwd.map(str::to_owned),
-        worktree_removed: session.worktree_removed,
         repo: git.repo,
         additions: 0,
         deletions: 0,
@@ -1212,8 +1146,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
-                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                worktree_removed
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd
          FROM sessions
          WHERE cwd = ?1
            AND has_user_message = 1
@@ -1240,7 +1173,6 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             updated_at: row.get(8)?,
             branch: nonempty(stored_branch).or_else(|| git.branch.clone()),
             worktree_cwd: row.get(14)?,
-            worktree_removed: row.get::<_, i64>(15)? != 0,
             repo: git.repo.clone(),
             additions: 0,
             deletions: 0,
@@ -1257,8 +1189,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
-                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                worktree_removed
+                (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
@@ -1283,7 +1214,6 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             updated_at: row.get(8)?,
             branch: nonempty(row.get(9)?),
             worktree_cwd: row.get(14)?,
-            worktree_removed: row.get::<_, i64>(15)? != 0,
             repo: None,
             additions: 0,
             deletions: 0,
@@ -1452,7 +1382,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
         "SELECT id, cwd, harness, model, model_settings, runtime_mode, title,
                 provider_session_id, blocks_json, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd,
-                linked_work_item_json, provider_account_id, worktree_removed
+                linked_work_item_json, provider_account_id
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
@@ -1488,7 +1418,6 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 context_window: row.get(12)?,
                 branch: row.get(13)?,
                 worktree_cwd: row.get(14)?,
-                worktree_removed: row.get::<_, i64>(17)? != 0,
                 linked_work_item: optional_json(row.get(15)?),
                 provider_account_id: row.get(16)?,
                 created_at: row.get(9)?,
@@ -1607,7 +1536,6 @@ mod tests {
             context_window: None,
             branch: None,
             worktree_cwd: None,
-            worktree_removed: false,
             linked_work_item: None,
         }
     }
@@ -2149,31 +2077,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(column, 1);
-    }
-
-    #[test]
-    fn removed_worktree_state_round_trips() {
-        let store = SessionStore::open_in_memory().unwrap();
-        let mut conn = store.conn.lock().unwrap();
-        let mut session = sample("s1", "/tmp/a", "First");
-        session.cwd = "/tmp/a-worktrees/feature".into();
-        upsert_session(&conn, &session).unwrap();
-        set_worktree_removed(
-            &mut conn,
-            &["s1".into()],
-            true,
-            Some("/tmp/a"),
-            Some("/tmp/a-worktrees/feature"),
-        )
-        .unwrap();
-        assert!(list_by_project(&conn, "/tmp/a").unwrap()[0].worktree_removed);
-        let restored = get_session(&conn, "s1").unwrap().unwrap();
-        assert!(restored.worktree_removed);
-        assert_eq!(restored.cwd, "/tmp/a");
-        assert_eq!(
-            restored.worktree_cwd.as_deref(),
-            Some("/tmp/a-worktrees/feature")
-        );
     }
 
     #[test]

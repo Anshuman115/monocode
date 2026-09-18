@@ -134,7 +134,6 @@ type Shared = {
     turn: Block[],
   ) => void;
   onHandoff?: (sessionId: string, target: ModelTarget, turn: Block[]) => void;
-  onContinueRemovedWorktreeSession?: (sessionId: string) => void;
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onDetachPane: (
     paneId: string,
@@ -211,7 +210,6 @@ function PaneTreeComponent({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
-  onContinueRemovedWorktreeSession,
   onMovePane,
   onDetachPane,
   onNewTerminal,
@@ -453,9 +451,6 @@ function PaneTreeComponent({
                 onBuildPlan={onBuildPlan}
                 onSecondOpinion={onSecondOpinion}
                 onHandoff={onHandoff}
-                onContinueRemovedWorktreeSession={
-                  onContinueRemovedWorktreeSession
-                }
                 onNewTerminal={onNewTerminal}
                 onPaneDragStart={onPaneDragStart}
               />

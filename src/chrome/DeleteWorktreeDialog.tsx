@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { prettyCwd, projectName } from "../lib/paths";
-import { type Worktree } from "../lib/worktrees";
+import { type RemoveWorktree, type Worktree } from "../lib/worktrees";
 import { Modal } from "./Modal";
 import {
   CircleAlert,
@@ -53,17 +53,11 @@ export function DeleteWorktreeDialog({
   cwd: string;
   tree: Worktree;
   sessionCount?: number;
-  onRemove: (
-    cwd: string,
-    path: string,
-    force: boolean,
-    deleteSessions: boolean,
-  ) => Promise<void>;
+  onRemove: RemoveWorktree;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [deleteSessions, setDeleteSessions] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
@@ -83,7 +77,7 @@ export function DeleteWorktreeDialog({
     try {
       // Confirmation covers the complete destructive action, including any
       // local changes that appeared after the last status refresh.
-      await onRemove(cwd, tree.path, true, deleteSessions);
+      await onRemove(cwd, tree.path, true);
       onDeleted();
     } catch (e) {
       setError(String(e));
@@ -115,23 +109,9 @@ export function DeleteWorktreeDialog({
           </p>
           <ul className="mt-2.5 flex flex-col gap-2 border-t border-content/8 pt-2.5 text-[12.5px] text-content/75">
             {sessionCount > 0 && (
-              <Consequence
-                icon={MessageSquare}
-                tone={deleteSessions ? "danger" : "muted"}
-              >
-                {deleteSessions ? (
-                  <>
-                    {sessionCount} session{sessionCount === 1 ? "" : "s"} using
-                    this worktree {sessionCount === 1 ? "is" : "are"}
-                    permanently deleted.
-                  </>
-                ) : (
-                  <>
-                    {sessionCount} session{sessionCount === 1 ? "" : "s"} using
-                    this worktree {sessionCount === 1 ? "is" : "are"} kept as
-                    read-only. You can continue in a new session.
-                  </>
-                )}
+              <Consequence icon={MessageSquare} tone="danger">
+                {sessionCount} session{sessionCount === 1 ? "" : "s"} using this
+                worktree {sessionCount === 1 ? "is" : "are"} deleted with it.
               </Consequence>
             )}
             {tree.dirty && (
@@ -165,21 +145,6 @@ export function DeleteWorktreeDialog({
             )}
           </ul>
         </div>
-        {sessionCount > 0 && (
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-content/10 bg-content/5 p-3 text-[12.5px] text-content/75">
-            <input
-              type="checkbox"
-              checked={deleteSessions}
-              disabled={busy}
-              onChange={(event) => setDeleteSessions(event.target.checked)}
-              className="mt-0.5 accent-red-500"
-            />
-            <span>
-              Permanently delete the {sessionCount} session
-              {sessionCount === 1 ? "" : "s"} instead
-            </span>
-          </label>
-        )}
         <label className="flex flex-col gap-1.5">
           <span className="text-[12.5px] text-content/70">
             Type <span className="font-mono text-content">{folder}</span> to
@@ -218,7 +183,7 @@ export function DeleteWorktreeDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-red-500/20 px-3 py-1.5 font-medium text-red-400 hover:bg-red-500/30 disabled:opacity-40 disabled:hover:bg-red-500/20 active:scale-[0.97]"
           >
             {busy && <Loader className="size-3.5 animate-spin" />}
-            {sessionCount && deleteSessions
+            {sessionCount
               ? `Delete worktree and session${sessionCount === 1 ? "" : "s"}`
               : "Delete worktree"}
           </button>

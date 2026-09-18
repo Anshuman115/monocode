@@ -151,8 +151,6 @@ describe("project return snapshots", () => {
 describe("collectWorkspaceSnapshot", () => {
   it("stores tabs, stubs, and the focused tab — not transcripts", () => {
     const session = chat("s1", "/tmp/a");
-    session.worktreeCwd = "/tmp/a-worktrees/feature";
-    session.worktreeRemoved = true;
     session.blocks.push({ id: "a1", role: "assistant", text: "hi" });
     const file = newFileTab("/tmp/a/README.md", "/tmp/a");
     const tab = {
@@ -176,8 +174,6 @@ describe("collectWorkspaceSnapshot", () => {
         id: "s1",
         cwd: "/tmp/a",
         providerSessionId: "p1",
-        worktreeCwd: "/tmp/a-worktrees/feature",
-        worktreeRemoved: true,
       }),
     ]);
     expect("blocks" in snapshot.sessions[0]!).toBe(false);

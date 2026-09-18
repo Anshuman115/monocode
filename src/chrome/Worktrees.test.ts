@@ -460,7 +460,7 @@ it("uses the shared project picker without leaking late worktree responses", asy
   expect(refresh.textContent).toBe("Refresh");
   expect(refresh.className).toContain("bg-content/8");
   expect(refresh.parentElement?.textContent).toContain(
-    "keeps its sessions as read-only by default",
+    "Deleting one also deletes its sessions",
   );
   await act(async () => picker.click());
   expect(
@@ -584,7 +584,7 @@ it("can return to the main working copy after a worktree is deleted externally",
   );
 });
 
-it("keeps sessions read-only by default when deleting a worktree", async () => {
+it("confirms session and local-change deletion before removing a worktree", async () => {
   const onRemove = vi.fn().mockResolvedValue(undefined);
   const onDeleted = vi.fn();
   await act(async () =>
@@ -600,19 +600,19 @@ it("keeps sessions read-only by default when deleting a worktree", async () => {
     ),
   );
   expect(document.body.textContent).toContain(
-    "2 sessions using this worktree are kept as read-only",
+    "2 sessions using this worktree are deleted with it",
   );
   expect(document.body.textContent).toContain(
     "All uncommitted and untracked changes",
   );
-  const remove = button("Delete worktree");
+  const remove = button("Delete worktree and sessions");
   expect(remove.disabled).toBe(true);
   await act(async () => remove.click());
   expect(onRemove).not.toHaveBeenCalled();
   await confirmWorktree("feature");
   expect(remove.disabled).toBe(false);
   await act(async () => remove.click());
-  expect(onRemove).toHaveBeenLastCalledWith("/repo", tree.path, true, false);
+  expect(onRemove).toHaveBeenLastCalledWith("/repo", tree.path, true);
   expect(onDeleted).toHaveBeenCalledOnce();
 });
 
@@ -644,9 +644,6 @@ it("offers cascade deletion for a session-linked worktree but not the main copy"
   )!;
   expect(removeFeature.disabled).toBe(false);
   await act(async () => removeFeature.click());
-  await act(async () =>
-    document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
-  );
   await confirmWorktree("feature");
   await act(async () => button("Delete worktree and session").click());
   expect(onDeleteSessions).toHaveBeenCalledWith(["session-1"]);
@@ -657,76 +654,6 @@ it("offers cascade deletion for a session-linked worktree but not the main copy"
   ).toBeLessThan(onDeleteSessions.mock.invocationCallOrder[0]);
   expect(onDeleteSessions.mock.invocationCallOrder[0]).toBeLessThan(
     onRemove.mock.invocationCallOrder[0],
-  );
-});
-
-it("preserves worktree sessions unless permanent deletion is selected", async () => {
-  vi.mocked(listWorktrees).mockResolvedValue({
-    ...result(),
-    worktrees: [
-      { ...tree, path: "/repo", branch: "main", isMain: true },
-      { ...tree, sessionIds: ["session-1", "session-2"] },
-    ],
-  });
-  const onDeleteSessions = vi.fn().mockResolvedValue(true);
-  const onSetSessionsWorktreeRemoved = vi.fn().mockResolvedValue(true);
-  const onRemove = vi.fn().mockResolvedValue(undefined);
-  await act(async () =>
-    root.render(
-      createElement(WorktreesPage, {
-        cwd: "/preserve-sessions",
-        onDeleteSessions,
-        onSetSessionsWorktreeRemoved,
-        onRemove,
-      }),
-    ),
-  );
-  await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
-      .click(),
-  );
-  await confirmWorktree("feature");
-  await act(async () => button("Delete worktree").click());
-  expect(onSetSessionsWorktreeRemoved).toHaveBeenCalledWith(
-    ["session-1", "session-2"],
-    true,
-    "/repo",
-    tree.path,
-  );
-  expect(onDeleteSessions).not.toHaveBeenCalled();
-  expect(onRemove).toHaveBeenCalledWith("/preserve-sessions", tree.path, true);
-});
-
-it("restores preserved sessions if final worktree removal fails", async () => {
-  vi.mocked(listWorktrees).mockResolvedValue({
-    ...result(),
-    worktrees: [{ ...tree, sessionIds: ["session-1"] }],
-  });
-  const onSetSessionsWorktreeRemoved = vi.fn().mockResolvedValue(true);
-  const onRemove = vi.fn().mockRejectedValue(new Error("Disk unavailable"));
-  await act(async () =>
-    root.render(
-      createElement(WorktreesPage, {
-        cwd: "/restore-sessions",
-        onSetSessionsWorktreeRemoved,
-        onRemove,
-      }),
-    ),
-  );
-  await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
-      .click(),
-  );
-  await confirmWorktree("feature");
-  await act(async () => button("Delete worktree").click());
-  expect(onSetSessionsWorktreeRemoved.mock.calls).toEqual([
-    [["session-1"], true, "/restore-sessions", tree.path],
-    [["session-1"], false, "/restore-sessions", tree.path],
-  ]);
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "Disk unavailable",
   );
 });
 
@@ -769,11 +696,6 @@ it.each(["file", "terminal", "native"] as const)(
         .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
         .click(),
     );
-    await act(async () =>
-      document
-        .querySelector<HTMLInputElement>('input[type="checkbox"]')!
-        .click(),
-    );
     await confirmWorktree("feature");
     await act(async () => button("Delete worktree and sessions").click());
     expect(onDeleteSessions).not.toHaveBeenCalled();
@@ -804,9 +726,6 @@ it("reports partial completion if worktree removal fails after successful prefli
     container
       .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
       .click(),
-  );
-  await act(async () =>
-    document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
   );
   await confirmWorktree("feature");
   await act(async () => button("Delete worktree and session").click());

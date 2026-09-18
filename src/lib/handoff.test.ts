@@ -7,7 +7,6 @@ import {
   buildOutgoingHandoffPrompt,
   chooseHandoffBrief,
   completeHandoff,
-  continueRemovedWorktreeSession,
   consumeHandoff,
   handoffTurnCard,
   hasSessionEdits,
@@ -91,32 +90,6 @@ describe("planComposerSwitch", () => {
 });
 
 describe("deterministic handoff", () => {
-  it("continues a removed worktree in a fresh writable session", () => {
-    const source = sessionWith(
-      [
-        { id: "u1", role: "user", text: "Build the settings page" },
-        { id: "a1", role: "assistant", text: "The settings page is ready." },
-      ],
-      {
-        title: "cursor · Worktrees",
-        providerSessionId: "old-provider-thread",
-        providerAccountId: "work",
-        worktreeCwd: "/tmp/project-worktrees/feature",
-        worktreeRemoved: true,
-      },
-    );
-    const next = continueRemovedWorktreeSession(source);
-    expect(next.id).not.toBe(source.id);
-    expect(next.cwd).toBe("/tmp/project");
-    expect(next.worktreeCwd).toBeUndefined();
-    expect(next.worktreeRemoved).toBeUndefined();
-    expect(next.providerSessionId).toBeUndefined();
-    expect(next.providerAccountId).toBe("work");
-    expect(next.title).toBe("cursor · Worktrees");
-    expect(next.handoffCard?.brief).toContain("Build the settings page");
-    expect(next.handoffCard?.brief).toContain("The settings page is ready.");
-  });
-
   it("recaps the chat and files edited, without a Goal heading", () => {
     const brief = buildDeterministicHandoff(
       sessionWith(

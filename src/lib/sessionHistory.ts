@@ -112,7 +112,6 @@ export function summaryFromSession(
     title: session.title,
     providerSessionId: session.providerSessionId,
     worktreeCwd: session.worktreeCwd,
-    worktreeRemoved: session.worktreeRemoved,
     ...(session.linkedWorkItem
       ? { linkedWorkItem: session.linkedWorkItem }
       : {}),

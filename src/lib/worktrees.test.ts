@@ -149,17 +149,6 @@ describe("working-copy context", () => {
     expect(sessionInWorktree(source, tree)).toBe(source);
   });
 
-  it("makes a preserved session writable when it selects a new working copy", () => {
-    const source = {
-      ...newSession("codex", "/repo"),
-      worktreeCwd: tree.path,
-      worktreeRemoved: true,
-      blocks: [{ id: "u", role: "user" as const, text: "Build feature" }],
-    };
-    const other = { ...tree, path: "/repo-worktrees/other", branch: "other" };
-    expect(sessionInWorktree(source, other).worktreeRemoved).toBeUndefined();
-  });
-
   it("counts shared, archived, and unsaved sessions without double counting", () => {
     const saved = { ...tree, sessionIds: ["saved", "archived", "moved"] };
     const sessions = [
@@ -167,12 +156,6 @@ describe("working-copy context", () => {
       { ...newSession("codex", "/repo"), id: "blank", worktreeCwd: tree.path },
       { ...newSession("codex", "/repo"), id: "moved" },
       { ...newSession("codex", tree.path), id: "opened-as-project" },
-      {
-        ...newSession("codex", "/repo"),
-        id: "removed",
-        worktreeCwd: tree.path,
-        worktreeRemoved: true,
-      },
     ];
     expect(worktreeSessionIds(saved, sessions).sort()).toEqual([
       "archived",
