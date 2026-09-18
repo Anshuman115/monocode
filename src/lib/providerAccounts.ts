@@ -8,6 +8,17 @@ const CHANGE_EVENT = "monocode-provider-accounts-changed";
 export const DEFAULT_PROVIDER_ACCOUNT_ID = "default";
 const DEFAULT_PROVIDER_ACCOUNT_LABEL = "Default account";
 
+/** Legacy sessions predate persisted account ids and belong to the default profile. */
+export function sameProviderAccountId(
+  left: string | undefined,
+  right: string | undefined,
+): boolean {
+  return (
+    (left ?? DEFAULT_PROVIDER_ACCOUNT_ID) ===
+    (right ?? DEFAULT_PROVIDER_ACCOUNT_ID)
+  );
+}
+
 /** Providers whose CLIs support isolated, locally named account profiles. */
 export const PROVIDER_ACCOUNT_PROVIDERS = [
   "claude",
