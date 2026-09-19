@@ -8,6 +8,7 @@ import {
   Zap,
 } from "./icons";
 import {
+  Fragment,
   useEffect,
   useId,
   useMemo,
@@ -943,11 +944,22 @@ export function ModelControlPills({
   void catalogVersion;
   const current = resolveModel(harness, model);
   const pills = pillSettings(current);
+  const effort = pills.find(
+    (setting) => setting.kind === "select" && isEffortSetting(setting),
+  );
+  const groupedSettings = effort
+    ? pills.filter(
+        (setting) => setting.id === "fast" || setting.id === "serviceTier",
+      )
+    : [];
   if (pills.length === 0) return null;
   return (
     <>
-      {pills.map((setting) =>
-        setting.kind === "toggle" ? (
+      {pills.map((setting) => {
+        if (groupedSettings.some((grouped) => grouped.id === setting.id)) {
+          return null;
+        }
+        return setting.kind === "toggle" ? (
           <TogglePill
             key={setting.id}
             setting={setting}
@@ -961,9 +973,12 @@ export function ModelControlPills({
             values={values}
             onSettingsChange={onSettingsChange}
             onClose={onClose}
+            additionalSettings={
+              setting.id === effort?.id ? groupedSettings : undefined
+            }
           />
-        ),
-      )}
+        );
+      })}
     </>
   );
 }
@@ -1005,11 +1020,13 @@ function SelectPill({
   values,
   onSettingsChange,
   onClose,
+  additionalSettings,
 }: {
   setting: ModelSetting;
   values: Record<string, string>;
   onSettingsChange: (settings: Record<string, string>) => void;
   onClose?: () => void;
+  additionalSettings?: ModelSetting[];
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1019,19 +1036,29 @@ function SelectPill({
   const value = settingValue(setting, values);
   const valueLabel = settingValueLabel(setting, values);
   const label = settingLabel(setting);
+  const menuSettings = [setting, ...(additionalSettings ?? [])];
+  const grouped = menuSettings.length > 1;
+  const menuOptions = menuSettings.flatMap((menuSetting) =>
+    menuSetting.options.map((option) => ({ setting: menuSetting, option })),
+  );
+  const menuLabels = menuSettings.map(settingLabel);
+  const menuLabel =
+    menuLabels.length < 3
+      ? menuLabels.join(" and ")
+      : `${menuLabels.slice(0, -1).join(", ")}, and ${menuLabels[menuLabels.length - 1]}`;
   const dismiss = (restoreFocus: boolean) => {
     setOpen(false);
     if (restoreFocus) onClose?.();
   };
   const openPicker = () => {
-    const selectedIndex = setting.options.findIndex(
-      (option) => option.value === value,
+    const selectedIndex = menuOptions.findIndex(
+      (item) => item.setting.id === setting.id && item.option.value === value,
     );
     setActive(selectedIndex >= 0 ? selectedIndex : 0);
     setOpen(true);
   };
-  const pick = (optionValue: string) => {
-    onSettingsChange({ ...values, [setting.id]: optionValue });
+  const pick = (pickedSetting: ModelSetting, optionValue: string) => {
+    onSettingsChange({ ...values, [pickedSetting.id]: optionValue });
     dismiss(true);
   };
 
@@ -1073,7 +1100,7 @@ function SelectPill({
           autoFocus
           onDismiss={(reason) => dismiss(reason === "escape")}
           role="menu"
-          aria-label={label}
+          aria-label={menuLabel}
           aria-activedescendant={`${menuId}-${active}`}
           tabIndex={-1}
           onKeyDown={(event) => {
@@ -1082,46 +1109,70 @@ function SelectPill({
               const direction = event.key === "ArrowDown" ? 1 : -1;
               setActive(
                 (index) =>
-                  (index + direction + setting.options.length) %
-                  setting.options.length,
+                  (index + direction + menuOptions.length) % menuOptions.length,
               );
               return;
             }
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
-            const option = setting.options[active];
-            if (option) pick(option.value);
+            const item = menuOptions[active];
+            if (item) pick(item.setting, item.option.value);
           }}
           data-model-control
           className="p-1 font-sans"
         >
-          {setting.options.map((option, index) => {
-            const selected = option.value === value;
-            const highlighted = index === active;
-            return (
-              <button
-                key={option.value}
-                id={`${menuId}-${index}`}
-                type="button"
-                role="menuitemradio"
-                aria-checked={selected}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActive(index)}
-                onClick={() => pick(option.value)}
-                className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-content ${
-                  highlighted ? "bg-selection" : "hover:bg-content/5"
-                }`}
+          {menuSettings.map((menuSetting, groupIndex) => (
+            <Fragment key={menuSetting.id}>
+              {groupIndex > 0 ? (
+                <div role="separator" className="my-1 h-px bg-content/10" />
+              ) : null}
+              <div
+                role={grouped ? "group" : undefined}
+                aria-label={grouped ? settingLabel(menuSetting) : undefined}
               >
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                {selected ? (
-                  <Check
-                    className="size-3.5 shrink-0 text-content/50"
-                    strokeWidth={2}
-                  />
+                {grouped ? (
+                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                    {settingLabel(menuSetting)}
+                  </div>
                 ) : null}
-              </button>
-            );
-          })}
+                {menuSetting.options.map((option) => {
+                  const index = menuOptions.findIndex(
+                    (item) =>
+                      item.setting.id === menuSetting.id &&
+                      item.option.value === option.value,
+                  );
+                  const selected =
+                    option.value === settingValue(menuSetting, values);
+                  const highlighted = index === active;
+                  return (
+                    <button
+                      key={option.value}
+                      id={`${menuId}-${index}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActive(index)}
+                      onClick={() => pick(menuSetting, option.value)}
+                      className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-content ${
+                        highlighted ? "bg-selection" : "hover:bg-content/5"
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {option.label}
+                      </span>
+                      {selected ? (
+                        <Check
+                          className="size-3.5 shrink-0 text-content/50"
+                          strokeWidth={2}
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </Fragment>
+          ))}
         </Popover>
       ) : null}
     </>

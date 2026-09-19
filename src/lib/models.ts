@@ -383,6 +383,8 @@ const EFFORT_SETTING_IDS = new Set([
   "effort",
   "reasoning",
   "reasoningEffort",
+  // Pi and OMP expose their reasoning level as a `thinking` select.
+  "thinking",
   // OpenCode exposes reasoning levels as `variant`; treat it as effort so the
   // standalone effort control and dedup behave like Codex/Cursor/Grok.
   "variant",

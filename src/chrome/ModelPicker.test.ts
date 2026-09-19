@@ -531,6 +531,50 @@ describe("model picker", () => {
     ).not.toBeNull();
   });
 
+  it.each(["pi", "omp"] as const)(
+    "shows an effort icon for %s thinking levels",
+    (harness) => {
+      const model = `${harness}:gpt-5.4-mini`;
+      setHarnessModels(harness, [
+        {
+          id: model,
+          harness,
+          name: "GPT-5.4 mini",
+          nativeId: "gpt-5.4-mini",
+          settings: [
+            {
+              id: "thinking",
+              label: "Thinking",
+              kind: "select",
+              value: "xhigh",
+              options: [
+                { value: "high", label: "High" },
+                { value: "xhigh", label: "Extra High" },
+              ],
+            },
+          ],
+        },
+      ]);
+
+      act(() =>
+        root.render(
+          createElement(ModelControlPills, {
+            harness,
+            model,
+            values: { thinking: "xhigh" },
+            onSettingsChange: vi.fn(),
+          }),
+        ),
+      );
+
+      const effortPill = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Thinking: Extra High"]',
+      )!;
+      expect(effortPill.textContent).toBe("Extra High");
+      expect(effortPill.querySelectorAll("svg")).toHaveLength(2);
+    },
+  );
+
   it("shows a speed icon on the service-tier pill", () => {
     setHarnessModels("codex", [
       {
@@ -569,6 +613,152 @@ describe("model picker", () => {
     )!;
     expect(serviceTierPill.textContent).toBe("Standard");
     expect(serviceTierPill.querySelectorAll("svg")).toHaveLength(2);
+  });
+
+  it("groups the service tier inside the effort popover", () => {
+    setHarnessModels("codex", [
+      {
+        id: "codex:gpt-5.6-sol",
+        harness: "codex",
+        name: "GPT-5.6 Sol",
+        nativeId: "gpt-5.6-sol",
+        settings: [
+          {
+            id: "reasoningEffort",
+            label: "Reasoning",
+            kind: "select",
+            value: "high",
+            options: [
+              { value: "high", label: "High" },
+              { value: "xhigh", label: "Extra High" },
+            ],
+          },
+          {
+            id: "serviceTier",
+            label: "Service Tier",
+            kind: "select",
+            value: "default",
+            options: [
+              { value: "default", label: "Standard" },
+              { value: "fast", label: "Fast" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const onSettingsChange = vi.fn();
+
+    act(() =>
+      root.render(
+        createElement(ModelControlPills, {
+          harness: "codex",
+          model: "codex:gpt-5.6-sol",
+          values: { reasoningEffort: "high", serviceTier: "default" },
+          onSettingsChange,
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector('button[aria-label="Service Tier: Standard"]'),
+    ).toBeNull();
+    const effortPill = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Reasoning: High"]',
+    )!;
+    act(() => effortPill.click());
+
+    const menu = container.querySelector<HTMLElement>(
+      '[role="menu"][aria-label="Reasoning and Service Tier"]',
+    )!;
+    expect(menu.querySelector('[role="separator"]')).not.toBeNull();
+    expect(
+      menu.querySelector('[role="group"][aria-label="Reasoning"]'),
+    ).not.toBeNull();
+    const serviceTierGroup = menu.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Service Tier"]',
+    )!;
+    expect(serviceTierGroup.textContent).toContain("Standard");
+    expect(serviceTierGroup.textContent).toContain("Fast");
+
+    const fast = [...serviceTierGroup.querySelectorAll("button")].find(
+      (button) => button.textContent === "Fast",
+    )!;
+    act(() => fast.click());
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      reasoningEffort: "high",
+      serviceTier: "fast",
+    });
+  });
+
+  it("groups fast mode inside the effort popover", () => {
+    setHarnessModels("claude", [
+      {
+        id: "claude:opus-5",
+        harness: "claude",
+        name: "Opus 5",
+        nativeId: "claude-opus-5",
+        settings: [
+          {
+            id: "effort",
+            label: "Reasoning",
+            kind: "select",
+            value: "high",
+            options: [
+              { value: "medium", label: "Medium" },
+              { value: "high", label: "High" },
+            ],
+          },
+          {
+            id: "fast",
+            label: "Fast",
+            kind: "toggle",
+            value: "false",
+            options: [
+              { value: "false", label: "Off" },
+              { value: "true", label: "On" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const onSettingsChange = vi.fn();
+
+    act(() =>
+      root.render(
+        createElement(ModelControlPills, {
+          harness: "claude",
+          model: "claude:opus-5",
+          values: { effort: "high", fast: "false" },
+          onSettingsChange,
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector('button[aria-label="Fast: Off"]'),
+    ).toBeNull();
+    const effortPill = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Effort: High"]',
+    )!;
+    act(() => effortPill.click());
+
+    const menu = container.querySelector<HTMLElement>(
+      '[role="menu"][aria-label="Effort and Fast"]',
+    )!;
+    const fastGroup = menu.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Fast"]',
+    )!;
+    expect(fastGroup.textContent).toContain("Off");
+    expect(fastGroup.textContent).toContain("On");
+
+    const on = [...fastGroup.querySelectorAll("button")].find(
+      (button) => button.textContent === "On",
+    )!;
+    act(() => on.click());
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      effort: "high",
+      fast: "true",
+    });
   });
 
   it("opens the model list directly when settings live beside the picker", () => {
