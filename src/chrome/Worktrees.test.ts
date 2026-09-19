@@ -112,13 +112,6 @@ const type = (input: HTMLInputElement, value: string) => {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
 
-const confirmWorktree = async (name: string) => {
-  const field = document.querySelector<HTMLInputElement>(
-    `input[aria-label="Type ${name} to confirm"]`,
-  )!;
-  await act(async () => type(field, name));
-};
-
 function deferred() {
   let resolve!: (data: Worktrees) => void;
   let reject!: (error: Error) => void;
@@ -705,7 +698,7 @@ it("can return to the main working copy after a worktree is deleted externally",
   );
 });
 
-it("confirms session and local-change deletion before removing a worktree", async () => {
+it("shows session and local-change consequences before removing a worktree", async () => {
   const onRemove = vi.fn().mockResolvedValue(undefined);
   const onDeleted = vi.fn();
   await act(async () =>
@@ -734,11 +727,10 @@ it("confirms session and local-change deletion before removing a worktree", asyn
     "All uncommitted and untracked changes",
   );
   const remove = button("Delete worktree and sessions");
-  expect(remove.disabled).toBe(true);
-  await act(async () => remove.click());
-  expect(onRemove).not.toHaveBeenCalled();
-  await confirmWorktree("feature");
   expect(remove.disabled).toBe(false);
+  expect(
+    document.querySelector('input[aria-label="Type feature to confirm"]'),
+  ).toBeNull();
   await act(async () => remove.click());
   expect(onRemove).toHaveBeenLastCalledWith("/repo", tree.path, true, true);
   expect(onDeleted).toHaveBeenCalledOnce();
@@ -771,7 +763,6 @@ it("offers cascade deletion for a session-linked worktree but not the main copy"
   )!;
   expect(removeFeature.disabled).toBe(false);
   await act(async () => removeFeature.click());
-  await confirmWorktree("feature");
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
   );
@@ -826,7 +817,6 @@ it.each(["file", "terminal", "native"] as const)(
         .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
         .click(),
     );
-    await confirmWorktree("feature");
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
     );
@@ -860,7 +850,6 @@ it("reports partial completion if worktree removal fails after successful prefli
       .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
       .click(),
   );
-  await confirmWorktree("feature");
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
   );
@@ -899,7 +888,6 @@ it.each(["partial", "rejected", "worktree", "refresh"] as const)(
       '[aria-label="Delete feature"]',
     )!;
     await act(async () => remove.click());
-    await confirmWorktree("feature");
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
     );
@@ -926,7 +914,6 @@ it.each(["partial", "rejected", "worktree", "refresh"] as const)(
     onDeleteSessions.mockResolvedValue(true);
     onRemove.mockResolvedValue(undefined);
     await act(async () => remove.click());
-    await confirmWorktree("feature");
     if (sessionIds.length) {
       expect(document.body.textContent).toContain(
         "1 session using this worktree is kept.",
@@ -1097,7 +1084,6 @@ it("keeps associated sessions by default when deleting a worktree", async () => 
       .querySelector<HTMLButtonElement>('[aria-label="Delete feature"]')!
       .click(),
   );
-  await confirmWorktree("feature");
   await act(async () => button("Delete worktree").click());
   expect(onDeleteSessions).not.toHaveBeenCalled();
   expect(onRemove).toHaveBeenCalledWith(
