@@ -139,6 +139,7 @@ import {
 import { SessionsEmpty } from "./SessionsEmpty";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
 import { SourceControl } from "./SourceControl";
+import { GithubStarPrompt } from "./GithubStarPrompt";
 
 const MIN_WIDTH = 260;
 const MAX_WIDTH = 560;
@@ -1610,6 +1611,7 @@ function SidebarComponent({
               onDismissUpdate={onDismissUpdate}
             />
             <div className="flex shrink-0 flex-col gap-px p-2">
+              <GithubStarPrompt />
               <RailAction
                 label="Settings"
                 icon={Settings}
