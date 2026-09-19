@@ -1469,7 +1469,9 @@ function PromptField({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
-    if (ref.current) resizeComposer(ref.current);
+    if (ref.current) {
+      resizeComposer(ref.current, Number.POSITIVE_INFINITY);
+    }
   }, [value]);
   return (
     <div className="relative">
@@ -1481,7 +1483,7 @@ function PromptField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder="Tell the agent what to do when this automation runs…"
-        className="scrollbar-none relative min-h-28 max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 py-3 font-sans text-sm leading-5.5 text-content outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-content/40"
+        className="relative min-h-28 w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent px-3 py-3 font-sans text-sm leading-5.5 text-content outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-content/40"
       />
     </div>
   );
