@@ -39,6 +39,18 @@ export async function createWorktree(
   return tree;
 }
 
+export async function createOrchestrationWorktree(
+  cwd: string,
+  branch: string,
+) {
+  const tree = await invoke<Worktree>("git_orchestration_worktree_create", {
+    cwd,
+    branch,
+  });
+  notifyGitChanged();
+  return tree;
+}
+
 export async function renameWorktreeBranch(
   cwd: string,
   path: string,
@@ -63,6 +75,11 @@ export function temporaryWorktreeBranchName(
   return `mc/${token || Date.now().toString(36)}`;
 }
 
+export function orchestrationWorktreeBranchName(id: string): string {
+  const token = id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12).toLowerCase();
+  return `mc/orch-${token || Date.now().toString(36)}`;
+}
+
 export function namedWorktreeBranch(fragment: string): string | null {
   const clean = fragment
     .trim()
@@ -83,6 +100,26 @@ export async function removeWorktree(
   );
   notifyGitChanged();
   return result;
+}
+
+export async function removeOrchestrationWorktree(
+  cwd: string,
+  path: string,
+) {
+  const result = await invoke<{ sessionIds: string[]; projectCwd: string }>(
+    "git_orchestration_worktree_remove",
+    { cwd, path },
+  );
+  notifyGitChanged();
+  return result;
+}
+
+export async function removeOrchestrationBranch(
+  cwd: string,
+  branch: string,
+) {
+  await invoke<void>("git_orchestration_branch_remove", { cwd, branch });
+  notifyGitChanged();
 }
 
 /** Read-only preflight; final removal must still recheck for new blockers. */

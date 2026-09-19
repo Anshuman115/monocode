@@ -11,7 +11,11 @@ import {
 } from "react";
 import { Composer } from "../chrome/Composer";
 import type { Worktree } from "../lib/worktrees";
-import { orchestrator, sameCheckout } from "../lib/orchestration";
+import {
+  orchestrationCheckoutCwd,
+  orchestrator,
+  sameCheckout,
+} from "../lib/orchestration";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { LinkedWorkItemUpdateNotice } from "../chrome/LinkedWorkItemUpdateNotice";
 import { SessionReview } from "../chrome/SessionReview";
@@ -218,7 +222,7 @@ export const SessionPane = memo(function SessionPane({
   const managed = orchestrationRuns.some(
     (run) =>
       (run.status === "active" || run.status === "paused") &&
-      sameCheckout(run.cwd, sessionWorkCwd(session)),
+      sameCheckout(orchestrationCheckoutCwd(run), sessionWorkCwd(session)),
   );
   const title = sessionDisplayTitle(session.title, session.harness);
   const isEmpty = session.blocks.length === 0;

@@ -2652,7 +2652,10 @@ function SessionCard({
                   </span>
                   <span
                     className={`shrink-0 text-[10px] ${
-                      task.needsInput || task.status === "failed"
+                      task.needsInput ||
+                      task.status === "failed" ||
+                      task.status === "blocked" ||
+                      task.status === "interrupted"
                         ? "text-amber-400"
                         : label === "Working"
                           ? "text-accent"
