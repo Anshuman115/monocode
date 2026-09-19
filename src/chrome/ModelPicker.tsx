@@ -1,4 +1,12 @@
-import { Check, ChevronDown, ChevronRight, Gauge, Search, Star } from "./icons";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Gauge,
+  Search,
+  Star,
+  Zap,
+} from "./icons";
 import {
   useEffect,
   useId,
@@ -1047,6 +1055,8 @@ function SelectPill({
       >
         {isEffortSetting(setting) ? (
           <Gauge className="size-3.5 shrink-0" strokeWidth={1.75} />
+        ) : setting.id === "serviceTier" ? (
+          <Zap className="size-3.5 shrink-0" strokeWidth={1.75} />
         ) : null}
         <span className="min-w-0 truncate text-[11px]">{valueLabel}</span>
         <ChevronDown

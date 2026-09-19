@@ -531,6 +531,46 @@ describe("model picker", () => {
     ).not.toBeNull();
   });
 
+  it("shows a speed icon on the service-tier pill", () => {
+    setHarnessModels("codex", [
+      {
+        id: "codex:gpt-5.6-luna",
+        harness: "codex",
+        name: "GPT-5.6 Luna",
+        nativeId: "gpt-5.6-luna",
+        settings: [
+          {
+            id: "serviceTier",
+            label: "Service Tier",
+            kind: "select",
+            value: "default",
+            options: [
+              { value: "default", label: "Standard" },
+              { value: "fast", label: "Fast" },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    act(() =>
+      root.render(
+        createElement(ModelControlPills, {
+          harness: "codex",
+          model: "codex:gpt-5.6-luna",
+          values: { serviceTier: "default" },
+          onSettingsChange: vi.fn(),
+        }),
+      ),
+    );
+
+    const serviceTierPill = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Service Tier: Standard"]',
+    )!;
+    expect(serviceTierPill.textContent).toBe("Standard");
+    expect(serviceTierPill.querySelectorAll("svg")).toHaveLength(2);
+  });
+
   it("opens the model list directly when settings live beside the picker", () => {
     setHarnessModels("cursor", [
       {
