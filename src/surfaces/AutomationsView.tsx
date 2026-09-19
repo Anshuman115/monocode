@@ -183,7 +183,7 @@ function AutomationsContent({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AutomationDraft | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
   const logos = useTabGroupLogos();
@@ -338,7 +338,7 @@ function AutomationsContent({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 text-content">
       <aside className="flex w-[280px] shrink-0 flex-col border-r border-stroke">
-        <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-stroke px-2">
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
           <label className="relative flex h-7 min-w-0 flex-1 items-center">
             <Search className="pointer-events-none absolute left-2 size-3 shrink-0 text-content/40" />
             <span className="sr-only">Filter automations</span>
@@ -353,10 +353,12 @@ function AutomationsContent({
           </label>
           <button
             type="button"
+            title="New automation"
+            aria-label="New automation"
             onClick={beginCreate}
-            className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-content px-2 text-[11px] font-medium text-background-base hover:bg-content/80"
+            className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
           >
-            <Plus className="size-3" /> New
+            <Plus className="size-3.5" strokeWidth={1.75} />
           </button>
         </div>
         <div
@@ -599,7 +601,7 @@ function AutomationPicker({
                   key={option.id}
                   type="button"
                   onClick={() => setCategory(option.id)}
-                  className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors duration-150 ${
+                  className={`h-7 rounded-full px-3 text-[12px] font-medium ${
                     selected
                       ? "bg-content text-background-base"
                       : "text-content/55 hover:bg-content/8 hover:text-content"
@@ -614,7 +616,7 @@ function AutomationPicker({
             <button
               type="button"
               onClick={onBlank}
-              className="flex min-h-37 flex-col rounded-xl border border-dashed border-content/15 p-4 text-left transition-colors duration-150 hover:border-content/25 hover:bg-content/5"
+              className="flex min-h-37 flex-col rounded-xl border border-dashed border-content/15 p-4 text-left hover:border-content/25 hover:bg-content/5"
             >
               <div className="flex gap-3">
                 <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
@@ -637,7 +639,7 @@ function AutomationPicker({
                   key={template.id}
                   type="button"
                   onClick={() => onPick(template)}
-                  className="flex min-h-37 flex-col rounded-xl border border-content/10 p-4 text-left transition-colors duration-150 hover:border-content/16 hover:bg-content/5"
+                  className="flex min-h-37 flex-col rounded-xl border border-content/10 p-4 text-left hover:border-content/16 hover:bg-content/5"
                 >
                   <div className="flex gap-3">
                     <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
