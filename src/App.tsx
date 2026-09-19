@@ -5076,6 +5076,53 @@ export default function App({
     [],
   );
 
+  const onSaveDraft = useCallback(
+    (sessionId: string, text: string, attachments: Attachment[] = []) => {
+      const current = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (
+        !current ||
+        current.busy ||
+        current.blocks.length > 0 ||
+        current.inboxAsk ||
+        current.worktreeRemoved ||
+        (!text.trim() && attachments.length === 0)
+      ) {
+        return false;
+      }
+      const placeholderTitle = canReplaceSessionTitle(
+        current.title,
+        current.harness,
+        HARNESS_LABEL[current.harness],
+      );
+      const title = placeholderTitle
+        ? titleFromPrompt(text, current.harness, attachments)
+        : current.title;
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId && session.blocks.length === 0
+            ? {
+                ...session,
+                title,
+                blocks: [
+                  {
+                    id: crypto.randomUUID(),
+                    role: "user",
+                    text,
+                    ...(attachments.length > 0 ? { attachments } : {}),
+                    draft: true,
+                  },
+                ],
+              }
+            : session,
+        ),
+      );
+      return true;
+    },
+    [],
+  );
+
   const onSubmit = useCallback(
     (
       sessionId: string,
@@ -5092,6 +5139,7 @@ export default function App({
         buildTarget?: PlanBuildTarget;
         managed?: boolean;
         orchestrationRetry?: OrchestrationProposal;
+        draftBlockId?: string;
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
@@ -5135,9 +5183,26 @@ export default function App({
         )
       )
         return false;
-      const current = options?.buildTarget
-        ? withPlanBuildTarget(storedCurrent, options.buildTarget)
+      const draftBlock = options?.draftBlockId
+        ? storedCurrent.blocks.find(
+            (block) =>
+              block.id === options.draftBlockId &&
+              block.role === "user" &&
+              block.draft,
+          )
+        : undefined;
+      if (options?.draftBlockId && !draftBlock) return false;
+      const draftCleared = draftBlock
+        ? {
+            ...storedCurrent,
+            blocks: storedCurrent.blocks.filter(
+              (block) => block.id !== draftBlock.id,
+            ),
+          }
         : storedCurrent;
+      const current = options?.buildTarget
+        ? withPlanBuildTarget(draftCleared, options.buildTarget)
+        : draftCleared;
       const intent = options?.intent ?? "default";
       if (intent === "orchestrate") {
         try {
@@ -5344,11 +5409,12 @@ export default function App({
           }
         : undefined;
       const isFirstTurn = current.blocks.length === 0;
-      const placeholderTitle = canReplaceSessionTitle(
-        current.title,
-        current.harness,
-        HARNESS_LABEL[current.harness],
-      );
+      const placeholderTitle =
+        canReplaceSessionTitle(
+          current.title,
+          current.harness,
+          HARNESS_LABEL[current.harness],
+        ) || !!draftBlock;
       const titleSeed =
         isFirstTurn &&
         !current.inboxCard &&
@@ -5383,9 +5449,15 @@ export default function App({
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== sessionId) return s;
-          const selected = options?.buildTarget
-            ? withPlanBuildTarget(s, options.buildTarget)
+          const draftRemoved = draftBlock
+            ? {
+                ...s,
+                blocks: s.blocks.filter((block) => block.id !== draftBlock.id),
+              }
             : s;
+          const selected = options?.buildTarget
+            ? withPlanBuildTarget(draftRemoved, options.buildTarget)
+            : draftRemoved;
           const titled = isFirstTurn ? titleSeed : selected.title;
           let next: Session = {
             ...selected,
@@ -7699,6 +7771,7 @@ export default function App({
     onModelChange,
     onModelSettingsChange,
     onRuntimeModeChange,
+    onSaveDraft,
     onSubmit,
     onStop,
     onCompactContext,

@@ -169,6 +169,62 @@ describe("Composer question focus", () => {
     expect(textarea.selectionEnd).toBe(initialDraft.length);
   });
 
+  it("saves a new message as a draft without submitting it", async () => {
+    const onSubmit = vi.fn();
+    const onSaveDraft = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: true,
+          harness: "claude",
+          model: "claude-sonnet",
+          runtimeMode: "supervised",
+          executionCwd: "/repo",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          canSaveDraft: true,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit,
+          onSaveDraft,
+        }),
+      ),
+    );
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add files or choose a mode"]',
+        )!
+        .click(),
+    );
+    const draftMode = [
+      ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.includes("Save this message"));
+    expect(draftMode).toBeDefined();
+    await act(async () => draftMode!.click());
+
+    const textarea = container.querySelector("textarea")!;
+    await act(async () => {
+      textarea.value = "Explore a quieter empty state";
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Save draft"]',
+    );
+    expect(save?.disabled).toBe(false);
+    await act(async () => save!.click());
+
+    expect(onSaveDraft).toHaveBeenCalledWith(
+      "Explore a quieter empty state",
+      [],
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("");
+  });
+
   it("locks a started session to its worktree while keeping its branch editable", async () => {
     await act(async () =>
       root.render(

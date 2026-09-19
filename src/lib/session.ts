@@ -66,7 +66,11 @@ export type TaskListMeta = {
 
 /** One-shot behavior selected in the composer for the next harness turn. */
 export type TurnIntent = "default" | "plan" | "build" | "orchestrate";
-export type ComposerTurnOptions = { intent?: TurnIntent };
+export type ComposerTurnOptions = {
+  intent?: TurnIntent;
+  /** Promote an existing unsent transcript block instead of appending a turn. */
+  draftBlockId?: string;
+};
 
 export type PlanStatus = "streaming" | "ready" | "building" | "built";
 
@@ -230,6 +234,8 @@ export type Block = {
   durationMs?: number;
   /** Stable model label for this turn. Present on newly created user blocks. */
   turnModel?: TurnModel;
+  /** User turn saved to the session but not submitted to the harness yet. */
+  draft?: boolean;
   /** Provider-reported token metrics for this user turn, when available. */
   turnMetrics?: TurnMetrics;
   tool?: {
@@ -486,6 +492,13 @@ export function sessionNeedsInput(session: Session): boolean {
     !session.worktreeRemoved &&
     (hasPendingApproval(session.blocks) || session.pendingQuestion != null)
   );
+}
+
+/** The single unsent user turn held by a draft session, when present. */
+export function sessionDraftBlock(
+  session: Pick<Session, "blocks">,
+): Block | undefined {
+  return session.blocks.find((block) => block.role === "user" && block.draft);
 }
 
 /** Title without the harness prefix stored for the tab strip. */

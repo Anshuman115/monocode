@@ -24,6 +24,7 @@ import {
 import { looksLikeProject, type RecentProject } from "../lib/recents";
 import {
   sessionDisplayTitle,
+  sessionDraftBlock,
   sessionWorkCwd,
   type Attachment,
   type Block,
@@ -98,6 +99,11 @@ type Props = {
     text: string,
     attachments: Attachment[],
     options?: ComposerTurnOptions,
+  ) => boolean | void;
+  onSaveDraft: (
+    sessionId: string,
+    text: string,
+    attachments: Attachment[],
   ) => boolean | void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
@@ -175,6 +181,7 @@ export const SessionPane = memo(function SessionPane({
   onModelChange,
   onModelSettingsChange,
   onRuntimeModeChange,
+  onSaveDraft,
   onSubmit,
   onStop,
   onCompactContext,
@@ -215,6 +222,7 @@ export const SessionPane = memo(function SessionPane({
   );
   const title = sessionDisplayTitle(session.title, session.harness);
   const isEmpty = session.blocks.length === 0;
+  const draftBlock = sessionDraftBlock(session);
   const backgroundRevision = useSyncExternalStore(
     subscribeProjectChatBackground,
     projectChatBackgroundRevision,
@@ -341,7 +349,8 @@ export const SessionPane = memo(function SessionPane({
   }, [addSelectionToChat, addToChatTarget]);
   const workCwd = sessionWorkCwd(session);
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
-  const dockComposer = !isEmpty || inSplit || !!session.inboxAsk;
+  const dockComposer =
+    !draftBlock && (!isEmpty || inSplit || !!session.inboxAsk);
   const draftRef = useRef<string | undefined>(undefined);
   const composer = (
     <Composer
@@ -422,6 +431,16 @@ export const SessionPane = memo(function SessionPane({
         onModelSettingsChange(session.id, settings)
       }
       onRuntimeModeChange={(mode) => onRuntimeModeChange(session.id, mode)}
+      canSaveDraft={
+        isEmpty &&
+        !session.inboxAsk &&
+        !session.inboxCard &&
+        !session.noteCard &&
+        !session.handoffCard
+      }
+      onSaveDraft={(text, attachments) =>
+        onSaveDraft(session.id, text, attachments)
+      }
       onSubmit={(text, attachments, options) =>
         onSubmit(session.id, text, attachments, options)
       }
@@ -568,6 +587,17 @@ export const SessionPane = memo(function SessionPane({
                 onApproval={session.worktreeRemoved ? undefined : approve}
                 onAddToChat={addSelectionToChat}
                 onSaveNote={notesEnabled ? saveNote : undefined}
+                onSendDraft={
+                  draftBlock
+                    ? (block) =>
+                        onSubmit(
+                          session.id,
+                          block.text,
+                          block.attachments ?? [],
+                          { draftBlockId: block.id },
+                        )
+                    : undefined
+                }
                 onSaveSelectionNote={
                   notesEnabled ? saveSelectionNote : undefined
                 }
@@ -592,7 +622,9 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
                 latestTurnAccessory={
-                  session.inboxAsk || session.worktreeRemoved ? undefined : (
+                  session.inboxAsk ||
+                  session.worktreeRemoved ||
+                  draftBlock ? undefined : (
                     <SessionReview
                       sessionId={session.id}
                       cwd={workCwd}

@@ -329,6 +329,15 @@ html.has-user-accent .user-message-bubble {
   border-color: color-mix(in srgb, var(--user-accent-color) 30%, transparent);
 }
 
+.user-message-bubble[data-draft="true"] {
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+
+html.has-user-accent .user-message-bubble[data-draft="true"] {
+  background: color-mix(in srgb, var(--user-accent-color) 8%, transparent);
+  border-color: color-mix(in srgb, var(--user-accent-color) 38%, transparent);
+}
+
 .user-link-preview {
   display: inline;
   white-space: normal;
