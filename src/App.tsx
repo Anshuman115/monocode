@@ -406,6 +406,7 @@ import {
 } from "./lib/notes";
 import {
   claimDueAutomations,
+  recoverAutomationRuns,
   updateAutomationRun,
   type Automation,
   type AutomationRun,
@@ -6049,13 +6050,23 @@ export default function App({
     ],
   );
 
+  const automationSessionReservations = useRef(new Set<string>());
+  const automationRecoveryRef = useRef<Promise<void> | null>(null);
+  const automationRecoveryCutoffRef = useRef(Date.now());
+
   const launchAutomation = useCallback(
     async (
       automation: Automation,
       run: AutomationRun,
       reveal = false,
-      prompt = automation.prompt,
+      prompt = run.prompt ?? automation.prompt,
     ) => {
+      let reservationId: string | undefined;
+      let releaseAfterSettle = false;
+      const releaseReservation = () => {
+        if (!reservationId) return;
+        automationSessionReservations.current.delete(reservationId);
+      };
       try {
         let session =
           automation.reuseSession && automation.lastSessionId
@@ -6065,9 +6076,15 @@ export default function App({
                   entry.harness === automation.harness &&
                   !entry.busy &&
                   !entry.worktreeRemoved &&
-                  (automation.workspaceMode !== "existing" ||
-                    pathKey(sessionWorkCwd(entry)) ===
-                      pathKey(automation.worktreeCwd ?? "")),
+                  !automationSessionReservations.current.has(entry.id) &&
+                  (automation.workspaceMode === "current"
+                    ? entry.workspaceMode !== "worktree" &&
+                      !entry.worktreeCwd &&
+                      pathKey(entry.cwd) === pathKey(automation.cwd)
+                    : automation.workspaceMode === "existing"
+                      ? pathKey(sessionWorkCwd(entry)) ===
+                        pathKey(automation.worktreeCwd ?? "")
+                      : false),
               )
             : undefined;
 
@@ -6099,19 +6116,26 @@ export default function App({
             setComposerFocused(false);
           }
         } else {
-          if (session.automationId !== automation.id) {
-            const stamped = { ...session, automationId: automation.id };
-            session = stamped;
-            const nextSessions = sessionsRef.current.map((entry) =>
-              entry.id === stamped.id ? stamped : entry,
-            );
-            sessionsRef.current = nextSessions;
-            setSessions(nextSessions);
-          }
+          const stamped = {
+            ...session,
+            automationId: automation.id,
+            model: automation.model,
+            modelSettings: automation.modelSettings ?? {},
+            runtimeMode: automation.runtimeMode,
+          };
+          session = stamped;
+          const nextSessions = sessionsRef.current.map((entry) =>
+            entry.id === stamped.id ? stamped : entry,
+          );
+          sessionsRef.current = nextSessions;
+          setSessions(nextSessions);
           if (reveal) {
             focusOpenSession(session.id);
           }
         }
+
+        reservationId = session.id;
+        automationSessionReservations.current.add(session.id);
 
         if (automation.sessionFolderId && looksLikeProject(automation.cwd)) {
           saveSessionFolders(
@@ -6146,7 +6170,9 @@ export default function App({
             void updateAutomationRun(run.id, status, {
               sessionId: session.id,
               ...(outcome.error ? { error: outcome.error } : {}),
-            });
+            })
+              .catch(() => undefined)
+              .finally(releaseReservation);
           },
         });
         if (!accepted) {
@@ -6154,16 +6180,43 @@ export default function App({
             sessionId: session.id,
             error: "The selected agent session could not start this run.",
           });
+        } else {
+          releaseAfterSettle = true;
         }
       } catch (reason: unknown) {
         await updateAutomationRun(run.id, "failed", {
           error: reason instanceof Error ? reason.message : String(reason),
         }).catch(() => undefined);
         throw reason;
+      } finally {
+        if (!releaseAfterSettle) releaseReservation();
       }
     },
     [appendTab, focusOpenSession, onSubmit],
   );
+
+  const ensureAutomationRecovery = useCallback(() => {
+    if (!automationRecoveryRef.current) {
+      const recovery = (async () => {
+        const pending = await recoverAutomationRuns(
+          automationRecoveryCutoffRef.current,
+        );
+        for (const item of pending) {
+          await launchAutomation(
+            item.automation,
+            item.run,
+            false,
+            item.run.prompt ?? item.automation.prompt,
+          ).catch(() => undefined);
+        }
+      })();
+      automationRecoveryRef.current = recovery.catch((error: unknown) => {
+        automationRecoveryRef.current = null;
+        throw error;
+      });
+    }
+    return automationRecoveryRef.current;
+  }, [launchAutomation]);
 
   useEffect(() => {
     let disposed = false;
@@ -6172,6 +6225,7 @@ export default function App({
       if (disposed || evaluating) return;
       evaluating = true;
       try {
+        await ensureAutomationRecovery();
         const due = await claimDueAutomations();
         for (const item of due) {
           if (disposed) break;
@@ -6197,11 +6251,12 @@ export default function App({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [launchAutomation]);
+  }, [ensureAutomationRecovery, launchAutomation]);
 
   const onInboxAppeared = useCallback(
     (items: Parameters<typeof claimInboxAutomationRuns>[0]) => {
-      void claimInboxAutomationRuns(items)
+      void ensureAutomationRecovery()
+        .then(() => claimInboxAutomationRuns(items))
         .then((due) => {
           for (const item of due) {
             void launchAutomation(
@@ -6214,7 +6269,7 @@ export default function App({
         })
         .catch(() => undefined);
     },
-    [launchAutomation],
+    [ensureAutomationRecovery, launchAutomation],
   );
 
   const onUpdatePlan = useCallback(

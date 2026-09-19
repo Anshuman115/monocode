@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   githubWorkItem,
   inboxListCacheKey,
@@ -143,9 +150,7 @@ export function useInboxActivity(
   const entriesRef = useRef<ProjectSeenEntry[]>([]);
   const notifications = useRef(new InboxNotificationTracker());
   const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
   const onAppearedRef = useRef(options?.onAppeared);
-  onAppearedRef.current = options?.onAppeared;
   const fallbackFetchedAt = useRef(new Map<string, number>());
   const targetKey = linkedWorkItemTargets(sessions)
     .map((target) => target.key)
@@ -162,6 +167,14 @@ export function useInboxActivity(
       ),
     );
   }, []);
+
+  useLayoutEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useLayoutEffect(() => {
+    onAppearedRef.current = options?.onAppeared;
+  }, [options?.onAppeared]);
 
   useEffect(() => {
     const stopSeen = subscribeInboxSeen(applyUnseen);
@@ -222,9 +235,9 @@ export function useInboxActivity(
           Object.keys(listed.errors) as InboxProvider[],
         );
         const changed = observed.changed;
-        if (observed.appeared.length > 0) {
-          onAppearedRef.current?.(observed.appeared);
-        }
+        // Invoke on every successful poll so retained automation claims can be
+        // retried even when the item is no longer newly appeared.
+        onAppearedRef.current?.(observed.appeared);
         const selfAuthored = changed.filter((item) =>
           consumeInboxSelfActivity(item),
         );

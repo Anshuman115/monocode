@@ -259,6 +259,7 @@ pub fn run() {
             automations::automations_upsert,
             automations::automations_delete,
             automations::automation_runs_list,
+            automations::automation_runs_recover,
             automations::automation_run_now,
             automations::automations_claim_due,
             automations::automations_claim_event,

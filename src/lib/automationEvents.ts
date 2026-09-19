@@ -22,6 +22,10 @@ export type InboxAutomationMatch = {
 
 export type ClaimedInboxAutomationRun = DueAutomationRun & { prompt: string };
 
+const RETRY_STORAGE_KEY = "monocode.automation-inbox-retries.v1";
+const MAX_RETRY_ITEMS = 500;
+let retryItems: Map<string, InboxItem> | undefined;
+
 export const SUPPORTED_INBOX_TRIGGER_EVENTS = {
   github: ["draft_opened", "pull_request_opened", "issue_opened"],
   gitlab: ["merge_request_opened", "issue_opened"],
@@ -64,6 +68,36 @@ export function automationEventKey(item: InboxItem): string {
     .slice(0, 400);
 }
 
+function pendingRetryItems(): Map<string, InboxItem> {
+  if (retryItems) return retryItems;
+  retryItems = new Map();
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(RETRY_STORAGE_KEY) ?? "[]");
+    if (Array.isArray(saved)) {
+      for (const item of saved as InboxItem[]) {
+        const key = automationEventKey(item);
+        if (key) retryItems.set(key, item);
+      }
+    }
+  } catch {
+    // A malformed retry cache should not block new Inbox events.
+  }
+  return retryItems;
+}
+
+function saveRetryItems(items: ReadonlyMap<string, InboxItem>) {
+  try {
+    if (items.size === 0) window.localStorage.removeItem(RETRY_STORAGE_KEY);
+    else
+      window.localStorage.setItem(
+        RETRY_STORAGE_KEY,
+        JSON.stringify([...items.values()]),
+      );
+  } catch {
+    // The in-memory queue still retries while storage is unavailable.
+  }
+}
+
 export function matchInboxAutomations(
   automations: readonly Automation[],
   appeared: readonly InboxItem[],
@@ -101,11 +135,24 @@ export async function claimInboxAutomationRuns(
   appeared: readonly InboxItem[],
   now = Date.now(),
 ): Promise<ClaimedInboxAutomationRun[]> {
-  if (appeared.length === 0) return [];
+  const pending = pendingRetryItems();
+  for (const item of appeared) {
+    const key = automationEventKey(item);
+    if (key) pending.set(key, item);
+  }
+  while (pending.size > MAX_RETRY_ITEMS) {
+    const oldest = pending.keys().next().value;
+    if (oldest == null) break;
+    pending.delete(oldest);
+  }
+  saveRetryItems(pending);
+  if (pending.size === 0) return [];
+
   const automations = await listAutomations();
-  const matches = matchInboxAutomations(automations, appeared);
-  if (matches.length === 0) return [];
+  const candidates = [...pending.values()];
+  const matches = matchInboxAutomations(automations, candidates);
   const claimed: ClaimedInboxAutomationRun[] = [];
+  const failed = new Set<string>();
   for (const match of matches) {
     try {
       const result = await invoke<DueAutomationRun | null>(
@@ -117,15 +164,21 @@ export async function claimInboxAutomationRuns(
             eventKind: match.trigger.kind,
             event: match.trigger.event,
             scheduledFor: match.occurredAt || now,
+            prompt: match.prompt,
           },
           now,
         },
       );
       if (result) claimed.push({ ...result, prompt: match.prompt });
     } catch {
-      // The next Inbox poll retries; a claimed run must not launch twice.
+      failed.add(match.eventKey);
     }
   }
+  for (const item of candidates) {
+    const key = automationEventKey(item);
+    if (!failed.has(key)) pending.delete(key);
+  }
+  saveRetryItems(pending);
   if (claimed.length > 0) notifyAutomationsChanged();
   return claimed;
 }

@@ -2605,6 +2605,7 @@ function SessionCard({
             {session.automationId ? (
               <span
                 data-automation-icon
+                role="img"
                 title="Started by an automation"
                 aria-label="Started by an automation"
                 className="grid size-5 -mr-1 shrink-0 place-items-center text-amber-400"

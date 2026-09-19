@@ -13,6 +13,7 @@ import {
   nextAutomationRunAt,
   nextRunPreview,
   nextTriggersRunAt,
+  overdueTriggerOccurrences,
   type Automation,
 } from "./automations";
 
@@ -130,6 +131,20 @@ describe("automation schedules", () => {
     expect(nextTriggersRunAt([weekly, daily], at("2026-09-19T10:00:00"))).toBe(
       at("2026-09-19T18:00:00"),
     );
+  });
+
+  it("preserves each overdue occurrence after a delayed poll", () => {
+    const morning = createAutomationTrigger("time", "daily", { time: "09:00" });
+    const later = createAutomationTrigger("time", "daily", { time: "10:00" });
+    const firstRunAt = at("2026-09-19T09:00:00");
+
+    expect(
+      overdueTriggerOccurrences(
+        [morning, later],
+        firstRunAt,
+        at("2026-09-19T10:30:00"),
+      ).map((occurrence) => occurrence.scheduledFor),
+    ).toEqual([firstRunAt, at("2026-09-19T10:00:00")]);
   });
 
   it("labels the timezone offset and next run", () => {

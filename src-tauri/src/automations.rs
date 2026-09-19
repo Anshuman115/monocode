@@ -115,6 +115,8 @@ pub struct AutomationRun {
     event_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     event: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prompt: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -157,6 +159,7 @@ pub struct AutomationEventClaim {
     event_kind: String,
     event: String,
     scheduled_for: i64,
+    prompt: String,
 }
 
 fn default_true() -> bool {
@@ -201,8 +204,44 @@ pub(crate) fn ensure_tables(conn: &Connection) -> rusqlite::Result<()> {
            run_json TEXT NOT NULL
          );
          CREATE INDEX IF NOT EXISTS automation_runs_history_idx
-           ON automation_runs (automation_id, created_at DESC);",
-    )
+           ON automation_runs (automation_id, created_at DESC);
+         CREATE TABLE IF NOT EXISTS automation_event_claims (
+           automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+           event_key TEXT NOT NULL,
+           created_at INTEGER NOT NULL,
+           PRIMARY KEY (automation_id, event_key)
+         );",
+    )?;
+
+    // Backfill claims from pre-ledger run history. Invalid legacy rows should not
+    // prevent the session store from opening.
+    let mut statement =
+        conn.prepare("SELECT automation_id, created_at, run_json FROM automation_runs")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut claims = Vec::new();
+    for row in rows {
+        let (automation_id, created_at, raw) = row?;
+        if let Ok(run) = serde_json::from_str::<AutomationRun>(&raw) {
+            if let Some(event_key) = run.event_key {
+                claims.push((automation_id, event_key, created_at));
+            }
+        }
+    }
+    drop(statement);
+    for (automation_id, event_key, created_at) in claims {
+        conn.execute(
+            "INSERT OR IGNORE INTO automation_event_claims
+             (automation_id, event_key, created_at) VALUES (?1, ?2, ?3)",
+            params![automation_id, event_key, created_at],
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_upsert(input: &AutomationUpsert, now: i64) -> Result<(), String> {
@@ -470,7 +509,13 @@ fn write_run(conn: &Connection, run: &AutomationRun) -> Result<(), String> {
     Ok(())
 }
 
-fn new_run(automation_id: &str, trigger: &str, scheduled_for: i64, now: i64) -> AutomationRun {
+fn new_run(
+    automation_id: &str,
+    trigger: &str,
+    scheduled_for: i64,
+    now: i64,
+    prompt: &str,
+) -> AutomationRun {
     AutomationRun {
         id: Uuid::new_v4().to_string(),
         automation_id: automation_id.to_string(),
@@ -485,6 +530,7 @@ fn new_run(automation_id: &str, trigger: &str, scheduled_for: i64, now: i64) -> 
         event_key: None,
         event_kind: None,
         event: None,
+        prompt: Some(prompt.to_string()),
     }
 }
 
@@ -495,8 +541,9 @@ fn new_event_run(
     event: &str,
     scheduled_for: i64,
     now: i64,
+    prompt: &str,
 ) -> AutomationRun {
-    let mut run = new_run(automation_id, "event", scheduled_for, now);
+    let mut run = new_run(automation_id, "event", scheduled_for, now, prompt);
     run.event_key = Some(event_key.to_string());
     run.event_kind = Some(event_kind.to_string());
     run.event = Some(event.to_string());
@@ -541,22 +588,52 @@ fn list_runs(conn: &Connection, automation_id: &str) -> Result<Vec<AutomationRun
     .collect()
 }
 
-fn event_key_claimed(runs: &[AutomationRun], event_key: &str) -> bool {
-    runs.iter()
-        .any(|run| run.event_key.as_deref() == Some(event_key))
+fn trim_history(conn: &Connection, automation_id: &str) -> Result<(), String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, run_json FROM automation_runs WHERE automation_id = ?1
+             ORDER BY created_at DESC, id DESC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([automation_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut delete_ids = Vec::new();
+    for (index, row) in rows.enumerate() {
+        let (id, raw) = row.map_err(|error| error.to_string())?;
+        if index < MAX_RUNS_PER_AUTOMATION as usize {
+            continue;
+        }
+        let run: AutomationRun = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+        if matches!(
+            run.status.as_str(),
+            "succeeded" | "failed" | "skipped" | "cancelled"
+        ) {
+            delete_ids.push(id);
+        }
+    }
+    drop(statement);
+    for id in delete_ids {
+        conn.execute("DELETE FROM automation_runs WHERE id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
-fn trim_history(conn: &Connection, automation_id: &str) -> Result<(), String> {
-    conn.execute(
-        "DELETE FROM automation_runs
-         WHERE automation_id = ?1 AND id NOT IN (
-           SELECT id FROM automation_runs WHERE automation_id = ?1
-           ORDER BY created_at DESC LIMIT ?2
-         )",
-        params![automation_id, MAX_RUNS_PER_AUTOMATION],
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(())
+fn apply_run_summary(automation: &mut Automation, run: &AutomationRun) {
+    if automation
+        .last_run_at
+        .is_none_or(|last_run_at| run.created_at >= last_run_at)
+    {
+        automation.last_run_at = Some(run.created_at);
+        automation.last_run_status = Some(run.status.clone());
+        automation.last_run_error = run.error.clone();
+        if run.session_id.is_some() {
+            automation.last_session_id = run.session_id.clone();
+        }
+    }
 }
 
 #[tauri::command(async)]
@@ -647,7 +724,90 @@ pub fn automation_runs_list(
 ) -> Result<Vec<AutomationRun>, String> {
     validate_id(&automation_id, "automation")?;
     let conn = store.lock_conn()?;
-    list_runs(&conn, &automation_id)
+    let mut runs = list_runs(&conn, &automation_id)?;
+    // Launch prompts can be large and are only needed by restart recovery, not
+    // by the run-history surface.
+    for run in &mut runs {
+        run.prompt = None;
+    }
+    Ok(runs)
+}
+
+#[tauri::command(async)]
+pub fn automation_runs_recover(
+    app: AppHandle,
+    store: State<'_, SessionStore>,
+    started_before: i64,
+    now: i64,
+) -> Result<Vec<DueAutomationRun>, String> {
+    let mut conn = store.lock_conn()?;
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    let mut statement = tx
+        .prepare(
+            "SELECT run_json FROM automation_runs WHERE created_at <= ?1
+             ORDER BY created_at, id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([started_before], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+    let mut runs = Vec::new();
+    for row in rows {
+        let raw = row.map_err(|error| error.to_string())?;
+        runs.push(serde_json::from_str::<AutomationRun>(&raw).map_err(|error| error.to_string())?);
+    }
+    drop(statement);
+
+    let mut due = Vec::new();
+    let mut changed = false;
+    let mut changed_automation_ids = Vec::new();
+    for mut run in runs {
+        if run.status != "pending" && run.status != "running" {
+            continue;
+        }
+        let Some(mut automation) = get(&tx, &run.automation_id)? else {
+            continue;
+        };
+        if run.status == "running" {
+            run.status = "cancelled".into();
+            run.completed_at = Some(now);
+            run.error = Some("Interrupted when MonoCode last stopped.".into());
+            apply_run_summary(&mut automation, &run);
+            write_run(&tx, &run)?;
+            write_automation(&tx, &automation)?;
+            changed_automation_ids.push(run.automation_id.clone());
+            changed = true;
+            continue;
+        }
+        if run.trigger == "event"
+            && run
+                .prompt
+                .as_deref()
+                .is_none_or(|prompt| prompt.trim().is_empty())
+        {
+            run.status = "failed".into();
+            run.completed_at = Some(now);
+            run.error = Some("The Inbox event prompt was not available after restart.".into());
+            apply_run_summary(&mut automation, &run);
+            write_run(&tx, &run)?;
+            write_automation(&tx, &automation)?;
+            changed_automation_ids.push(run.automation_id.clone());
+            changed = true;
+            continue;
+        }
+        due.push(DueAutomationRun { automation, run });
+    }
+    changed_automation_ids.sort();
+    changed_automation_ids.dedup();
+    for automation_id in changed_automation_ids {
+        trim_history(&tx, &automation_id)?;
+    }
+    tx.commit().map_err(|error| error.to_string())?;
+    drop(conn);
+    if changed || !due.is_empty() {
+        let _ = app.emit(CHANGED, ());
+    }
+    Ok(due)
 }
 
 #[tauri::command(async)]
@@ -662,7 +822,7 @@ pub fn automation_run_now(
     let tx = conn.transaction().map_err(|error| error.to_string())?;
     let mut automation =
         get(&tx, &automation_id)?.ok_or_else(|| "Automation not found.".to_string())?;
-    let run = new_run(&automation_id, "manual", now, now);
+    let run = new_run(&automation_id, "manual", now, now, &automation.prompt);
     automation.last_run_at = Some(now);
     automation.last_run_status = Some(run.status.clone());
     automation.last_run_error = None;
@@ -685,8 +845,8 @@ pub fn automations_claim_due(
     now: i64,
 ) -> Result<Option<DueAutomationRun>, String> {
     validate_id(&automation_id, "automation")?;
-    if next_run_at <= now {
-        return Err("The following automation occurrence must be in the future.".into());
+    if next_run_at <= expected_next_run_at {
+        return Err("The following automation occurrence must advance the schedule.".into());
     }
     let mut conn = store.lock_conn()?;
     let tx = conn.transaction().map_err(|error| error.to_string())?;
@@ -709,7 +869,13 @@ pub fn automations_claim_due(
     let mut automation =
         get(&tx, &automation_id)?.ok_or_else(|| "Automation not found.".to_string())?;
     automation.next_run_at = next_run_at;
-    let mut run = new_run(&automation_id, "scheduled", expected_next_run_at, now);
+    let mut run = new_run(
+        &automation_id,
+        "scheduled",
+        expected_next_run_at,
+        now,
+        &automation.prompt,
+    );
     let grace_ms = automation.missed_run_grace_minutes.saturating_mul(60_000);
     let missed = now.saturating_sub(expected_next_run_at);
     let dispatch = missed <= grace_ms;
@@ -727,7 +893,7 @@ pub fn automations_claim_due(
     tx.commit().map_err(|error| error.to_string())?;
     drop(conn);
     let _ = app.emit(CHANGED, ());
-    Ok(dispatch.then_some(DueAutomationRun { automation, run }))
+    Ok(Some(DueAutomationRun { automation, run }))
 }
 
 #[tauri::command(async)]
@@ -746,6 +912,9 @@ pub fn automations_claim_event(
     if claim.event.is_empty() || claim.event.len() > 200 {
         return Err("Invalid automation trigger event.".into());
     }
+    if claim.prompt.trim().is_empty() || claim.prompt.len() > MAX_PROMPT + 10_000 {
+        return Err("Invalid automation run prompt.".into());
+    }
     let scheduled_for = if claim.scheduled_for > 0 {
         claim.scheduled_for
     } else {
@@ -759,8 +928,14 @@ pub fn automations_claim_event(
         tx.rollback().map_err(|error| error.to_string())?;
         return Ok(None);
     }
-    let existing = list_runs(&tx, &automation_id)?;
-    if event_key_claimed(&existing, &claim.event_key) {
+    let claimed = tx
+        .execute(
+            "INSERT OR IGNORE INTO automation_event_claims
+             (automation_id, event_key, created_at) VALUES (?1, ?2, ?3)",
+            params![automation_id, claim.event_key, now],
+        )
+        .map_err(|error| error.to_string())?;
+    if claimed == 0 {
         tx.rollback().map_err(|error| error.to_string())?;
         return Ok(None);
     }
@@ -771,6 +946,7 @@ pub fn automations_claim_event(
         &claim.event,
         scheduled_for,
         now,
+        &claim.prompt,
     );
     automation.last_run_at = Some(now);
     automation.last_run_status = Some(run.status.clone());
@@ -832,19 +1008,10 @@ pub fn automation_run_update(
     run.error = error.filter(|value| !value.trim().is_empty());
     let mut automation =
         get(&tx, &run.automation_id)?.ok_or_else(|| "Automation not found.".to_string())?;
-    if automation
-        .last_run_at
-        .is_none_or(|last_run_at| run.created_at >= last_run_at)
-    {
-        automation.last_run_at = Some(run.created_at);
-        automation.last_run_status = Some(run.status.clone());
-        automation.last_run_error = run.error.clone();
-        if run.session_id.is_some() {
-            automation.last_session_id = run.session_id.clone();
-        }
-    }
+    apply_run_summary(&mut automation, &run);
     write_run(&tx, &run)?;
     write_automation(&tx, &automation)?;
+    trim_history(&tx, &run.automation_id)?;
     tx.commit().map_err(|error| error.to_string())?;
     drop(conn);
     let _ = app.emit(CHANGED, ());
@@ -1003,13 +1170,14 @@ mod tests {
                 scheduled_for: index,
                 created_at: index,
                 started_at: None,
-                completed_at: None,
-                status: "pending".into(),
+                completed_at: Some(index),
+                status: "succeeded".into(),
                 session_id: None,
                 error: None,
                 event_key: None,
                 event_kind: None,
                 event: None,
+                prompt: Some("Run the automation".into()),
             };
             write_run(&conn, &run).unwrap();
         }
@@ -1027,6 +1195,48 @@ mod tests {
     }
 
     #[test]
+    fn trim_history_preserves_nonterminal_runs() {
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_tables(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO automations (id, definition_json, enabled, next_run_at, updated_at)
+             VALUES ('automation-id', '{}', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+        for index in 0..=MAX_RUNS_PER_AUTOMATION {
+            let run = AutomationRun {
+                id: format!("run-{index}"),
+                automation_id: "automation-id".into(),
+                trigger: "manual".into(),
+                scheduled_for: index,
+                created_at: index,
+                started_at: None,
+                completed_at: None,
+                status: "pending".into(),
+                session_id: None,
+                error: None,
+                event_key: None,
+                event_kind: None,
+                event: None,
+                prompt: Some("Run the automation".into()),
+            };
+            write_run(&conn, &run).unwrap();
+        }
+
+        trim_history(&conn, "automation-id").unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automation_runs WHERE automation_id = 'automation-id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, MAX_RUNS_PER_AUTOMATION + 1);
+    }
+
+    #[test]
     fn accepts_inbox_event_keys() {
         assert!(validate_event_key("github:pr:acme/web:12").is_ok());
         assert!(validate_event_key("linear:issue:eng-12").is_ok());
@@ -1036,22 +1246,24 @@ mod tests {
 
     #[test]
     fn claims_each_event_key_once() {
-        let claimed = [AutomationRun {
-            id: "run-1".into(),
-            automation_id: "automation-id".into(),
-            trigger: "event".into(),
-            scheduled_for: 1,
-            created_at: 1,
-            started_at: None,
-            completed_at: None,
-            status: "pending".into(),
-            session_id: None,
-            error: None,
-            event_key: Some("github:pr:acme/web:12".into()),
-            event_kind: Some("github".into()),
-            event: Some("pull_request_opened".into()),
-        }];
-        assert!(event_key_claimed(&claimed, "github:pr:acme/web:12"));
-        assert!(!event_key_claimed(&claimed, "github:pr:acme/web:13"));
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_tables(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO automations (id, definition_json, enabled, next_run_at, updated_at)
+             VALUES ('automation-id', '{}', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+        let claim = || {
+            conn.execute(
+                "INSERT OR IGNORE INTO automation_event_claims
+                 (automation_id, event_key, created_at) VALUES (?1, ?2, ?3)",
+                params!["automation-id", "github:pr:acme/web:12", 1],
+            )
+            .unwrap()
+        };
+
+        assert_eq!(claim(), 1);
+        assert_eq!(claim(), 0);
     }
 }

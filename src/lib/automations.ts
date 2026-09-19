@@ -85,6 +85,7 @@ export type AutomationRun = {
   eventKey?: string;
   eventKind?: AutomationTriggerKind;
   event?: string;
+  prompt?: string;
 };
 
 export type DueAutomationRun = {
@@ -241,6 +242,23 @@ export function nextTriggersRunAt(
   return Math.min(
     ...times.map((trigger) => nextAutomationRunAt(trigger, after)),
   );
+}
+
+export function overdueTriggerOccurrences(
+  triggers: readonly AutomationTrigger[],
+  firstRunAt: number,
+  now: number,
+  limit = 100,
+): Array<{ scheduledFor: number; nextRunAt: number }> {
+  const occurrences: Array<{ scheduledFor: number; nextRunAt: number }> = [];
+  let scheduledFor = firstRunAt;
+  while (scheduledFor <= now && occurrences.length < limit) {
+    const nextRunAt = nextTriggersRunAt(triggers, scheduledFor);
+    if (nextRunAt <= scheduledFor) break;
+    occurrences.push({ scheduledFor, nextRunAt });
+    scheduledFor = nextRunAt;
+  }
+  return occurrences;
 }
 
 export function gmtOffsetLabel(date = new Date()): string {
@@ -457,6 +475,13 @@ export function listAutomationRuns(
   return invoke("automation_runs_list", { automationId });
 }
 
+export function recoverAutomationRuns(
+  startedBefore: number,
+  now = Date.now(),
+): Promise<DueAutomationRun[]> {
+  return invoke("automation_runs_recover", { startedBefore, now });
+}
+
 export async function createManualAutomationRun(
   automationId: string,
 ): Promise<AutomationRun> {
@@ -480,16 +505,33 @@ export async function claimDueAutomations(
   );
   const claimed: DueAutomationRun[] = [];
   for (const automation of due) {
-    const result = await invoke<DueAutomationRun | null>(
-      "automations_claim_due",
-      {
-        automationId: automation.id,
-        expectedNextRunAt: automation.nextRunAt,
-        nextRunAt: nextTriggersRunAt(automationTriggers(automation), now),
-        now,
-      },
-    );
-    if (result) claimed.push(result);
+    const triggers = automationTriggers(automation);
+    // Bound each polling pass so a long offline period cannot monopolize the
+    // webview. Any remaining overdue occurrences stay due for the next pass.
+    for (const occurrence of overdueTriggerOccurrences(
+      triggers,
+      automation.nextRunAt,
+      now,
+    )) {
+      let result: DueAutomationRun | null;
+      try {
+        result = await invoke<DueAutomationRun | null>(
+          "automations_claim_due",
+          {
+            automationId: automation.id,
+            expectedNextRunAt: occurrence.scheduledFor,
+            nextRunAt: occurrence.nextRunAt,
+            now,
+          },
+        );
+      } catch {
+        // Keep earlier successful claims launchable. This occurrence remains
+        // due because the backend transaction did not accept it.
+        break;
+      }
+      if (!result) break;
+      if (result.run.status === "pending") claimed.push(result);
+    }
   }
   if (due.length > 0) emitLocalChange();
   return claimed;

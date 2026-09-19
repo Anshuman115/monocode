@@ -264,6 +264,7 @@ export function SearchableSelect({
             id={listId}
             role="listbox"
             aria-label={label}
+            aria-activedescendant={searchable ? undefined : activeId}
             tabIndex={searchable ? undefined : 0}
             onKeyDown={searchable ? undefined : onSearchKeyDown}
             className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1 outline-none"

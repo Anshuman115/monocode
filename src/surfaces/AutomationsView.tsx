@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -811,6 +812,9 @@ function AutomationEditor({
   onOpenSession: (sessionId: string) => void | Promise<void>;
 }) {
   const [tab, setTab] = useState<"settings" | "history">("settings");
+  const settingsTabId = useId();
+  const historyTabId = useId();
+  const tabPanelId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const [triggerOpen, setTriggerOpen] = useState(false);
   const [triggerQuery, setTriggerQuery] = useState("");
@@ -899,9 +903,23 @@ function AutomationEditor({
     key: K,
     value: AutomationDraft[K],
   ) => onChange({ ...draft, [key]: value });
-  const triggerCategories = TRIGGER_CATEGORIES.filter((option) =>
-    option.label.toLocaleLowerCase().includes(triggerQuery.toLocaleLowerCase()),
+  const triggerCategories = useMemo(
+    () =>
+      TRIGGER_CATEGORIES.filter((option) =>
+        option.label
+          .toLocaleLowerCase()
+          .includes(triggerQuery.toLocaleLowerCase()),
+      ),
+    [triggerQuery],
   );
+  useEffect(() => {
+    if (
+      triggerCategory &&
+      !triggerCategories.some((option) => option.value === triggerCategory)
+    ) {
+      setTriggerCategory(null);
+    }
+  }, [triggerCategories, triggerCategory]);
   const setTriggers = (triggers: AutomationTrigger[]) =>
     onChange(applyTriggers(draft, triggers));
   const selectTrigger = (kind: AutomationTriggerKind, event: TriggerEvent) => {
@@ -1059,11 +1077,15 @@ function AutomationEditor({
               className="flex h-9 items-stretch gap-4"
             >
               <PageTab
+                id={settingsTabId}
+                controls={tabPanelId}
                 label="Settings"
                 selected={!showingHistory}
                 onSelect={() => setTab("settings")}
               />
               <PageTab
+                id={historyTabId}
+                controls={tabPanelId}
                 label="Run history"
                 selected={showingHistory}
                 onSelect={() => setTab("history")}
@@ -1077,6 +1099,15 @@ function AutomationEditor({
 
       <div
         ref={lockOverscroll}
+        id={historyAvailable ? tabPanelId : undefined}
+        role={historyAvailable ? "tabpanel" : undefined}
+        aria-labelledby={
+          historyAvailable
+            ? showingHistory
+              ? historyTabId
+              : settingsTabId
+            : undefined
+        }
         className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
       >
         {!showingHistory ? (
@@ -1164,6 +1195,10 @@ function AutomationEditor({
                             if (node)
                               triggerCategoryAnchors.current[option.value] =
                                 node;
+                            else
+                              delete triggerCategoryAnchors.current[
+                                option.value
+                              ];
                           }}
                           type="button"
                           role="menuitem"
@@ -1220,6 +1255,9 @@ function AutomationEditor({
               ) : null}
               {triggerOpen &&
               triggerCategory &&
+              triggerCategories.some(
+                (option) => option.value === triggerCategory,
+              ) &&
               triggerReady(triggerCategory) ? (
                 <Popover
                   anchor={
@@ -1507,19 +1545,25 @@ function SettingsSelect({
 }
 
 function PageTab({
+  id,
+  controls,
   label,
   selected,
   onSelect,
 }: {
+  id: string;
+  controls: string;
   label: string;
   selected: boolean;
   onSelect: () => void;
 }) {
   return (
     <button
+      id={id}
       type="button"
       role="tab"
       aria-selected={selected}
+      aria-controls={controls}
       onClick={onSelect}
       className={`relative flex h-9 items-center text-[12px] leading-none ${
         selected ? "text-content" : "text-content/50 hover:text-content"

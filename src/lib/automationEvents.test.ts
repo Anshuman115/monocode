@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { describe, expect, it, vi } from "vitest";
 import {
   automationEventKey,
+  claimInboxAutomationRuns,
   inboxAppearedEvent,
   matchInboxAutomations,
 } from "./automationEvents";
@@ -10,6 +12,9 @@ import {
   type Automation,
 } from "./automations";
 import type { InboxItem } from "./githubTasks";
+
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const at = (value: string) => new Date(value).getTime();
 
@@ -296,5 +301,52 @@ describe("inbox automation events", () => {
     expect(automationEventKey(item({ repo: "ACME/web" }))).toBe(
       "github:pr:acme/web:12",
     );
+  });
+
+  it("retries a failed backend event claim on a later poll", async () => {
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: () => storage.clear(),
+        getItem: (key: string) => storage.get(key) ?? null,
+        removeItem: (key: string) => storage.delete(key),
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    window.localStorage.clear();
+    const review = automation({
+      triggers: [createAutomationTrigger("github", "pull_request_opened")],
+    });
+    let rejectClaim = true;
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "automations_list") return [review];
+      if (command === "automations_claim_event") {
+        if (rejectClaim) throw new Error("database busy");
+        return {
+          automation: review,
+          run: {
+            id: "run-id",
+            automationId: review.id,
+            trigger: "event",
+            scheduledFor: at("2026-09-19T15:00:00Z"),
+            createdAt: at("2026-09-19T15:00:01Z"),
+            status: "pending",
+          },
+        };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    expect(await claimInboxAutomationRuns([item()])).toEqual([]);
+    rejectClaim = false;
+    const retried = await claimInboxAutomationRuns([]);
+
+    expect(retried).toHaveLength(1);
+    expect(
+      invoke.mock.calls.filter(([command]) => command === "automations_claim_event"),
+    ).toHaveLength(2);
+    invoke.mockReset();
+    window.localStorage.clear();
   });
 });
