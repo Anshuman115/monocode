@@ -296,8 +296,7 @@ const scrollbarTheme = EditorView.theme({
     boxSizing: "border-box",
     borderLeft:
       "1px solid color-mix(in srgb, var(--color-content) 7%, transparent)",
-    background:
-      "color-mix(in srgb, var(--color-background-base) 82%, transparent)",
+    background: "transparent",
     cursor: "default",
     touchAction: "none",
     userSelect: "none",
@@ -316,7 +315,7 @@ const scrollbarTheme = EditorView.theme({
     minHeight: `${MIN_THUMB_HEIGHT}px`,
     borderRadius: "2px",
     backgroundColor:
-      "color-mix(in srgb, var(--color-content) 30%, var(--color-background-base))",
+      "color-mix(in srgb, var(--color-content) 30%, transparent)",
     opacity: "0.72",
     cursor: "default",
     willChange: "transform",
@@ -324,7 +323,7 @@ const scrollbarTheme = EditorView.theme({
   ".cm-editorScrollbar:hover .cm-editorScrollbarThumb, .cm-editorScrollbar[data-dragging] .cm-editorScrollbarThumb":
     {
       backgroundColor:
-        "color-mix(in srgb, var(--color-content) 38%, var(--color-background-base))",
+        "color-mix(in srgb, var(--color-content) 38%, transparent)",
       opacity: "0.88",
     },
   ".cm-editorScrollbarTick": {
