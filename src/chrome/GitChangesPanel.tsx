@@ -579,7 +579,11 @@ function ChangedFiles({
             type="button"
             disabled={!canCommit}
             onClick={() => void commit(false)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md bg-content text-[12px] font-medium text-background-base disabled:opacity-40"
+            className={`flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md text-[12px] font-medium ${
+              canCommit
+                ? "bg-content text-background-base"
+                : "bg-content/40 text-background-base"
+            }`}
           >
             <Check className="size-3.5" strokeWidth={2} />
             {amend ? "Amend Commit" : "Commit"}
@@ -589,9 +593,14 @@ function ChangedFiles({
             type="button"
             title="Commit options"
             aria-label="Commit options"
+            aria-expanded={menuOpen}
             disabled={!canOpenMenu}
             onClick={() => setMenuOpen((open) => !open)}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-r-md border-l border-background-base/10 bg-content text-background-base disabled:opacity-40"
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-r-md border-l border-background-base/10 ${
+              canCommit
+                ? "bg-content text-background-base hover:bg-content/80"
+                : "bg-content/40 text-background-base hover:bg-content"
+            } disabled:pointer-events-none aria-expanded:bg-content aria-expanded:text-background-base`}
           >
             <ChevronDown className="size-3.5" strokeWidth={2} />
           </button>
@@ -625,14 +634,14 @@ function ChangedFiles({
                 role="menuitemcheckbox"
                 aria-checked={amend}
                 onClick={() => void toggleAmend()}
-                className="flex h-7 w-full items-center gap-2 px-3 text-left text-[12px] text-content hover:bg-content/10"
+                className="flex h-7 w-full items-center justify-between gap-2 px-3 text-left text-[12px] text-content hover:bg-content/10"
               >
+                Amend Last Commit
                 <span className="grid size-3.5 shrink-0 place-items-center">
                   {amend ? (
                     <Check className="size-3.5" strokeWidth={2} />
                   ) : null}
                 </span>
-                Amend Last Commit
               </button>
             </div>
           ) : null}
