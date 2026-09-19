@@ -577,96 +577,90 @@ function AutomationPicker({
   const templates = templatesForCategory(category);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="relative w-full shrink-0 border-b border-stroke">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-1.5 px-8 pt-5 pb-5">
-          <h1 className="text-[20px] font-semibold leading-tight text-content">
-            New automation
-          </h1>
-          <p className="text-[13px] text-content/50">
-            Pick an example or start from scratch.
-          </p>
+    <div
+      ref={lockOverscroll}
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
+    >
+      <div className="mx-auto w-full max-w-5xl px-8 pt-5 pb-10">
+        <h1 className="text-[20px] font-semibold leading-tight text-content">
+          New automation
+        </h1>
+        <p className="mt-1.5 text-[13px] text-content/50">
+          Pick an example or start from scratch.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {AUTOMATION_TEMPLATE_CATEGORIES.map((option) => {
+            const selected = option.id === category;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setCategory(option.id)}
+                className={`h-7 rounded-full px-3 text-[12px] font-medium ${
+                  selected
+                    ? "bg-content text-background-base"
+                    : "text-content/55 hover:bg-content/8 hover:text-content"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
-      </div>
-      <div
-        ref={lockOverscroll}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
-      >
-        <div className="mx-auto w-full max-w-5xl space-y-5 px-8 py-5 pb-10">
-          <div className="flex flex-wrap gap-1.5">
-            {AUTOMATION_TEMPLATE_CATEGORIES.map((option) => {
-              const selected = option.id === category;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setCategory(option.id)}
-                  className={`h-7 rounded-full px-3 text-[12px] font-medium ${
-                    selected
-                      ? "bg-content text-background-base"
-                      : "text-content/55 hover:bg-content/8 hover:text-content"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="grid grid-cols-1 gap-3 min-[780px]:grid-cols-2">
-            <button
-              type="button"
-              onClick={onBlank}
-              className="flex min-h-37 flex-col rounded-xl border border-dashed border-content/15 p-4 text-left hover:border-content/25 hover:bg-content/5"
-            >
-              <div className="flex gap-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
-                  <Plus className="size-4" strokeWidth={1.75} />
+        <div className="mt-4 grid grid-cols-1 gap-3 min-[780px]:grid-cols-2">
+          <button
+            type="button"
+            onClick={onBlank}
+            className="flex min-h-37 flex-col rounded-xl border border-dashed border-content/15 p-4 text-left hover:border-content/25 hover:bg-content/5"
+          >
+            <div className="flex gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
+                <Plus className="size-4" strokeWidth={1.75} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-content">
+                  Start from scratch
                 </span>
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-content">
-                    Start from scratch
+                <span className="mt-1 block text-[12px] leading-snug text-content/50">
+                  Write your own instructions and choose a trigger.
+                </span>
+              </span>
+            </div>
+          </button>
+          {templates.map((template) => {
+            const Icon = TEMPLATE_ICONS[template.icon];
+            return (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => onPick(template)}
+                className="flex min-h-37 flex-col rounded-xl border border-content/10 p-4 text-left hover:border-content/16 hover:bg-content/5"
+              >
+                <div className="flex gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
+                    <Icon className="size-4" strokeWidth={1.75} />
                   </span>
-                  <span className="mt-1 block text-[12px] leading-snug text-content/50">
-                    Write your own instructions and choose a trigger.
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium text-content">
+                      {template.name}
+                    </span>
+                    <span className="mt-1 block text-[12px] leading-snug text-content/50">
+                      {template.description}
+                    </span>
+                  </span>
+                </div>
+                <span className="mt-auto flex min-w-0 items-center gap-1.5 pt-3 text-[11px] text-content/45">
+                  <TriggerMark
+                    kind={template.trigger.kind}
+                    className="size-3"
+                  />
+                  <span className="min-w-0 truncate">
+                    {template.triggerLabel}
                   </span>
                 </span>
-              </div>
-            </button>
-            {templates.map((template) => {
-              const Icon = TEMPLATE_ICONS[template.icon];
-              return (
-                <button
-                  key={template.id}
-                  type="button"
-                  onClick={() => onPick(template)}
-                  className="flex min-h-37 flex-col rounded-xl border border-content/10 p-4 text-left hover:border-content/16 hover:bg-content/5"
-                >
-                  <div className="flex gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
-                      <Icon className="size-4" strokeWidth={1.75} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[13px] font-medium text-content">
-                        {template.name}
-                      </span>
-                      <span className="mt-1 block text-[12px] leading-snug text-content/50">
-                        {template.description}
-                      </span>
-                    </span>
-                  </div>
-                  <span className="mt-auto flex min-w-0 items-center gap-1.5 pt-3 text-[11px] text-content/45">
-                    <TriggerMark
-                      kind={template.trigger.kind}
-                      className="size-3"
-                    />
-                    <span className="min-w-0 truncate">
-                      {template.triggerLabel}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
