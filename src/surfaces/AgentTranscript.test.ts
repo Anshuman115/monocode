@@ -121,6 +121,24 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).not.toContain("Please check https://example.com/docs");
   });
 
+  it("renders GitHub pull requests as compact work item chips", () => {
+    const markup = render([
+      {
+        id: "user",
+        role: "user",
+        text: "Review https://github.com/acme/widgets/pull/73 please",
+      },
+    ]);
+
+    expect(markup).toContain('data-github-work-item-chip="pr"');
+    expect(markup).toContain('data-compact="true"');
+    expect(markup).toContain("#73");
+    expect(markup).not.toContain(">acme/widgets</span>");
+    expect(markup).toContain("Review");
+    expect(markup).toContain("please");
+    expect(markup).not.toContain("user-link-preview-title");
+  });
+
   it("keeps each completed turn's recorded model label", () => {
     const blocks: Block[] = [
       {

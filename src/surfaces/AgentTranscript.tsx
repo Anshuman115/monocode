@@ -1089,6 +1089,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         block={block}
         layout={layout}
         stickyIndex={stickyIndex}
+        cwd={cwd}
         onSaveNote={onSaveNote}
       />
     );
@@ -1201,11 +1202,13 @@ function UserMessageBlock({
   block,
   layout,
   stickyIndex,
+  cwd,
   onSaveNote,
 }: {
   block: Block;
   layout: TranscriptLayout;
   stickyIndex: number;
+  cwd?: string;
   onSaveNote?: (text: string) => void | Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1314,7 +1317,7 @@ function UserMessageBlock({
               data-selectable-agent-response={block.id}
             >
               {messageLink.beforeText}
-              <UserLinkPreview link={messageLink.link} />
+              <UserLinkPreview link={messageLink.link} cwd={cwd} compact />
               {messageLink.afterText}
             </div>
           ) : displayText ? (
