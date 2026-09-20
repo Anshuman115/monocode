@@ -13,6 +13,7 @@ You need Node.js 20+, a current stable Rust toolchain, and at least one provider
 - [Cursor CLI](https://cursor.com/cli) - `agent login`
 - [Grok Build](https://docs.x.ai/build/overview) - `curl -fsSL https://x.ai/cli/install.sh | bash` then `grok login`
 - [OpenCode](https://opencode.ai) - `opencode auth login`
+- [Antigravity](https://antigravity.google/docs/cli-install) (macOS/Linux) - `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy` once to sign in
 - [Pi](https://pi.dev/) - `npm install -g @earendil-works/pi-coding-agent`
 - [omp](https://omp.sh) - `curl -fsSL https://omp.sh/install | sh`
 - [fx](https://fx.sh) - `curl -fsSL https://fx.sh/setup.sh | bash` then `fx login`
@@ -48,7 +49,7 @@ That runs what CI runs: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and
 
 ## New providers
 
-I’m pausing new harnesses until the current ones share the same patterns - session lifecycle, catalog probes, usage, approvals, and how slash commands and skills are wired. A PR that adds another provider will be closed for now, even if the work is good. Fixes, tests, and protocol bugs on Claude, Codex, Cursor, Grok, OpenCode, Pi, omp, fx, and Hermes Agent are still the best kind of contribution.
+I’m pausing new harnesses until the current ones share the same patterns - session lifecycle, catalog probes, usage, approvals, and how slash commands and skills are wired. A PR that adds another provider will be closed for now, even if the work is good. Fixes, tests, and protocol bugs on Claude, Codex, Cursor, Grok, OpenCode, Antigravity, Pi, omp, fx, and Hermes Agent are still the best kind of contribution.
 
 When the pause lifts, this section goes away.
 
