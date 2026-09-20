@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,6 +40,7 @@ import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
 import { SearchableProjectPicker } from "../chrome/SearchableProjectPicker";
 import { SearchableSelect } from "../chrome/SearchableSelect";
+import { SkillPromptField } from "../chrome/SkillPromptField";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -79,7 +79,6 @@ import {
   type AutomationTemplateCategoryId,
   type AutomationTemplateIcon,
 } from "../lib/automationTemplates";
-import { resizeComposer } from "../lib/composerResize";
 import { gitBranches } from "../lib/fs";
 import { formatRelativeTime, githubStatus } from "../lib/githubTasks";
 import { GITLAB_CHANGE_EVENT, gitlabConnected } from "../lib/gitlab";
@@ -1293,6 +1292,8 @@ function AutomationEditor({
               <div className="relative mt-3 rounded-md border border-content/10 bg-content/3 backdrop-blur-sm has-focus:border-content/20">
                 <PromptField
                   value={draft.prompt}
+                  harness={draft.harness}
+                  cwd={draft.cwd}
                   onChange={(prompt) => update("prompt", prompt)}
                 />
                 <div className="flex items-center gap-1 px-2 pb-2">
@@ -1458,30 +1459,22 @@ function AutomationEditor({
 
 function PromptField({
   value,
+  harness,
+  cwd,
   onChange,
 }: {
   value: string;
+  harness: AutomationDraft["harness"];
+  cwd: string;
   onChange: (value: string) => void;
 }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    if (ref.current) {
-      resizeComposer(ref.current, Number.POSITIVE_INFINITY);
-    }
-  }, [value]);
   return (
-    <div className="relative">
-      <textarea
-        ref={ref}
-        rows={1}
-        spellCheck={false}
-        aria-label="Instructions"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Tell the agent what to do when this automation runs…"
-        className="relative min-h-28 w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent px-3 py-3 font-sans text-sm leading-5.5 text-content outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-content/40"
-      />
-    </div>
+    <SkillPromptField
+      value={value}
+      harness={harness}
+      cwd={cwd}
+      onChange={onChange}
+    />
   );
 }
 

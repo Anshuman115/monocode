@@ -21,6 +21,8 @@ type Props = {
   active: number;
   creating: boolean;
   cwd: string;
+  compact?: boolean;
+  showCreate?: boolean;
   error?: string | null;
   busy?: boolean;
   onActive: (index: number) => void;
@@ -36,6 +38,8 @@ export function SkillPicker({
   active,
   creating,
   cwd,
+  compact = false,
+  showCreate = true,
   error,
   busy,
   onActive,
@@ -47,7 +51,11 @@ export function SkillPicker({
   return (
     <div
       data-skill-picker
-      className="overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
+      className={
+        compact
+          ? "overflow-hidden"
+          : "overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
+      }
     >
       {creating ? (
         <CreateSkillForm
@@ -64,18 +72,21 @@ export function SkillPicker({
             skills={skills}
             query={query}
             active={active}
+            compact={compact}
             onActive={onActive}
             onPick={onPick}
           />
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onStartCreate}
-            className="flex w-full items-center gap-2 border-t border-stroke px-2.5 py-2 text-left text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
-          >
-            <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
-            New skill
-          </button>
+          {showCreate ? (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onStartCreate}
+              className="flex w-full items-center gap-2 border-t border-stroke px-2.5 py-2 text-left text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
+            >
+              <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
+              New skill
+            </button>
+          ) : null}
         </>
       )}
     </div>
@@ -86,12 +97,14 @@ function SkillList({
   skills,
   query,
   active,
+  compact,
   onActive,
   onPick,
 }: {
   skills: Skill[];
   query: string;
   active: number;
+  compact?: boolean;
   onActive: (index: number) => void;
   onPick: (skill: Skill) => void;
 }) {
@@ -140,7 +153,7 @@ function SkillList({
       role="listbox"
       aria-label="Commands and skills"
       onMouseMove={onListMouseMove}
-      className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-none px-1 py-1"
+      className={`${compact ? "max-h-48" : "max-h-[min(240px,40vh)]"} overflow-y-auto overscroll-none px-1 py-1`}
     >
       {skills.map((skill, index) => {
         const highlighted = index === active;
@@ -154,11 +167,13 @@ function SkillList({
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
             onClick={() => onPick(skill)}
-            className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left ${
+            className={`flex w-full rounded-md px-2 text-left ${
+              compact ? "h-8 items-center" : "flex-col gap-0.5 py-1.5"
+            } ${
               highlighted ? "bg-content/10 text-content" : "text-content"
             }`}
           >
-            <span className="flex min-w-0 items-baseline gap-2">
+            <span className="flex min-w-0 w-full items-baseline gap-2">
               <span className="truncate text-[13px]">
                 /{skill.invocation}
               </span>
@@ -166,12 +181,12 @@ function SkillList({
                 {scopeLabel(skill)}
               </span>
             </span>
-            {skill.description ? (
+            {!compact && skill.description ? (
               <span className="line-clamp-2 text-[11px] leading-4 text-content/50">
                 {skill.description}
               </span>
             ) : null}
-            {skill.kind === "native" && (skill.inputHint || skill.subcommands?.length) ? (
+            {!compact && skill.kind === "native" && (skill.inputHint || skill.subcommands?.length) ? (
               <span className="line-clamp-2 text-[11px] text-content/40">
                 {skill.inputHint || skill.subcommands?.map((sub) => sub.usage || sub.name).join(" · ")}
               </span>
