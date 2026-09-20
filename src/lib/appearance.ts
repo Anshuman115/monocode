@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { isHexColor } from "./colorUtils";
 import { HAS_NATIVE_GLASS, IS_MAC } from "./platform";
+import { readFlag, writeFlag } from "./storageFlags";
 import { applyUiScale, loadUiScale } from "./uiScale";
 
 const ACCENT_COLOR_KEY = "monocode.accentColor";
@@ -116,24 +117,6 @@ function readNumber(key: string): number | null {
 function writeNumber(key: string, value: number) {
   try {
     localStorage.setItem(key, String(value));
-  } catch {
-    // private mode / quota
-  }
-}
-
-function readFlag(key: string): boolean | null {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw == null) return null;
-    return raw === "1" || raw === "true";
-  } catch {
-    return null;
-  }
-}
-
-function writeFlag(key: string, value: boolean) {
-  try {
-    localStorage.setItem(key, value ? "1" : "0");
   } catch {
     // private mode / quota
   }

@@ -1,4 +1,5 @@
 import { ALT, IS_MAC, IS_WIN, MOD, SHIFT } from "./platform";
+import { readFlag, writeFlag } from "./storageFlags";
 
 const SECTION_KEY = "monocode.settingsSection";
 
@@ -516,21 +517,11 @@ export function saveFileTabMode(value: FileTabMode) {
 export const TAB_ANIMATIONS_ENABLED_DEFAULT = false;
 
 export function loadTabAnimationsEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(TAB_ANIMATIONS_ENABLED_KEY);
-    if (raw == null) return TAB_ANIMATIONS_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return TAB_ANIMATIONS_ENABLED_DEFAULT;
-  }
+  return readFlag(TAB_ANIMATIONS_ENABLED_KEY) ?? TAB_ANIMATIONS_ENABLED_DEFAULT;
 }
 
 export function saveTabAnimationsEnabled(value: boolean) {
-  try {
-    localStorage.setItem(TAB_ANIMATIONS_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(TAB_ANIMATIONS_ENABLED_KEY, value);
 }
 
 export type CollapsedProjectRailMode = "compact" | "hidden";
@@ -629,21 +620,11 @@ export const COMPOSER_RUNNER_DEFAULT = true;
 export const COMPOSER_RUNNER_CHANGE_EVENT = "monocode:composer-runner-change";
 
 export function loadComposerRunner(): boolean {
-  try {
-    const raw = localStorage.getItem(COMPOSER_RUNNER_KEY);
-    if (raw == null) return COMPOSER_RUNNER_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return COMPOSER_RUNNER_DEFAULT;
-  }
+  return readFlag(COMPOSER_RUNNER_KEY) ?? COMPOSER_RUNNER_DEFAULT;
 }
 
 export function saveComposerRunner(value: boolean) {
-  try {
-    localStorage.setItem(COMPOSER_RUNNER_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(COMPOSER_RUNNER_KEY, value);
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent<boolean>(COMPOSER_RUNNER_CHANGE_EVENT, { detail: value }),
@@ -658,21 +639,11 @@ export const NOTES_ENABLED_DEFAULT = true;
 export const NOTES_ENABLED_CHANGE_EVENT = "monocode:notes-enabled-change";
 
 export function loadNotesEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(NOTES_ENABLED_KEY);
-    if (raw == null) return NOTES_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return NOTES_ENABLED_DEFAULT;
-  }
+  return readFlag(NOTES_ENABLED_KEY) ?? NOTES_ENABLED_DEFAULT;
 }
 
 export function saveNotesEnabled(value: boolean) {
-  try {
-    localStorage.setItem(NOTES_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(NOTES_ENABLED_KEY, value);
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent<boolean>(NOTES_ENABLED_CHANGE_EVENT, { detail: value }),
@@ -695,21 +666,11 @@ export const LIVE_AGENTS_ENABLED_CHANGE_EVENT =
   "monocode:live-agents-enabled-change";
 
 export function loadLiveAgentsEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(LIVE_AGENTS_ENABLED_KEY);
-    if (raw == null) return LIVE_AGENTS_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return LIVE_AGENTS_ENABLED_DEFAULT;
-  }
+  return readFlag(LIVE_AGENTS_ENABLED_KEY) ?? LIVE_AGENTS_ENABLED_DEFAULT;
 }
 
 export function saveLiveAgentsEnabled(value: boolean) {
-  try {
-    localStorage.setItem(LIVE_AGENTS_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(LIVE_AGENTS_ENABLED_KEY, value);
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent<boolean>(LIVE_AGENTS_ENABLED_CHANGE_EVENT, {
@@ -732,21 +693,11 @@ export const CLOSE_TO_TRAY_DEFAULT = true;
 export function loadCloseToTray(): boolean {
   // Close to tray is Windows-only: nowhere else installs a tray icon.
   if (!IS_WIN) return false;
-  try {
-    const raw = localStorage.getItem(CLOSE_TO_TRAY_KEY);
-    if (raw == null) return CLOSE_TO_TRAY_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return CLOSE_TO_TRAY_DEFAULT;
-  }
+  return readFlag(CLOSE_TO_TRAY_KEY) ?? CLOSE_TO_TRAY_DEFAULT;
 }
 
 export function saveCloseToTray(value: boolean) {
-  try {
-    localStorage.setItem(CLOSE_TO_TRAY_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(CLOSE_TO_TRAY_KEY, value);
 }
 
 const GRID_ARCADE_ENABLED_KEY = "monocode.gridArcadeEnabled";
@@ -758,21 +709,11 @@ export const GRID_ARCADE_ENABLED_CHANGE_EVENT =
   "monocode:grid-arcade-enabled-change";
 
 export function loadGridArcadeEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(GRID_ARCADE_ENABLED_KEY);
-    if (raw == null) return GRID_ARCADE_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return GRID_ARCADE_ENABLED_DEFAULT;
-  }
+  return readFlag(GRID_ARCADE_ENABLED_KEY) ?? GRID_ARCADE_ENABLED_DEFAULT;
 }
 
 export function saveGridArcadeEnabled(value: boolean) {
-  try {
-    localStorage.setItem(GRID_ARCADE_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(GRID_ARCADE_ENABLED_KEY, value);
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent<boolean>(GRID_ARCADE_ENABLED_CHANGE_EVENT, {
@@ -835,21 +776,11 @@ const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";
 export const CLAUDE_HOOKS_DEFAULT = true;
 
 export function loadClaudeHooks(): boolean {
-  try {
-    const raw = localStorage.getItem(CLAUDE_HOOKS_KEY);
-    if (raw == null) return CLAUDE_HOOKS_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return CLAUDE_HOOKS_DEFAULT;
-  }
+  return readFlag(CLAUDE_HOOKS_KEY) ?? CLAUDE_HOOKS_DEFAULT;
 }
 
 export function saveClaudeHooks(value: boolean) {
-  try {
-    localStorage.setItem(CLAUDE_HOOKS_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
+  writeFlag(CLAUDE_HOOKS_KEY, value);
 }
 
 const CTRL = IS_MAC ? "⌃" : "Ctrl+";
