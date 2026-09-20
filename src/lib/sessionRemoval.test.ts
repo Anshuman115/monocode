@@ -9,12 +9,7 @@ import {
 } from "./layout";
 import { newSession, type Session } from "./session";
 import type { SessionWorkspaceRemoval } from "./sessionWorkspaceLifecycle";
-import { runSessionRemoval } from "./sessionRemoval";
-import {
-  deleteSession,
-  setSessionArchived,
-  upsertSession,
-} from "./sessionStore";
+import { createSessionRemover } from "./sessionRemoval";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
@@ -66,35 +61,58 @@ function fixture(mode: "archive" | "delete") {
     confirmClose,
     stop,
     commit,
-    run: () =>
-      runSessionRemoval({
-        sessionId: closing.id,
-        scope: "project",
-        readWorkspace: () => state,
-        createReplacement: () => newSession("cursor", "/tmp/project"),
-        confirmClose,
+    run: () => {
+      const remover = createSessionRemover({
+        mode,
+        replacement: { cwd: "/tmp/project", harness: "cursor" },
+        workspace: {
+          snapshot: () => state,
+          apply: (change) => {
+            if (change.type === "orchestrationReleased") return;
+            if (change.type === "removed") {
+              commit(change.removal);
+              return;
+            }
+            state = {
+              ...state,
+              sessions: state.sessions.map((session) =>
+                session.id === change.session.id ? change.session : session,
+              ),
+            };
+          },
+        },
+        confirm: confirmClose,
         stop,
-        updateSession: (stopped) => {
-          state = {
-            ...state,
-            sessions: state.sessions.map((s) =>
-              s.id === stopped.id ? stopped : s,
-            ),
-          };
-        },
-        persist: async (latest) => {
-          if (mode === "delete") return deleteSession(closing.id);
-          if (latest) await upsertSession(latest);
-          await setSessionArchived(closing.id, true);
-        },
-        commit,
-      }),
+      });
+      return remover.remove(closing.id);
+    },
   };
 }
 
 afterEach(() => mocks.invoke.mockReset());
 
 describe.each(["archive", "delete"] as const)("%s lifecycle", (mode) => {
+  it("creates the replacement session behind the removal interface", async () => {
+    const f = fixture(mode);
+    const onlyTab = f.read().tabs[0];
+    f.write({
+      ...f.read(),
+      tabs: [onlyTab],
+      sessions: [f.closing],
+      activeTabId: onlyTab.id,
+    });
+
+    expect(await f.run()).toBe(true);
+    expect(f.read().sessions).toHaveLength(1);
+    expect(f.read().sessions[0]).toMatchObject({
+      cwd: "/tmp/project",
+      harness: "cursor",
+      blocks: [],
+    });
+    expect(f.read().sessions[0].id).not.toBe(f.closing.id);
+    expect(leafIds(f.read().tabs[0].layout)).toEqual([f.read().sessions[0].id]);
+  });
+
   it("preserves another agent's completion, new tabs, and focus across both waits", async () => {
     const f = fixture(mode);
     const confirm = deferred();

@@ -1,11 +1,27 @@
 import { stopStreaming } from "./harness/apply";
+import { forgetHarnessSession } from "./harness/registry";
 import {
   buildDeterministicHandoff,
   completeHandoff,
   isPreparingHandoff,
+  sessionChildHarnesses,
 } from "./handoff";
+import { flushSessionCheckpoint } from "./checkpoint";
 import { isFilesystemTab, type WorkspaceTab } from "./layout";
-import type { Session } from "./session";
+import { orchestrator } from "./orchestration";
+import {
+  newSession,
+  type HarnessId,
+  type RuntimeMode,
+  type Session,
+} from "./session";
+import {
+  deleteSession,
+  setSessionArchived,
+  shouldPersistSession,
+  upsertSession,
+  type SessionSummary,
+} from "./sessionStore";
 import {
   removeSessionFromWorkspace,
   type SessionWorkspaceRemoval,
@@ -19,26 +35,90 @@ type Workspace = {
   dirtyFiles: ReadonlySet<string>;
 };
 
-/** Run the same lifecycle for archive and delete, reading state after each wait. */
-export async function runSessionRemoval(options: {
-  sessionId: string;
-  scope: WorkspaceTabCloseScope;
-  readWorkspace: () => Workspace;
-  createReplacement: (seed: Session | undefined) => Session;
-  confirmClose: (tabs: WorkspaceTab[]) => Promise<boolean>;
-  stop: () => Promise<void>;
-  updateSession: (session: Session) => void;
-  persist: (session: Session | undefined) => Promise<void>;
-  commit: (removal: SessionWorkspaceRemoval) => void;
-}): Promise<boolean> {
-  const initial = options.readWorkspace();
-  const plan = removeSessionFromWorkspace({ ...initial, ...options });
-  if (!(await options.confirmClose(plan.closedTabs))) return false;
+type ReplacementSeed = {
+  harness?: HarnessId;
+  cwd: string;
+  model?: string;
+  runtimeMode?: RuntimeMode;
+  modelSettings?: Record<string, string>;
+};
 
-  await options.stop();
-  const latest = options
-    .readWorkspace()
-    .sessions.find((session) => session.id === options.sessionId);
+type WorkspaceChange =
+  | { type: "stopped"; session: Session }
+  | { type: "orchestrationReleased"; leadId: string }
+  | {
+      type: "removed";
+      mode: SessionRemovalMode;
+      removal: SessionWorkspaceRemoval;
+      session?: Session;
+      savedSummary?: SessionSummary;
+    };
+
+type SessionRemovalMode = "archive" | "delete";
+
+type SessionRemovalOptions = {
+  mode: SessionRemovalMode;
+  scope?: WorkspaceTabCloseScope;
+  replacement: ReplacementSeed;
+  workspace: {
+    snapshot(): Workspace;
+    apply(change: WorkspaceChange): void;
+  };
+  confirm(tabs: WorkspaceTab[], mode: SessionRemovalMode): Promise<boolean>;
+  stop(sessionId: string): Promise<unknown>;
+};
+
+/**
+ * Own the two-phase session-removal transaction. Callers supply state and I/O
+ * adapters once; the returned interface exposes only the domain operation.
+ */
+export function createSessionRemover(options: SessionRemovalOptions): {
+  remove(sessionId: string): Promise<boolean>;
+} {
+  const scope = options.scope ?? "project";
+  const createReplacement = (latest: Session | undefined): Session => {
+    const seed = latest ?? options.replacement;
+    return newSession(
+      seed.harness ?? "cursor",
+      seed.cwd,
+      seed.model,
+      seed.runtimeMode,
+      seed.modelSettings,
+    );
+  };
+
+  return {
+    remove: (sessionId) =>
+      removeSession(sessionId, scope, createReplacement, options),
+  };
+}
+
+/** Run the same lifecycle for archive and delete, reading state after each wait. */
+async function removeSession(
+  sessionId: string,
+  scope: WorkspaceTabCloseScope,
+  createReplacement: (seed: Session | undefined) => Session,
+  options: SessionRemovalOptions,
+): Promise<boolean> {
+  const initial = options.workspace.snapshot();
+  const plan = removeSessionFromWorkspace({
+    ...initial,
+    sessionId,
+    scope,
+    createReplacement,
+  });
+  if (!(await options.confirm(plan.closedTabs, options.mode))) return false;
+
+  if (options.mode === "delete") {
+    const run = orchestrator.forSession(sessionId);
+    if (run && (run.status === "active" || run.status === "paused")) {
+      await orchestrator.stopRun(run.leadId);
+    }
+  }
+  await options.stop(sessionId);
+  const latest = options.workspace
+    .snapshot()
+    .sessions.find((session) => session.id === sessionId);
   let stopped = latest;
   if (latest) {
     stopped = latest.busy ? stopStreaming(latest) : latest;
@@ -50,15 +130,46 @@ export async function runSessionRemoval(options: {
     }
     // Cancellation invalidates normal turn completion. Keep a usable stopped
     // session even when the following storage operation fails.
-    options.updateSession(stopped);
+    options.workspace.apply({ type: "stopped", session: stopped });
   }
-  await options.persist(stopped);
+  const harnesses: HarnessId[] = stopped
+    ? sessionChildHarnesses(stopped)
+    : [options.replacement.harness ?? "cursor"];
+  if (options.mode === "delete") {
+    // Release native processes before deleting the record, so a following
+    // worktree removal cannot race fire-and-forget cleanup.
+    await Promise.all(
+      harnesses.map((harness) => forgetHarnessSession(harness, sessionId)),
+    );
+  }
 
-  const current = options.readWorkspace();
+  if (stopped) await flushSessionCheckpoint(sessionId);
+  let savedSummary: SessionSummary | undefined;
+  if (options.mode === "delete") {
+    await orchestrator.deleteSession(sessionId, () => deleteSession(sessionId));
+    options.workspace.apply({
+      type: "orchestrationReleased",
+      leadId: sessionId,
+    });
+  } else {
+    if (stopped && shouldPersistSession(stopped)) {
+      const saved = await upsertSession(stopped);
+      if (!saved) throw new Error("The conversation could not be saved.");
+      savedSummary = saved;
+    }
+    await setSessionArchived(sessionId, true);
+  }
+
+  const current = options.workspace.snapshot();
+  const removedSession = current.sessions.find(
+    (session) => session.id === sessionId,
+  );
   const confirmed = new Map(plan.closedTabs.map((tab) => [tab.id, tab]));
   const removal = removeSessionFromWorkspace({
     ...current,
-    ...options,
+    sessionId,
+    scope,
+    createReplacement,
     canCloseTab: (tab) => {
       const before = confirmed.get(tab.id);
       // File/terminal panes opened or rearranged during a dialog or save were
@@ -81,6 +192,17 @@ export async function runSessionRemoval(options: {
   });
   // No await between the final read and commit: unrelated streaming updates,
   // tabs, and focus changes must survive this operation.
-  options.commit(removal);
+  if (options.mode === "archive") {
+    for (const harness of harnesses) {
+      void forgetHarnessSession(harness, sessionId);
+    }
+  }
+  options.workspace.apply({
+    type: "removed",
+    mode: options.mode,
+    removal,
+    session: removedSession,
+    savedSummary,
+  });
   return true;
 }

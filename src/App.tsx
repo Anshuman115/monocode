@@ -302,7 +302,7 @@ import {
   composerSeedForAddToChat,
   type AddToChatRequest,
 } from "./lib/quoteDraft";
-import { runSessionRemoval } from "./lib/sessionRemoval";
+import { createSessionRemover } from "./lib/sessionRemoval";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
   providerAccountExists,
@@ -345,7 +345,6 @@ import {
 } from "./lib/messageQueue";
 import { dropContextWindow } from "./lib/contextUsage";
 import {
-  deleteSession,
   discardDraftSessionRecord,
   getSession,
   listLinkedSessions,
@@ -4095,26 +4094,119 @@ export default function App({
       }
       invalidateLoadedSession(sessionId);
       pendingPersist.current.delete(sessionId);
-      let savedSummary: SessionSummary | undefined;
       try {
-        const removed = await runSessionRemoval({
-          sessionId,
+        const remover = createSessionRemover({
+          mode,
           scope: tabCloseScope,
-          readWorkspace: () => ({
-            tabs: tabsRef.current,
-            sessions: sessionsRef.current,
-            activeTabId: activeTabIdRef.current,
-            dirtyFiles: dirtyFilesRef.current,
-          }),
-          createReplacement: (latest) =>
-            newSession(
-              latest?.harness ?? seed?.harness ?? "cursor",
-              latest?.cwd ?? seed?.cwd ?? sidebarCwd,
-              latest?.model ?? seed?.model,
-              latest?.runtimeMode ?? seed?.runtimeMode,
-              latest?.modelSettings ?? open?.modelSettings,
-            ),
-          confirmClose: async (closedTabs) => {
+          replacement: {
+            harness: seed?.harness ?? "cursor",
+            cwd: seed?.cwd ?? sidebarCwd,
+            model: seed?.model,
+            runtimeMode: seed?.runtimeMode,
+            modelSettings: open?.modelSettings,
+          },
+          workspace: {
+            snapshot: () => ({
+              tabs: tabsRef.current,
+              sessions: sessionsRef.current,
+              activeTabId: activeTabIdRef.current,
+              dirtyFiles: dirtyFilesRef.current,
+            }),
+            apply: (change) => {
+              if (change.type === "stopped") {
+                const next = sessionsRef.current.map((session) =>
+                  session.id === sessionId ? change.session : session,
+                );
+                sessionsRef.current = next;
+                setSessions(next);
+                return;
+              }
+
+              if (change.type === "orchestrationReleased") {
+                const released = sessionsRef.current.map((session) =>
+                  releaseOrchestrationWorker(session, change.leadId),
+                );
+                sessionsRef.current = released;
+                setSessions(released);
+                for (const [id, cached] of loadedSessionCache.current) {
+                  if (
+                    releaseOrchestrationWorker(cached, change.leadId) !== cached
+                  )
+                    invalidateLoadedSession(id);
+                }
+                // Pending reads may still carry the deleted lead's ownership.
+                for (const id of sessionLoads.current.keys()) {
+                  invalidateLoadedSession(id);
+                }
+                for (const [id, pending] of pendingPersist.current) {
+                  pendingPersist.current.set(
+                    id,
+                    releaseOrchestrationWorker(pending, change.leadId),
+                  );
+                }
+                const releaseSummary = (entry: SessionSummary) =>
+                  entry.orchestrationLeadId === change.leadId
+                    ? { ...entry, orchestrationLeadId: undefined }
+                    : entry;
+                setHistory((current) => current.map(releaseSummary));
+                setStoredLinkedSessions((current) =>
+                  current.map(releaseSummary),
+                );
+                return;
+              }
+
+              const { removal } = change;
+              lastPersisted.current.delete(sessionId);
+              pendingPersist.current.delete(sessionId);
+              const closingFiles = filesInWorkspaceTabs(removal.closedTabs);
+              setDirtyFiles((current) => {
+                const next = new Set(current);
+                for (const file of closingFiles) next.delete(file.id);
+                return next;
+              });
+              sessionsRef.current = removal.sessions;
+              tabsRef.current = removal.tabs;
+              setSessions(removal.sessions);
+              setTabs(removal.tabs);
+              if (removal.activeTabId !== activeTabIdRef.current) {
+                activateTab(removal.activeTabId);
+              }
+              const activeTab = removal.tabs.find(
+                (tab) => tab.id === removal.activeTabId,
+              );
+              setComposerFocused(
+                removal.sessions.some(
+                  (session) => session.id === activeTab?.focusedId,
+                ),
+              );
+              if (change.mode === "archive") {
+                if (change.session && shouldPersistSession(change.session)) {
+                  rememberLoadedSession(
+                    loadedSessionCache.current,
+                    change.session,
+                  );
+                }
+                const archived =
+                  change.savedSummary ??
+                  summary ??
+                  (change.session && summaryFromSession(change.session));
+                if (archived) {
+                  setHistory((current) =>
+                    mergeHistorySummary(current, {
+                      ...archived,
+                      archived: true,
+                    }),
+                  );
+                }
+              } else {
+                setHistory((current) =>
+                  current.filter((entry) => entry.id !== sessionId),
+                );
+                void refreshHistory(sidebarCwd);
+              }
+            },
+          },
+          confirm: async (closedTabs, removalMode) => {
             const files = filesInWorkspaceTabs(closedTabs);
             const unsaved = files.some(
               (file) =>
@@ -4123,7 +4215,7 @@ export default function App({
             if (
               unsaved &&
               !(await confirmDiscardUnsaved(
-                `${mode === "archive" ? "Archive" : "Delete"} this conversation with unsaved files?`,
+                `${removalMode === "archive" ? "Archive" : "Delete"} this conversation with unsaved files?`,
               ))
             )
               return false;
@@ -4132,133 +4224,9 @@ export default function App({
               terminals.length === 0 || (await confirmCloseTerminals(terminals))
             );
           },
-          stop: async () => {
-            const run =
-              mode === "delete"
-                ? orchestrator.forSession(sessionId)
-                : undefined;
-            if (run && (run.status === "active" || run.status === "paused"))
-              await orchestrator.stopRun(run.leadId);
-            await stopSessionForRemoval(sessionId);
-            if (mode === "delete") {
-              const latest = sessionsRef.current.find(
-                (s) => s.id === sessionId,
-              );
-              const harnesses: HarnessId[] = latest
-                ? sessionChildHarnesses(latest)
-                : [seed?.harness ?? "cursor"];
-              // Release native processes before deleting the record, so a
-              // following worktree removal cannot race fire-and-forget cleanup.
-              await Promise.all(
-                harnesses.map((harness) =>
-                  forgetHarnessSession(harness, sessionId),
-                ),
-              );
-            }
-          },
-          updateSession: (stopped) => {
-            const next = sessionsRef.current.map((session) =>
-              session.id === sessionId ? stopped : session,
-            );
-            sessionsRef.current = next;
-            setSessions(next);
-          },
-          persist: async (latest) => {
-            if (latest) await flushSessionCheckpoint(sessionId);
-            if (mode === "delete") {
-              await orchestrator.deleteSession(sessionId, () =>
-                deleteSession(sessionId),
-              );
-              const released = sessionsRef.current.map((session) =>
-                releaseOrchestrationWorker(session, sessionId),
-              );
-              sessionsRef.current = released;
-              setSessions(released);
-              for (const [id, cached] of loadedSessionCache.current) {
-                if (releaseOrchestrationWorker(cached, sessionId) !== cached)
-                  invalidateLoadedSession(id);
-              }
-              // Pending reads may still carry the deleted lead's ownership.
-              for (const id of sessionLoads.current.keys())
-                invalidateLoadedSession(id);
-              for (const [id, pending] of pendingPersist.current) {
-                pendingPersist.current.set(
-                  id,
-                  releaseOrchestrationWorker(pending, sessionId),
-                );
-              }
-              const releaseSummary = (entry: SessionSummary) =>
-                entry.orchestrationLeadId === sessionId
-                  ? { ...entry, orchestrationLeadId: undefined }
-                  : entry;
-              setHistory((current) => current.map(releaseSummary));
-              setStoredLinkedSessions((current) => current.map(releaseSummary));
-              return;
-            }
-            if (latest && shouldPersistSession(latest)) {
-              const saved = await upsertSession(latest);
-              if (!saved)
-                throw new Error("The conversation could not be saved.");
-              savedSummary = saved;
-            }
-            await setSessionArchived(sessionId, true);
-          },
-          commit: (removal) => {
-            const latest = sessionsRef.current.find(
-              (session) => session.id === sessionId,
-            );
-            const harnesses: HarnessId[] = latest
-              ? sessionChildHarnesses(latest)
-              : [seed?.harness ?? "cursor"];
-            if (mode === "archive") {
-              for (const harness of harnesses) {
-                void forgetHarnessSession(harness, sessionId);
-              }
-            }
-            lastPersisted.current.delete(sessionId);
-            pendingPersist.current.delete(sessionId);
-            const closingFiles = filesInWorkspaceTabs(removal.closedTabs);
-            setDirtyFiles((current) => {
-              const next = new Set(current);
-              for (const file of closingFiles) next.delete(file.id);
-              return next;
-            });
-            sessionsRef.current = removal.sessions;
-            tabsRef.current = removal.tabs;
-            setSessions(removal.sessions);
-            setTabs(removal.tabs);
-            if (removal.activeTabId !== activeTabIdRef.current) {
-              activateTab(removal.activeTabId);
-            }
-            const activeTab = removal.tabs.find(
-              (tab) => tab.id === removal.activeTabId,
-            );
-            setComposerFocused(
-              removal.sessions.some(
-                (session) => session.id === activeTab?.focusedId,
-              ),
-            );
-            if (mode === "archive") {
-              if (latest && shouldPersistSession(latest)) {
-                rememberLoadedSession(loadedSessionCache.current, latest);
-              }
-              const archived =
-                savedSummary ??
-                summary ??
-                (latest && summaryFromSession(latest));
-              if (archived) {
-                setHistory((current) =>
-                  mergeHistorySummary(current, { ...archived, archived: true }),
-                );
-              }
-            } else {
-              setHistory((current) =>
-                current.filter((entry) => entry.id !== sessionId),
-              );
-              void refreshHistory(sidebarCwd);
-            }
-          },
+          stop: stopSessionForRemoval,
         });
+        const removed = await remover.remove(sessionId);
         if (removed && deleteWorktreePath && seed) {
           try {
             await onRemoveWorktree(seed.cwd, deleteWorktreePath, false);
