@@ -709,14 +709,20 @@ async function fetchInboxItems(
 
   let gitlabItems: InboxItem[] = [];
   if ((await gitlabConnected()).connected) {
-    const gitlab = await fetchGitlabInboxItems(unique, query, preferredPaths);
+    const gitlab = await fetchRepositoryInboxItems(
+      "gitlab",
+      unique,
+      query,
+      preferredPaths,
+    );
     gitlabItems = gitlab.items;
     if (gitlab.error) errors.gitlab = gitlab.error;
   }
 
   let azureDevOpsItems: InboxItem[] = [];
   if ((await azureDevOpsConnected()).connected) {
-    const azuredevops = await fetchAzureDevOpsInboxItems(
+    const azuredevops = await fetchRepositoryInboxItems(
+      "azuredevops",
       unique,
       query,
       preferredPaths,
@@ -734,17 +740,32 @@ async function fetchInboxItems(
   };
 }
 
-async function fetchGitlabInboxItems(
+async function fetchRepositoryInboxItems(
+  provider: "gitlab" | "azuredevops",
   projects: readonly { path: string }[],
   query: InboxQuery,
   preferredPaths: readonly string[],
 ): Promise<{ items: InboxItem[]; error?: string }> {
+  const { findRepo, listTodos, listWorkItems, toInboxItem } =
+    provider === "gitlab"
+      ? {
+          findRepo: gitlabRepo,
+          listTodos: listGitlabTodos,
+          listWorkItems: listGitlabWorkItems,
+          toInboxItem: gitlabWorkItemToInboxItem,
+        }
+      : {
+          findRepo: azureDevOpsRepo,
+          listTodos: listAzureDevOpsTodos,
+          listWorkItems: listAzureDevOpsWorkItems,
+          toInboxItem: azureDevOpsWorkItemToInboxItem,
+        };
   const resolved = await Promise.all(
     projects.map(async (project) => {
       try {
         return {
           path: project.path,
-          repo: (await gitlabRepo(project.path)).trim(),
+          repo: (await findRepo(project.path)).trim(),
         };
       } catch {
         return { path: project.path, repo: "" };
@@ -760,12 +781,12 @@ async function fetchGitlabInboxItems(
       grouped.map((project) => [project.repo.toLowerCase(), project.path]),
     );
     const jobs = (["issue", "pr"] as const).map(async (kind) => {
-      const items = await listGitlabTodos({
+      const items = await listTodos({
         kind,
         limit: query.state === "all" ? INBOX_ALL_LIMIT : undefined,
       });
       return items.map((item) =>
-        gitlabWorkItemToInboxItem(
+        toInboxItem(
           item,
           localPathByRepo.get(item.repo.toLowerCase()) ?? "",
           item.repo,
@@ -777,71 +798,14 @@ async function fetchGitlabInboxItems(
 
   const jobs = grouped.flatMap((project) =>
     (["issue", "pr"] as const).map(async (kind) => {
-      const items = await listGitlabWorkItems(project.path, {
+      const items = await listWorkItems(project.path, {
         kind,
         assignedToMe: false,
         state: query.state,
         limit: query.state === "all" ? INBOX_ALL_LIMIT : undefined,
       });
       return items.map((item) =>
-        gitlabWorkItemToInboxItem(item, project.path, project.repo),
-      );
-    }),
-  );
-  return collectInboxResults(await Promise.allSettled(jobs), preferredPaths);
-}
-
-async function fetchAzureDevOpsInboxItems(
-  projects: readonly { path: string }[],
-  query: InboxQuery,
-  preferredPaths: readonly string[],
-): Promise<{ items: InboxItem[]; error?: string }> {
-  const resolved = await Promise.all(
-    projects.map(async (project) => {
-      try {
-        return {
-          path: project.path,
-          repo: (await azureDevOpsRepo(project.path)).trim(),
-        };
-      } catch {
-        return { path: project.path, repo: "" };
-      }
-    }),
-  );
-  const grouped = groupProjectsByRepo(
-    resolved.filter((project) => project.repo.length > 0),
-  );
-
-  if (query.assignedToMe) {
-    const localPathByRepo = new Map(
-      grouped.map((project) => [project.repo.toLowerCase(), project.path]),
-    );
-    const jobs = (["issue", "pr"] as const).map(async (kind) => {
-      const items = await listAzureDevOpsTodos({
-        kind,
-        limit: query.state === "all" ? INBOX_ALL_LIMIT : undefined,
-      });
-      return items.map((item) =>
-        azureDevOpsWorkItemToInboxItem(
-          item,
-          localPathByRepo.get(item.repo.toLowerCase()) ?? "",
-          item.repo,
-        ),
-      );
-    });
-    return collectInboxResults(await Promise.allSettled(jobs), preferredPaths);
-  }
-
-  const jobs = grouped.flatMap((project) =>
-    (["issue", "pr"] as const).map(async (kind) => {
-      const items = await listAzureDevOpsWorkItems(project.path, {
-        kind,
-        assignedToMe: false,
-        state: query.state,
-        limit: query.state === "all" ? INBOX_ALL_LIMIT : undefined,
-      });
-      return items.map((item) =>
-        azureDevOpsWorkItemToInboxItem(item, project.path, project.repo),
+        toInboxItem(item, project.path, project.repo),
       );
     }),
   );
