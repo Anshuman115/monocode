@@ -230,6 +230,19 @@ export function newReleaseNotesWorkspaceTab(
   };
 }
 
+/** Create a top-level workspace tab whose first and only pane is this file. */
+export function newEditorWorkspaceTab(file: FilePaneTab): WorkspaceTab {
+  const pane = newEditorPane(file);
+  return {
+    kind: "session",
+    id: crypto.randomUUID(),
+    layout: leaf(pane.id),
+    focusedId: pane.id,
+    editorPanes: [pane],
+    terminalPanes: [],
+  };
+}
+
 /** `path` carries the label: an agent tab has no file behind it. */
 export function newAgentTab(
   title: string,

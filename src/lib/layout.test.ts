@@ -15,6 +15,7 @@ import {
   leaf,
   newChangesTab,
   newCommitTab,
+  newEditorWorkspaceTab,
   newFileTab,
   newPlanTab,
   newReleaseNotesWorkspaceTab,
@@ -460,6 +461,19 @@ describe("newTerminalWorkspaceTab", () => {
     expect(tab.focusedId).toBe(tab.terminalPanes[0]?.id);
     expect(tab.editorPanes).toEqual([]);
     expect(tab.terminalPanes[0]?.files).toEqual([file]);
+  });
+});
+
+describe("newEditorWorkspaceTab", () => {
+  it("creates a top-level tab whose only leaf is the file pane", () => {
+    const file = newFileTab("/repo/App.tsx", "/repo");
+    const tab = newEditorWorkspaceTab(file);
+    expect(layoutLeaves(tab.layout).map((pane) => pane.id)).toEqual([
+      tab.editorPanes[0]?.id,
+    ]);
+    expect(tab.focusedId).toBe(tab.editorPanes[0]?.id);
+    expect(tab.editorPanes[0]?.files).toEqual([file]);
+    expect(tab.terminalPanes).toEqual([]);
   });
 });
 

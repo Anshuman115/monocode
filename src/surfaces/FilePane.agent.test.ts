@@ -93,6 +93,17 @@ describe("file pane agent tabs", () => {
     expect(container.textContent).toContain("Done");
   });
 
+  it("omits redundant tabs when the title bar already represents the file", async () => {
+    await act(async () =>
+      root.render(createElement(FilePane, { ...props, showTabs: false })),
+    );
+
+    expect(
+      container.querySelector('[role="tablist"][aria-label="Open files"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("This agent is no longer running");
+  });
+
   it("shows managed approvals as waiting on the orchestrator", async () => {
     const session = {
       ...newSession("codex", "/repo"),

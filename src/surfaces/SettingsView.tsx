@@ -210,6 +210,7 @@ import {
   loadCloseToTray,
   loadComposerRunner,
   loadDiffViewer,
+  loadFileTabMode,
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
@@ -219,6 +220,7 @@ import {
   saveCloseToTray,
   saveComposerRunner,
   saveDiffViewer,
+  saveFileTabMode,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
@@ -228,6 +230,7 @@ import {
   settingsSectionDescription,
   settingsSectionLabel,
   type DiffViewer,
+  type FileTabMode,
   type FollowUpBehavior,
   type ModelControls,
   type SettingsSearchResult,
@@ -605,6 +608,7 @@ function GeneralPage({
   const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
     loadLiveAgentsEnabled,
   );
+  const [fileTabMode, setFileTabMode] = useState<FileTabMode>(loadFileTabMode);
   const [closeToTray, setCloseToTray] = useState(loadCloseToTray);
 
   // The user may flip the switch in System Settings and come back: re-read
@@ -639,6 +643,11 @@ function GeneralPage({
   const onLiveAgentsEnabled = (next: boolean) => {
     saveLiveAgentsEnabled(next);
     setLiveAgentsEnabled(next);
+  };
+
+  const onFileTabMode = (next: FileTabMode) => {
+    saveFileTabMode(next);
+    setFileTabMode(next);
   };
 
   const onCloseToTray = (next: boolean) => {
@@ -686,8 +695,23 @@ function GeneralPage({
 
       <Group
         title="Workspace"
-        description="Panels the project rail can carry. Turning one off hides it everywhere."
+        description="How project navigation and workspace tabs behave."
       >
+        <Row
+          id="file-tabs"
+          label="File tabs"
+          description="Open files beside the active chat, or give each file a normal tab in the top bar. Top-bar files can still be combined into split panes."
+        >
+          <Segmented
+            label="File tabs"
+            value={fileTabMode}
+            options={[
+              { value: "pane", label: "Beside chat" },
+              { value: "workspace", label: "Top bar" },
+            ]}
+            onChange={onFileTabMode}
+          />
+        </Row>
         <Row
           id="notes"
           label="Notes"

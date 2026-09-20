@@ -6,6 +6,7 @@ import {
   settingsSectionsByGroup,
   MODEL_CONTROLS_DEFAULT,
   DIFF_VIEWER_DEFAULT,
+  FILE_TAB_MODE_DEFAULT,
   FOLLOW_UP_BEHAVIOR_DEFAULT,
   GRID_ARCADE_ENABLED_DEFAULT,
   KEYBINDINGS,
@@ -13,6 +14,7 @@ import {
   loadComposerRunner,
   loadModelControls,
   loadDiffViewer,
+  loadFileTabMode,
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
@@ -21,6 +23,7 @@ import {
   saveComposerRunner,
   saveModelControls,
   saveDiffViewer,
+  saveFileTabMode,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
@@ -35,6 +38,7 @@ const NOTES_KEY = "monocode.notesEnabled";
 const LIVE_AGENTS_KEY = "monocode.liveAgentsEnabled";
 const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
+const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
 
 describe("follow-up behavior setting", () => {
@@ -265,6 +269,29 @@ describe("diff viewer setting", () => {
   it("ignores unknown stored values", () => {
     localStorage.setItem(DIFF_VIEWER_KEY, "split");
     expect(loadDiffViewer()).toBe("editor");
+  });
+});
+
+describe("file tab mode setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(FILE_TAB_MODE_KEY);
+  });
+
+  it("opens files beside chat by default", () => {
+    expect(FILE_TAB_MODE_DEFAULT).toBe("pane");
+    expect(loadFileTabMode()).toBe("pane");
+  });
+
+  it("persists top-level file tabs", () => {
+    saveFileTabMode("workspace");
+    expect(localStorage.getItem(FILE_TAB_MODE_KEY)).toBe("workspace");
+    expect(loadFileTabMode()).toBe("workspace");
+  });
+
+  it("ignores unknown stored values", () => {
+    localStorage.setItem(FILE_TAB_MODE_KEY, "window");
+    expect(loadFileTabMode()).toBe("pane");
   });
 });
 

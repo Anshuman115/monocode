@@ -242,6 +242,24 @@ describe("settings pages", () => {
     expect(ids).toEqual([...new Set(ids)]);
   });
 
+  it("lets files open as normal top-bar tabs", async () => {
+    await render("general");
+    const control = container.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="File tabs"]',
+    )!;
+    const [besideChat, topBar] = Array.from(
+      control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    );
+
+    expect(besideChat?.getAttribute("aria-checked")).toBe("true");
+    expect(topBar?.getAttribute("aria-checked")).toBe("false");
+
+    await act(async () => topBar?.click());
+
+    expect(topBar?.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("monocode.fileTabMode")).toBe("workspace");
+  });
+
   // The search index is hand-maintained; this is what keeps it honest.
   it.each(
     [...new Set(SETTINGS_INDEX.map((entry) => entry.section))].map(

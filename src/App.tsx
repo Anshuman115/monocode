@@ -110,6 +110,7 @@ import {
 import {
   closeLeaf,
   closeSurfacePanes,
+  editorTabKey,
   findSurfacePane,
   firstLeafId,
   focusedFileTab,
@@ -121,6 +122,7 @@ import {
   leafIds,
   movePane,
   neighborLeafId,
+  newEditorWorkspaceTab,
   newFileTab,
   newPlanTab,
   newTab,
@@ -458,6 +460,7 @@ import {
 } from "./lib/azureDevOps";
 import {
   loadCloseToTray,
+  loadFileTabMode,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
   loadDiffViewer,
@@ -4953,7 +4956,9 @@ export default function App({
         const fileProjectCwd = sidebarCwdRef.current;
         const resolved = await resolveFileOpenRequest(fileCwd, path, options);
         rememberOpenedFile(fileCwd, resolved);
-        const tab = tabsRef.current.find((entry) => entry.id === activeTabId);
+        const tab = tabsRef.current.find(
+          (entry) => entry.id === activeTabIdRef.current,
+        );
         if (!tab) return;
         const file = newFileTab(
           resolved,
@@ -4962,6 +4967,41 @@ export default function App({
           undefined,
           fileProjectCwd,
         );
+        if (loadFileTabMode() === "workspace") {
+          const key = editorTabKey(file);
+          const existing = tabsRef.current
+            .flatMap((entry) =>
+              entry.editorPanes.map((pane) => ({ entry, pane })),
+            )
+            .find(({ pane }) =>
+              pane.files.some((open) => editorTabKey(open) === key),
+            );
+          if (existing) {
+            setTabs((prev) =>
+              prev.map((entry) =>
+                entry.id === existing.entry.id
+                  ? openEditorTab(entry, file)
+                  : entry,
+              ),
+            );
+            activateTab(existing.entry.id, existing.pane.id);
+          } else {
+            const next = newEditorWorkspaceTab(file);
+            appendTab(next, fileProjectCwd);
+            setActiveTabId(next.id);
+          }
+          setProjectTerminalFocused(false);
+          setComposerFocused(false);
+          if (navigation) {
+            editorNavigationToken.current += 1;
+            setEditorNavigation({
+              path: resolved,
+              ...navigation,
+              token: editorNavigationToken.current,
+            });
+          }
+          return;
+        }
         setTabs((prev) =>
           prev.map((entry) => {
             if (entry.id !== tab.id) return entry;
@@ -4984,7 +5024,7 @@ export default function App({
         setComposerFocused(false);
       })();
     },
-    [activeTabId],
+    [activateTab, appendTab],
   );
 
   const onOpenPlan = useCallback(

@@ -164,6 +164,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Working agents",
     keywords: "live running sessions rail card",
   },
+  {
+    id: "file-tabs",
+    section: "general",
+    label: "File tabs",
+    keywords: "editor open top workspace normal session pane beside chat",
+  },
   ...(IS_WIN
     ? [
         {
@@ -442,6 +448,8 @@ const COMPOSER_EFFORT_VISIBLE_KEY = "monocode.composerEffortVisible";
 
 const MODEL_CONTROLS_KEY = "monocode.modelControls";
 
+const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
+
 export type FollowUpBehavior = "steer" | "queue";
 
 export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "steer";
@@ -460,6 +468,28 @@ export function loadFollowUpBehavior(): FollowUpBehavior {
 export function saveFollowUpBehavior(value: FollowUpBehavior) {
   try {
     localStorage.setItem(FOLLOW_UP_BEHAVIOR_KEY, value);
+  } catch {
+    // private mode / quota
+  }
+}
+
+export type FileTabMode = "pane" | "workspace";
+
+export const FILE_TAB_MODE_DEFAULT: FileTabMode = "pane";
+
+/** Choose whether an ordinary file joins the active pane or gets a top tab. */
+export function loadFileTabMode(): FileTabMode {
+  try {
+    const raw = localStorage.getItem(FILE_TAB_MODE_KEY);
+    return raw === "pane" || raw === "workspace" ? raw : FILE_TAB_MODE_DEFAULT;
+  } catch {
+    return FILE_TAB_MODE_DEFAULT;
+  }
+}
+
+export function saveFileTabMode(value: FileTabMode) {
+  try {
+    localStorage.setItem(FILE_TAB_MODE_KEY, value);
   } catch {
     // private mode / quota
   }
