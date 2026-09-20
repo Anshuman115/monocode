@@ -8,7 +8,7 @@ import hermes from "../assets/providers/hermes.svg";
 import omp from "../assets/providers/omp.svg";
 import opencode from "../assets/providers/opencode.svg";
 import pi from "../assets/providers/pi.svg";
-import antigravity from "../assets/providers/antigravity.png";
+import antigravity from "../assets/providers/antigravity.svg";
 import type { HarnessId } from "../lib/session";
 
 export const HARNESS_ICONS: Record<HarnessId, string> = {
