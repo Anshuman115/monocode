@@ -339,7 +339,7 @@ export function useInboxActivity(
     void pull(false);
     const stopSelfActivity = subscribeInboxSelfActivity(() => void pull(true));
     // Keep polling while minimized or closed-to-tray: the webview is still
-    // alive, and GitHub/GitLab automation triggers ride this same refresh.
+    // alive, and Inbox automation triggers ride this same refresh.
     const timer = window.setInterval(() => void pull(true), POLL_MS);
     const onVis = () => {
       if (!document.hidden) void pull(true);

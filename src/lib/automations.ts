@@ -7,7 +7,8 @@ const LOCAL_CHANGED = "monocode:automations-local-changed";
 
 export type AutomationWorkspaceMode = "current" | "worktree" | "existing";
 export type AutomationScheduleKind = "hourly" | "daily" | "weekdays" | "weekly";
-export type AutomationTriggerKind = "time" | "github" | "linear" | "gitlab";
+export type AutomationTriggerKind =
+  "time" | "github" | "linear" | "gitlab" | "azuredevops";
 
 export type AutomationTrigger = {
   id: string;

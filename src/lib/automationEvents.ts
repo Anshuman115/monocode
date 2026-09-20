@@ -30,6 +30,7 @@ export const SUPPORTED_INBOX_TRIGGER_EVENTS = {
   github: ["draft_opened", "pull_request_opened", "issue_opened"],
   gitlab: ["merge_request_opened", "issue_opened"],
   linear: ["issue_created"],
+  azuredevops: ["pull_request_appeared", "work_item_appeared"],
 } as const;
 
 export function inboxAppearedEvent(
@@ -52,6 +53,12 @@ export function inboxAppearedEvent(
   }
   if (item.provider === "linear") {
     return { kind: "linear", event: "issue_created" };
+  }
+  if (item.provider === "azuredevops" && item.kind === "pr") {
+    return { kind: "azuredevops", event: "pull_request_appeared" };
+  }
+  if (item.provider === "azuredevops" && item.kind === "issue") {
+    return { kind: "azuredevops", event: "work_item_appeared" };
   }
   return null;
 }

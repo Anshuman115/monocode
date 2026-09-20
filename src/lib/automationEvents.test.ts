@@ -97,6 +97,23 @@ describe("inbox automation events", () => {
         }),
       ),
     ).toEqual({ kind: "linear", event: "issue_created" });
+    expect(
+      inboxAppearedEvent(
+        item({
+          provider: "azuredevops",
+          url: "https://dev.azure.com/acme/shop/_git/web/pullrequest/12",
+        }),
+      ),
+    ).toEqual({ kind: "azuredevops", event: "pull_request_appeared" });
+    expect(
+      inboxAppearedEvent(
+        item({
+          provider: "azuredevops",
+          kind: "issue",
+          url: "https://dev.azure.com/acme/shop/_workitems/edit/12",
+        }),
+      ),
+    ).toEqual({ kind: "azuredevops", event: "work_item_appeared" });
   });
 
   it("fires a same-project opened PR into the matching automation", () => {
@@ -198,6 +215,54 @@ describe("inbox automation events", () => {
     );
     expect(match?.eventKey).toBe("gitlab:issue:acme/web:12");
     expect(match?.prompt).toContain("Work on this GitLab issue:");
+  });
+
+  it("fires Azure DevOps pull requests into the matching project", () => {
+    const review = automation({
+      triggers: [
+        createAutomationTrigger("azuredevops", "pull_request_appeared"),
+      ],
+    });
+    const [match] = matchInboxAutomations(
+      [review],
+      [
+        item({
+          provider: "azuredevops",
+          url: "https://dev.azure.com/acme/shop/_git/web/pullrequest/12",
+        }),
+      ],
+    );
+    expect(match?.eventKey).toBe("azuredevops:pr:acme/web:12");
+    expect(match?.prompt).toContain("Work on this ADO pull request:");
+  });
+
+  it("fires Azure DevOps work items separately from pull requests", () => {
+    const triage = automation({
+      triggers: [createAutomationTrigger("azuredevops", "work_item_appeared")],
+    });
+    expect(
+      matchInboxAutomations(
+        [triage],
+        [
+          item({
+            provider: "azuredevops",
+            url: "https://dev.azure.com/acme/shop/_git/web/pullrequest/12",
+          }),
+        ],
+      ),
+    ).toEqual([]);
+    const [match] = matchInboxAutomations(
+      [triage],
+      [
+        item({
+          provider: "azuredevops",
+          kind: "issue",
+          url: "https://dev.azure.com/acme/shop/_workitems/edit/12",
+        }),
+      ],
+    );
+    expect(match?.eventKey).toBe("azuredevops:issue:acme/web:12");
+    expect(match?.prompt).toContain("Work on this ADO issue:");
   });
 
   it("fires new Linear issues into the automation's project", () => {

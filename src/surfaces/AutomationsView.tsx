@@ -79,6 +79,10 @@ import {
   type AutomationTemplateCategoryId,
   type AutomationTemplateIcon,
 } from "../lib/automationTemplates";
+import {
+  AZUREDEVOPS_CHANGE_EVENT,
+  azureDevOpsConnected,
+} from "../lib/azureDevOps";
 import { gitBranches } from "../lib/fs";
 import { formatRelativeTime, githubStatus } from "../lib/githubTasks";
 import { GITLAB_CHANGE_EVENT, gitlabConnected } from "../lib/gitlab";
@@ -824,6 +828,7 @@ function AutomationEditor({
     github: false,
     linear: false,
     gitlab: false,
+    azuredevops: false,
   });
   const controlsBeside =
     useSyncExternalStore(subscribeModelControls, loadModelControls) ===
@@ -842,17 +847,24 @@ function AutomationEditor({
         gitlabConnected()
           .then((status) => status.connected)
           .catch(() => false),
-      ]).then(([github, linear, gitlab]) => {
-        if (!cancelled) setProviderConnected({ github, linear, gitlab });
+        azureDevOpsConnected()
+          .then((status) => status.connected)
+          .catch(() => false),
+      ]).then(([github, linear, gitlab, azuredevops]) => {
+        if (!cancelled) {
+          setProviderConnected({ github, linear, gitlab, azuredevops });
+        }
       });
     };
     load();
     window.addEventListener(LINEAR_CHANGE_EVENT, load);
     window.addEventListener(GITLAB_CHANGE_EVENT, load);
+    window.addEventListener(AZUREDEVOPS_CHANGE_EVENT, load);
     return () => {
       cancelled = true;
       window.removeEventListener(LINEAR_CHANGE_EVENT, load);
       window.removeEventListener(GITLAB_CHANGE_EVENT, load);
+      window.removeEventListener(AZUREDEVOPS_CHANGE_EVENT, load);
     };
   }, []);
   const triggerReady = (kind: AutomationTriggerKind) => {
@@ -1640,6 +1652,7 @@ const TRIGGER_CATEGORIES: readonly {
   { value: "github", label: "GitHub" },
   { value: "linear", label: "Linear" },
   { value: "gitlab", label: "GitLab" },
+  { value: "azuredevops", label: "Azure DevOps" },
 ];
 
 type TriggerEvent = {
@@ -1663,6 +1676,10 @@ const TRIGGER_EVENTS: Record<AutomationTriggerKind, readonly TriggerEvent[]> = {
   gitlab: [
     { value: "merge_request_opened", label: "Merge request opened" },
     { value: "issue_opened", label: "Issue opened" },
+  ],
+  azuredevops: [
+    { value: "pull_request_appeared", label: "Pull request appeared" },
+    { value: "work_item_appeared", label: "Work item appeared" },
   ],
 };
 
