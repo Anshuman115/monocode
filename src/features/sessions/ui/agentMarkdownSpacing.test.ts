@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Streamdown } from "streamdown";
@@ -89,6 +89,25 @@ function declaredMargin(el: Element, side: Side): string | null {
 function isZero(margin: string | null): boolean {
   return margin === null || /^0[a-z%]*$/.test(margin);
 }
+
+describe("agent-markdown Tailwind sources", () => {
+  it("resolves every package source relative to the stylesheet", () => {
+    const css = readFileSync(CSS_PATH, "utf8");
+    const sources = [...css.matchAll(/@source\s+"([^"]+)"/g)].map(
+      ([, source]) => source,
+    );
+
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      const directory = dirname(resolve(dirname(CSS_PATH), source));
+      expect(existsSync(directory), `${source} should resolve`).toBe(true);
+      expect(
+        readdirSync(directory).some((entry) => entry.endsWith(".js")),
+        `${source} should match package JavaScript`,
+      ).toBe(true);
+    }
+  });
+});
 
 describe("agent-markdown paragraph spacing", () => {
   it("wraps each block in a display:contents div, so space-y-4 cannot space them", () => {
