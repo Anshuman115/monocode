@@ -11,6 +11,7 @@ import {
   GRID_ARCADE_ENABLED_DEFAULT,
   KEYBINDINGS,
   LIVE_AGENTS_ENABLED_DEFAULT,
+  TAB_ANIMATIONS_ENABLED_DEFAULT,
   loadComposerRunner,
   loadModelControls,
   loadDiffViewer,
@@ -19,6 +20,7 @@ import {
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
+  loadTabAnimationsEnabled,
   NOTES_ENABLED_DEFAULT,
   saveComposerRunner,
   saveModelControls,
@@ -28,6 +30,7 @@ import {
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveTabAnimationsEnabled,
 } from "./settings";
 import { MOD, SHIFT } from "./platform";
 
@@ -40,6 +43,7 @@ const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
 const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
+const TAB_ANIMATIONS_KEY = "monocode.tabAnimationsEnabled";
 
 describe("follow-up behavior setting", () => {
   beforeEach(mockLocalStorage);
@@ -292,6 +296,26 @@ describe("file tab mode setting", () => {
   it("ignores unknown stored values", () => {
     localStorage.setItem(FILE_TAB_MODE_KEY, "window");
     expect(loadFileTabMode()).toBe("pane");
+  });
+});
+
+describe("tab animations setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(TAB_ANIMATIONS_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(TAB_ANIMATIONS_ENABLED_DEFAULT).toBe(false);
+    expect(loadTabAnimationsEnabled()).toBe(false);
+  });
+
+  it("persists an off switch", () => {
+    saveTabAnimationsEnabled(false);
+    expect(localStorage.getItem(TAB_ANIMATIONS_KEY)).toBe("0");
+    expect(loadTabAnimationsEnabled()).toBe(false);
+    saveTabAnimationsEnabled(true);
+    expect(loadTabAnimationsEnabled()).toBe(true);
   });
 });
 

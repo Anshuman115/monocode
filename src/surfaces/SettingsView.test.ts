@@ -30,6 +30,20 @@ let container: HTMLDivElement;
 let root: Root;
 let onSelectSection: ReturnType<typeof vi.fn>;
 
+function mockLocalStorage() {
+  const data = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value),
+    removeItem: (key: string) => data.delete(key),
+    clear: () => data.clear(),
+    key: (index: number) => [...data.keys()][index] ?? null,
+    get length() {
+      return data.size;
+    },
+  });
+}
+
 async function render(
   section: SettingsSectionId,
   options: Partial<ComponentProps<typeof SettingsView>> = {},
@@ -61,6 +75,7 @@ function renderedSettingIds(): string[] {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  mockLocalStorage();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -71,6 +86,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   localStorage.clear();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -258,6 +274,18 @@ describe("settings pages", () => {
 
     expect(topBar?.getAttribute("aria-checked")).toBe("true");
     expect(localStorage.getItem("monocode.fileTabMode")).toBe("workspace");
+  });
+
+  it("offers tab animations as an opt-in", async () => {
+    await render("general");
+    const control = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="Tab animations"]',
+    )!;
+
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    await act(async () => control.click());
+    expect(control.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("monocode.tabAnimationsEnabled")).toBe("1");
   });
 
   // The search index is hand-maintained; this is what keeps it honest.

@@ -170,6 +170,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "File tabs",
     keywords: "editor open top workspace normal session pane beside chat",
   },
+  {
+    id: "tab-animations",
+    section: "general",
+    label: "Tab animations",
+    keywords: "motion open close resize transition",
+  },
   ...(IS_WIN
     ? [
         {
@@ -262,7 +268,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     id: "model-controls",
     section: "chat",
     label: "Model controls",
-    keywords: "effort thinking reasoning fast service tier model picker composer",
+    keywords:
+      "effort thinking reasoning fast service tier model picker composer",
   },
   {
     id: "composer-mascot",
@@ -450,6 +457,8 @@ const MODEL_CONTROLS_KEY = "monocode.modelControls";
 
 const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 
+const TAB_ANIMATIONS_ENABLED_KEY = "monocode.tabAnimationsEnabled";
+
 export type FollowUpBehavior = "steer" | "queue";
 
 export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "steer";
@@ -490,6 +499,26 @@ export function loadFileTabMode(): FileTabMode {
 export function saveFileTabMode(value: FileTabMode) {
   try {
     localStorage.setItem(FILE_TAB_MODE_KEY, value);
+  } catch {
+    // private mode / quota
+  }
+}
+
+export const TAB_ANIMATIONS_ENABLED_DEFAULT = false;
+
+export function loadTabAnimationsEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(TAB_ANIMATIONS_ENABLED_KEY);
+    if (raw == null) return TAB_ANIMATIONS_ENABLED_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return TAB_ANIMATIONS_ENABLED_DEFAULT;
+  }
+}
+
+export function saveTabAnimationsEnabled(value: boolean) {
+  try {
+    localStorage.setItem(TAB_ANIMATIONS_ENABLED_KEY, value ? "1" : "0");
   } catch {
     // private mode / quota
   }

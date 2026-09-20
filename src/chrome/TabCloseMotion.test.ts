@@ -10,6 +10,20 @@ vi.mock("./WindowControls", () => ({ WindowControls: () => null }));
 let container: HTMLDivElement;
 let root: Root;
 
+function mockLocalStorage() {
+  const data = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value),
+    removeItem: (key: string) => data.delete(key),
+    clear: () => data.clear(),
+    key: (index: number) => [...data.keys()][index] ?? null,
+    get length() {
+      return data.size;
+    },
+  });
+}
+
 function workspaceTab(id: string): Tab {
   return {
     id,
@@ -32,6 +46,8 @@ function flushPaint() {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  mockLocalStorage();
+  localStorage.setItem("monocode.tabAnimationsEnabled", "1");
   vi.useFakeTimers();
   document.documentElement.style.setProperty(
     "--motion-tab-close-duration",
@@ -185,6 +201,13 @@ describe.each(["workspace", "file"] as const)("%s tab close motion", (kind) => {
     expect(container.querySelector('[aria-label="Close second"]')).toBeNull();
   });
 
+  it("skips the collapse when tab animations are disabled", () => {
+    localStorage.setItem("monocode.tabAnimationsEnabled", "0");
+    closeTab(kind, "second", ["first", "second", "third"]);
+    expect(container.querySelector("[data-closing-tab]")).toBeNull();
+    expect(container.querySelector('[aria-label="Close second"]')).toBeNull();
+  });
+
   it("does not stage a second resize after an X-button close", () => {
     closeTab(kind, "second", ["first", "second", "third"], true);
 
@@ -275,6 +298,15 @@ describe.each(["workspace", "file"] as const)("%s tab open motion", (kind) => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     }));
+    addThird(kind);
+    expect(container.querySelector("[data-opening-tab]")).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Close third"]'),
+    ).not.toBeNull();
+  });
+
+  it("skips the expand when tab animations are disabled", () => {
+    localStorage.setItem("monocode.tabAnimationsEnabled", "0");
     addThird(kind);
     expect(container.querySelector("[data-opening-tab]")).toBeNull();
     expect(

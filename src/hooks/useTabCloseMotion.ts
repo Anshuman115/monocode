@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { loadTabAnimationsEnabled } from "../lib/settings";
 
 export type TabMotionEntry<T extends { id: string }> = {
   id: string;
@@ -59,7 +60,7 @@ export function useTabCloseMotion<T extends { id: string }>(
       previousIds.length > 0 &&
       nextIds.length > 0 &&
       previousIds.every((id) => !nextIdSet.has(id));
-    const skipMotion = reducedMotion();
+    const skipMotion = reducedMotion() || !loadTabAnimationsEnabled();
 
     if (replaceAll || skipMotion) {
       rendered = items.map(idleEntry);

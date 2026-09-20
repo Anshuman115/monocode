@@ -216,6 +216,7 @@ import {
   loadLiveAgentsEnabled,
   loadModelControls,
   loadNotesEnabled,
+  loadTabAnimationsEnabled,
   saveClaudeHooks,
   saveCloseToTray,
   saveComposerRunner,
@@ -226,6 +227,7 @@ import {
   saveLiveAgentsEnabled,
   saveModelControls,
   saveNotesEnabled,
+  saveTabAnimationsEnabled,
   searchSettings,
   settingsSectionDescription,
   settingsSectionLabel,
@@ -609,6 +611,9 @@ function GeneralPage({
     loadLiveAgentsEnabled,
   );
   const [fileTabMode, setFileTabMode] = useState<FileTabMode>(loadFileTabMode);
+  const [tabAnimationsEnabled, setTabAnimationsEnabled] = useState(
+    loadTabAnimationsEnabled,
+  );
   const [closeToTray, setCloseToTray] = useState(loadCloseToTray);
 
   // The user may flip the switch in System Settings and come back: re-read
@@ -648,6 +653,11 @@ function GeneralPage({
   const onFileTabMode = (next: FileTabMode) => {
     saveFileTabMode(next);
     setFileTabMode(next);
+  };
+
+  const onTabAnimationsEnabled = (next: boolean) => {
+    saveTabAnimationsEnabled(next);
+    setTabAnimationsEnabled(next);
   };
 
   const onCloseToTray = (next: boolean) => {
@@ -710,6 +720,17 @@ function GeneralPage({
               { value: "workspace", label: "Top bar" },
             ]}
             onChange={onFileTabMode}
+          />
+        </Row>
+        <Row
+          id="tab-animations"
+          label="Tab animations"
+          description="Animate tabs as they open and close. Turn this off for instant tab changes."
+        >
+          <Toggle
+            label="Tab animations"
+            on={tabAnimationsEnabled}
+            onChange={onTabAnimationsEnabled}
           />
         </Row>
         <Row
