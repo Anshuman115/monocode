@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
  */
 
 // happy-dom rewrites import.meta.url, so resolve from the vitest root instead.
-const CSS_PATH = resolve(process.cwd(), "src/index.css");
+const CSS_PATH = resolve(process.cwd(), "src/styles/index.css");
 
 const SAMPLE = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
 

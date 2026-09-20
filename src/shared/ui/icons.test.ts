@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { FilePlus, FoldVertical, UnfoldVertical } from "./icons";
 
-const SRC = fileURLToPath(new URL("..", import.meta.url));
-const CATALOG = "chrome/icons.tsx";
+const SRC = fileURLToPath(new URL("../..", import.meta.url));
+const CATALOG = "shared/ui/icons.tsx";
 const SPECIFIER = /["'](@hugeicons\/[^"']+)["']/g;
 const DEEP_ICON = /^@hugeicons\/core-free-icons\/[A-Z][A-Za-z0-9]+Icon$/;
 
