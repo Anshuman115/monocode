@@ -22,6 +22,8 @@ import { releaseNotesTitle } from "../lib/releaseNotes";
 import { terminalTabLabel } from "../lib/terminalTab";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useAnimatedReorder } from "../hooks/useAnimatedReorder";
+import { useTabCloseMotion } from "../hooks/useTabCloseMotion";
+import { TabWidthMotion } from "./ClosingTab";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
@@ -191,6 +193,11 @@ export function SurfaceTabs({
   const [menu, setMenu] = useState<SurfaceTabMenu | null>(null);
   const fileIds = files.map((file) => file.id);
   const sortable = useAnimatedReorder(fileIds, onReorder);
+  const {
+    displayed,
+    setTabNode,
+    finishMotion,
+  } = useTabCloseMotion(files);
   const menuFile = menu
     ? files.find((file) => file.id === menu.fileId)
     : undefined;
@@ -266,8 +273,11 @@ export function SurfaceTabs({
           <GripVertical className="size-3.5" strokeWidth={1.75} />
         </div>
       ) : null}
-      {files.map((file) => {
-        const active = file.id === activeFileId;
+      {displayed.map((entry) => {
+        const file = entry.item;
+        const closing = entry.closing;
+        const opening = entry.opening;
+        const active = !closing && file.id === activeFileId;
         const dirty = dirtyFileIds.has(file.id);
         const errors = fileErrorCounts.get(file.id) ?? 0;
         const changes = isChangesTab(file);
@@ -276,27 +286,37 @@ export function SurfaceTabs({
         const terminal = isTerminalTab(file);
         const agent = isAgentTab(file) ? file.agent : null;
         const { label, iconName, tooltip } = surfaceTabPresentation(file);
-        return (
+        const tab = (
           <div
-            key={file.id}
             ref={(el) => {
+              if (closing) return;
+              setTabNode(file.id, el);
               sortable.setItemRef(file.id, el);
               if (el && file.id === activeFileId) activeTabRef.current = el;
             }}
-            className="reorder-item tab-motion group relative flex h-full w-56 min-w-28 shrink touch-none items-center"
+            className={
+              closing || opening
+                ? "tab-motion group relative flex h-full w-full min-w-0 overflow-hidden items-center"
+                : "reorder-item tab-motion group relative flex h-full w-56 min-w-28 shrink touch-none items-center"
+            }
+            data-tab-slot-id={closing ? undefined : file.id}
             onMouseDownCapture={(event) => {
+              if (closing) return;
               if (event.button === 1) event.preventDefault();
             }}
             onAuxClick={(event) => {
-              if (event.button !== 1) return;
+              if (closing || event.button !== 1) return;
               event.preventDefault();
               event.stopPropagation();
               onCloseFile(file.id);
             }}
             onPointerDown={(event) => {
+              if (closing) return;
               if (event.button !== 0) return;
               if (
-                (event.target as HTMLElement | null)?.closest("[data-no-drag]")
+                (event.target as HTMLElement | null)?.closest(
+                  "[data-no-drag]",
+                )
               ) {
                 return;
               }
@@ -304,6 +324,7 @@ export function SurfaceTabs({
               sortable.onItemPointerDown(file.id, event);
             }}
             onContextMenu={(event) => {
+              if (closing) return;
               event.preventDefault();
               event.stopPropagation();
               onSelectFile(file.id);
@@ -337,7 +358,10 @@ export function SurfaceTabs({
                   className="size-3.5 shrink-0"
                 />
               ) : changes || commit ? (
-                <GitCompare className="size-3.5 shrink-0" strokeWidth={1.75} />
+                <GitCompare
+                  className="size-3.5 shrink-0"
+                  strokeWidth={1.75}
+                />
               ) : (
                 <FileTypeIcon name={iconName} isDir={false} size={14} />
               )}
@@ -376,6 +400,20 @@ export function SurfaceTabs({
             >
               <X className="size-3" strokeWidth={1.75} />
             </button>
+          </div>
+        );
+        return closing || opening ? (
+          <TabWidthMotion
+            key={file.id}
+              phase={closing ? "closing" : "opening"}
+              width={entry.width}
+              onFinish={() => finishMotion(file.id)}
+          >
+            {tab}
+          </TabWidthMotion>
+        ) : (
+          <div key={file.id} className="contents">
+            {tab}
           </div>
         );
       })}

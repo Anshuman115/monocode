@@ -73,8 +73,10 @@
 
 :root {
   --motion-reorder-duration: 160ms;
+  --motion-tab-close-duration: 200ms;
   --motion-feedback-duration: 120ms;
   --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-tab-ease-out: cubic-bezier(0.3333, 0.6667, 0.6667, 1);
   --theme-hue: 240;
   --theme-saturation: 0%;
   --theme-dark-lightness: 9%;
@@ -188,10 +190,51 @@ html.has-native-glass:not(.theme-light) #root {
   visibility: hidden;
 }
 
+.tab-closing,
+.tab-opening {
+  overflow: hidden;
+  flex-basis: auto;
+  flex-grow: 0;
+  width: var(--tab-slot-width, 14rem);
+  min-width: var(--tab-slot-min-width, 0);
+  margin-right: 0;
+  box-sizing: border-box;
+  transition:
+    width var(--motion-tab-close-duration) var(--motion-tab-ease-out),
+    min-width var(--motion-tab-close-duration) var(--motion-tab-ease-out),
+    margin-right var(--motion-tab-close-duration) var(--motion-tab-ease-out);
+}
+
+.tab-opening {
+  --tab-slot-min-width: 7rem;
+  flex-shrink: 1;
+}
+
+.tab-closing {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.tab-closing[data-collapsed],
+.tab-opening[data-collapsed] {
+  width: 0;
+  min-width: 0;
+  margin-right: -0.125rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tab-motion,
   .tab-motion > button {
     transition: none;
+  }
+
+  .tab-closing,
+  .tab-opening {
+    transition: none;
+  }
+
+  .tab-closing {
+    display: none;
   }
 }
 

@@ -31,6 +31,8 @@ import {
   useAnimatedReorder,
   type ReorderExternalDrop,
 } from "../hooks/useAnimatedReorder";
+import { useTabCloseMotion } from "../hooks/useTabCloseMotion";
+import { TabWidthMotion } from "./ClosingTab";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -587,6 +589,11 @@ function TitleBarComponent({
   onSelectProject,
 }: Props) {
   const tabIds = tabs.map((tab) => tab.id);
+  const {
+    displayed,
+    setTabNode,
+    finishMotion,
+  } = useTabCloseMotion(tabs);
   const externalTabDrop = useMemo<ReorderExternalDrop<string> | undefined>(
     () =>
       onPlaceOnPane
@@ -867,46 +874,77 @@ function TitleBarComponent({
             data-title-tab-strip
             className="scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none pl-1.5 pr-2.5"
           >
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                className="relative flex h-full w-56 min-w-28 shrink cursor-default items-center"
-                data-title-tab-id={tab.id}
-                data-tauri-drag-region="false"
-              >
-                {paneToTabDrop?.targetTabId === tab.id ? (
-                  <span
-                    data-pane-tab-drop-hint
-                    className={`pointer-events-none absolute inset-y-1 z-50 w-0.5 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)] ${
-                      paneToTabDrop.position === "before" ? "left-0" : "right-0"
-                    }`}
+            {displayed.map((entry) => {
+              const tab = entry.item;
+              const shell = (
+                <div
+                  ref={(el) => {
+                    if (!entry.closing) setTabNode(tab.id, el);
+                  }}
+                  className={
+                    entry.closing || entry.opening
+                      ? "relative flex h-full w-full min-w-0 overflow-hidden items-center"
+                      : "relative flex h-full w-56 min-w-28 shrink cursor-default items-center"
+                  }
+                  data-title-tab-id={entry.closing ? undefined : tab.id}
+                  data-tab-slot-id={entry.closing ? undefined : tab.id}
+                  data-tauri-drag-region="false"
+                >
+                  {!entry.closing && paneToTabDrop?.targetTabId === tab.id ? (
+                    <span
+                      data-pane-tab-drop-hint
+                      className={`pointer-events-none absolute inset-y-1 z-50 w-0.5 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)] ${
+                        paneToTabDrop.position === "before"
+                          ? "left-0"
+                          : "right-0"
+                      }`}
+                    />
+                  ) : null}
+                  <TitleTabItem
+                    tab={tab}
+                    active={!entry.closing && tab.id === activeId}
+                    closable={
+                      !entry.closing && titleTabClosable(tab, tabs.length)
+                    }
+                    canDrag={!entry.closing && canDrag}
+                    sortable={sortable}
+                    onSelect={onSelect}
+                    onClose={onClose}
+                    onContextMenu={(tabId, event) =>
+                      setTabMenu({
+                        tabId,
+                        x: event.clientX,
+                        y: event.clientY,
+                      })
+                    }
+                    itemRef={
+                      !entry.closing && tab.id === activeId
+                        ? (el) => {
+                            activeTabRef.current = el;
+                          }
+                        : undefined
+                    }
                   />
-                ) : null}
-                <TitleTabItem
-                  tab={tab}
-                  active={tab.id === activeId}
-                  closable={titleTabClosable(tab, tabs.length)}
-                  canDrag={canDrag}
-                  sortable={sortable}
-                  onSelect={onSelect}
-                  onClose={onClose}
-                  onContextMenu={(tabId, event) =>
-                    setTabMenu({
-                      tabId,
-                      x: event.clientX,
-                      y: event.clientY,
-                    })
-                  }
-                  itemRef={
-                    tab.id === activeId
-                      ? (el) => {
-                          activeTabRef.current = el;
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            ))}
+                </div>
+              );
+              if (entry.closing || entry.opening) {
+                return (
+                  <TabWidthMotion
+                    key={tab.id}
+                    phase={entry.closing ? "closing" : "opening"}
+                    width={entry.width}
+                    onFinish={() => finishMotion(tab.id)}
+                  >
+                    {shell}
+                  </TabWidthMotion>
+                );
+              }
+              return (
+                <div key={tab.id} className="contents">
+                  {shell}
+                </div>
+              );
+            })}
           </div>
         </div>
 
