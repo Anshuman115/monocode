@@ -92,12 +92,16 @@ describe("persisting a subagent's trail", () => {
 });
 
 describe("sanitizeSessionForPersist", () => {
-  it("keeps an unsent user turn marked as a draft", () => {
+  it("keeps an unsent user turn appended to a started thread", () => {
     const session = newSession("codex", "/repo");
     session.blocks = [
+      { id: "sent", role: "user", text: "Start here" },
+      { id: "reply", role: "assistant", text: "Done" },
       { id: "draft", role: "user", text: "Explore this", draft: true },
     ];
     expect(sanitizeSessionForPersist(session).blocks).toEqual([
+      { id: "sent", role: "user", text: "Start here" },
+      { id: "reply", role: "assistant", text: "Done" },
       { id: "draft", role: "user", text: "Explore this", draft: true },
     ]);
   });

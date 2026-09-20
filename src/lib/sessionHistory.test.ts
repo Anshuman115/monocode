@@ -142,17 +142,23 @@ describe("historyWithLiveSessions", () => {
     expect(rows[0]?.repo).toBe("project-a");
   });
 
-  it("marks saved drafts and clears stale draft status when they are sent", () => {
+  it("marks drafts appended to started threads and clears stale draft status when sent", () => {
     const session = newSession("cursor", "/tmp/project-a");
     session.id = "draft-session";
     session.blocks = [
+      { id: "sent", role: "user", text: "Start here" },
+      { id: "reply", role: "assistant", text: "Done" },
       { id: "draft", role: "user", text: "Explore this", draft: true },
     ];
 
     const draftRows = historyWithLiveSessions([], [session], "/tmp/project-a");
     expect(draftRows[0]?.draft).toBe(true);
 
-    session.blocks = [{ id: "sent", role: "user", text: "Explore this" }];
+    session.blocks = [
+      { id: "sent", role: "user", text: "Start here" },
+      { id: "reply", role: "assistant", text: "Done" },
+      { id: "follow-up", role: "user", text: "Explore this" },
+    ];
     session.busy = true;
     const sentRows = historyWithLiveSessions(
       [{ ...draftRows[0], draft: true }],

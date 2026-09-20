@@ -106,7 +106,7 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).not.toContain("text-ellipsis");
   });
 
-  it("renders an unsent turn as a draft bubble with a send control", () => {
+  it("renders an unsent turn with send and remove controls", () => {
     const markup = render([
       { id: "draft", role: "user", text: "Explore this", draft: true },
     ]);
@@ -114,6 +114,7 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).toContain('data-draft="true"');
     expect(markup).toContain("border-dashed");
     expect(markup).toContain('aria-label="Send draft"');
+    expect(markup).toContain('aria-label="Remove draft"');
     expect(markup).toContain(">Draft</span>");
   });
 

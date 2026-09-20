@@ -319,7 +319,9 @@ import {
   sessionNeedsInput,
   newDefaultSession,
   newSession,
+  removeSessionDraft,
   sessionDisplayTitle,
+  sessionDraftBlock,
   sessionWorkCwd,
   titleFromPrompt,
   type Attachment,
@@ -344,6 +346,7 @@ import {
 import { dropContextWindow } from "./lib/contextUsage";
 import {
   deleteSession,
+  discardDraftSessionRecord,
   getSession,
   listLinkedSessions,
   listSessionsByProject,
@@ -5178,7 +5181,7 @@ export default function App({
       if (
         !current ||
         current.busy ||
-        current.blocks.length > 0 ||
+        sessionDraftBlock(current) ||
         current.inboxAsk ||
         current.worktreeRemoved ||
         (!text.trim() && attachments.length === 0)
@@ -5195,11 +5198,12 @@ export default function App({
         : current.title;
       setSessions((prev) =>
         prev.map((session) =>
-          session.id === sessionId && session.blocks.length === 0
+          session.id === sessionId && !sessionDraftBlock(session)
             ? {
                 ...session,
                 title,
                 blocks: [
+                  ...session.blocks,
                   {
                     id: crypto.randomUUID(),
                     role: "user",
@@ -5215,6 +5219,41 @@ export default function App({
       return true;
     },
     [],
+  );
+
+  const onRemoveDraft = useCallback(
+    (sessionId: string, draftBlockId: string) => {
+      const current = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (!current) return false;
+      const withoutDraft = removeSessionDraft(current, draftBlockId);
+      if (!withoutDraft) return false;
+
+      if (!shouldPersistSession(withoutDraft)) {
+        pendingPersist.current.delete(sessionId);
+        lastPersisted.current.delete(sessionId);
+        lastPersistedUserBlock.current.delete(sessionId);
+        invalidateLoadedSession(sessionId);
+        setHistory((history) =>
+          history.filter((session) => session.id !== sessionId),
+        );
+        setStoredLinkedSessions((history) =>
+          history.filter((session) => session.id !== sessionId),
+        );
+        void discardDraftSessionRecord(sessionId).catch(() => undefined);
+      }
+
+      setSessions((sessions) =>
+        sessions.map((session) =>
+          session.id === sessionId
+            ? (removeSessionDraft(session, draftBlockId) ?? session)
+            : session,
+        ),
+      );
+      return true;
+    },
+    [invalidateLoadedSession],
   );
 
   const onSubmit = useCallback(
@@ -8342,6 +8381,7 @@ export default function App({
     onModelSettingsChange,
     onRuntimeModeChange,
     onSaveDraft,
+    onRemoveDraft,
     onSubmit,
     onStop,
     onCompactContext,

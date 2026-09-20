@@ -103,6 +103,39 @@ describe("session persistence concurrency", () => {
     expect(commands).toEqual(["session_upsert", "session_delete"]);
   });
 
+  it("discards a draft-only record before reusing its open session id", async () => {
+    const firstWrite = deferred<unknown>();
+    const commands: string[] = [];
+    mocks.invoke.mockImplementation((command: string) => {
+      commands.push(command);
+      if (commands.length === 1) return firstWrite.promise;
+      return Promise.resolve({
+        id: "s1",
+        cwd: "/tmp/project",
+        harness: "cursor",
+        model: "",
+        runtimeMode: "supervised",
+        title: "",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const { discardDraftSessionRecord, upsertSession } = await loadStore();
+
+    const draftWrite = upsertSession(session("s1"));
+    await vi.waitFor(() => expect(commands).toEqual(["session_upsert"]));
+    const discarding = discardDraftSessionRecord("s1");
+    const laterTurn = upsertSession({ ...session("s1"), title: "later" });
+
+    firstWrite.resolve(undefined);
+    await Promise.all([draftWrite, discarding, laterTurn]);
+    expect(commands).toEqual([
+      "session_upsert",
+      "session_delete",
+      "session_upsert",
+    ]);
+  });
+
   it("drains queued saves before detaching a removed worktree", async () => {
     const firstWrite = deferred<unknown>();
     mocks.invoke

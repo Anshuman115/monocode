@@ -94,6 +94,7 @@ type Shared = {
     text: string,
     attachments: Attachment[],
   ) => boolean | void;
+  onRemoveDraft: (sessionId: string, draftBlockId: string) => boolean | void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onPlaceSessionInFolder: (
@@ -198,6 +199,7 @@ function PaneTreeComponent({
   onModelSettingsChange,
   onRuntimeModeChange,
   onSaveDraft,
+  onRemoveDraft,
   onSubmit,
   onStop,
   onCompactContext,
@@ -443,6 +445,7 @@ function PaneTreeComponent({
                 onModelSettingsChange={onModelSettingsChange}
                 onRuntimeModeChange={onRuntimeModeChange}
                 onSaveDraft={onSaveDraft}
+                onRemoveDraft={onRemoveDraft}
                 onSubmit={onSubmit}
                 onStop={onStop}
                 onCompactContext={onCompactContext}

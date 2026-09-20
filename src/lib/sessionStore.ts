@@ -361,6 +361,15 @@ export async function deleteSession(sessionId: string): Promise<void> {
   }
 }
 
+/** Delete a draft-only record while allowing its still-open blank session id to be saved later. */
+export async function discardDraftSessionRecord(
+  sessionId: string,
+): Promise<void> {
+  await enqueueSessionWrite(sessionId, () =>
+    invoke<void>("session_delete", { sessionId }),
+  );
+}
+
 export async function setSessionArchived(
   sessionId: string,
   archived: boolean,

@@ -109,6 +109,7 @@ type Props = {
     text: string,
     attachments: Attachment[],
   ) => boolean | void;
+  onRemoveDraft: (sessionId: string, draftBlockId: string) => boolean | void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onPlaceSessionInFolder: (
@@ -186,6 +187,7 @@ export const SessionPane = memo(function SessionPane({
   onModelSettingsChange,
   onRuntimeModeChange,
   onSaveDraft,
+  onRemoveDraft,
   onSubmit,
   onStop,
   onCompactContext,
@@ -436,7 +438,8 @@ export const SessionPane = memo(function SessionPane({
       }
       onRuntimeModeChange={(mode) => onRuntimeModeChange(session.id, mode)}
       canSaveDraft={
-        isEmpty &&
+        !session.busy &&
+        !draftBlock &&
         !session.inboxAsk &&
         !session.inboxCard &&
         !session.noteCard &&
@@ -600,6 +603,11 @@ export const SessionPane = memo(function SessionPane({
                           block.attachments ?? [],
                           { draftBlockId: block.id },
                         )
+                    : undefined
+                }
+                onRemoveDraft={
+                  draftBlock
+                    ? (block) => onRemoveDraft(session.id, block.id)
                     : undefined
                 }
                 onSaveSelectionNote={

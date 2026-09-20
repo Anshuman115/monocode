@@ -11,6 +11,7 @@ import {
   PenLine,
   Search,
   Terminal,
+  Trash2,
   Wrench,
   X,
 } from "../chrome/icons";
@@ -133,6 +134,7 @@ type Props = {
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
+  onRemoveDraft?: (block: Block) => boolean | void;
   onSaveSelectionNote?: (text: string) => void | Promise<void>;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
@@ -164,6 +166,7 @@ function AgentTranscriptComponent({
   onAddToChat,
   onSaveNote,
   onSendDraft,
+  onRemoveDraft,
   onSaveSelectionNote,
   onOpenFile,
   onOpenDiff,
@@ -540,6 +543,7 @@ function AgentTranscriptComponent({
                 onApproval={onApproval}
                 onSaveNote={onSaveNote}
                 onSendDraft={onSendDraft}
+                onRemoveDraft={onRemoveDraft}
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}
                 onOpenPlan={onOpenPlan}
@@ -1062,6 +1066,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onApproval,
   onSaveNote,
   onSendDraft,
+  onRemoveDraft,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
@@ -1080,6 +1085,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
+  onRemoveDraft?: (block: Block) => boolean | void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
@@ -1098,6 +1104,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         cwd={cwd}
         onSaveNote={onSaveNote}
         onSendDraft={onSendDraft}
+        onRemoveDraft={onRemoveDraft}
       />
     );
   }
@@ -1212,6 +1219,7 @@ function UserMessageBlock({
   cwd,
   onSaveNote,
   onSendDraft,
+  onRemoveDraft,
 }: {
   block: Block;
   layout: TranscriptLayout;
@@ -1219,6 +1227,7 @@ function UserMessageBlock({
   cwd?: string;
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
+  onRemoveDraft?: (block: Block) => boolean | void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -1365,16 +1374,28 @@ function UserMessageBlock({
                 <CircleDashed className="size-3.5" strokeWidth={1.75} />
                 Draft
               </span>
-              <button
-                type="button"
-                title="Send draft"
-                aria-label="Send draft"
-                onClick={() => onSendDraft?.(block)}
-                className="primary-action flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-transform duration-150 active:scale-[0.97]"
-              >
-                Send
-                <ArrowUp className="size-3.5" strokeWidth={2.25} />
-              </button>
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  title="Remove draft"
+                  aria-label="Remove draft"
+                  onClick={() => onRemoveDraft?.(block)}
+                  className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-content/55 hover:bg-content/10 hover:text-content"
+                >
+                  <Trash2 className="size-3.5" strokeWidth={1.75} />
+                  Remove
+                </button>
+                <button
+                  type="button"
+                  title="Send draft"
+                  aria-label="Send draft"
+                  onClick={() => onSendDraft?.(block)}
+                  className="primary-action flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-transform duration-150 active:scale-[0.97]"
+                >
+                  Send
+                  <ArrowUp className="size-3.5" strokeWidth={2.25} />
+                </button>
+              </span>
             </div>
           ) : null}
         </div>
