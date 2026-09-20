@@ -57,6 +57,7 @@ type Props = {
   sessions: Session[];
   focusToken?: number;
   besideRail?: boolean;
+  compactRail?: boolean;
   onClose: () => void;
   onToggleSidebar?: () => void;
   onOpenFile: OpenFileFn;
@@ -72,6 +73,7 @@ export function SearchView({
   sessions,
   focusToken = 0,
   besideRail = false,
+  compactRail = false,
   onClose,
   onToggleSidebar,
   onOpenFile,
@@ -328,6 +330,7 @@ export function SearchView({
         className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
+        {IS_MAC && compactRail ? <div className="w-4 shrink-0" /> : null}
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         {besideRail ? null : (
           <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />

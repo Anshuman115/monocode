@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   COMPOSER_RUNNER_DEFAULT,
+  COLLAPSED_PROJECT_RAIL_MODE_DEFAULT,
   searchSettings,
   SETTINGS_INDEX,
   settingsSectionsByGroup,
@@ -13,6 +14,7 @@ import {
   LIVE_AGENTS_ENABLED_DEFAULT,
   TAB_ANIMATIONS_ENABLED_DEFAULT,
   loadComposerRunner,
+  loadCollapsedProjectRailMode,
   loadModelControls,
   loadDiffViewer,
   loadFileTabMode,
@@ -23,6 +25,7 @@ import {
   loadTabAnimationsEnabled,
   NOTES_ENABLED_DEFAULT,
   saveComposerRunner,
+  saveCollapsedProjectRailMode,
   saveModelControls,
   saveDiffViewer,
   saveFileTabMode,
@@ -44,6 +47,7 @@ const DIFF_VIEWER_KEY = "monocode.diffViewer";
 const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
 const TAB_ANIMATIONS_KEY = "monocode.tabAnimationsEnabled";
+const COLLAPSED_PROJECT_RAIL_MODE_KEY = "monocode.collapsedProjectRailMode";
 
 describe("follow-up behavior setting", () => {
   beforeEach(mockLocalStorage);
@@ -316,6 +320,29 @@ describe("tab animations setting", () => {
     expect(loadTabAnimationsEnabled()).toBe(false);
     saveTabAnimationsEnabled(true);
     expect(loadTabAnimationsEnabled()).toBe(true);
+  });
+});
+
+describe("collapsed project rail setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(COLLAPSED_PROJECT_RAIL_MODE_KEY);
+  });
+
+  it("defaults to the previously shipped hidden rail", () => {
+    expect(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT).toBe("hidden");
+    expect(loadCollapsedProjectRailMode()).toBe("hidden");
+  });
+
+  it("persists the compact mode and ignores unknown values", () => {
+    saveCollapsedProjectRailMode("compact");
+    expect(localStorage.getItem(COLLAPSED_PROJECT_RAIL_MODE_KEY)).toBe(
+      "compact",
+    );
+    expect(loadCollapsedProjectRailMode()).toBe("compact");
+
+    localStorage.setItem(COLLAPSED_PROJECT_RAIL_MODE_KEY, "floating");
+    expect(loadCollapsedProjectRailMode()).toBe("hidden");
   });
 });
 

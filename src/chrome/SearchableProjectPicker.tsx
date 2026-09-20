@@ -38,6 +38,7 @@ type Props = {
   className?: string;
   buttonClassName?: string;
   appearance?: "ghost" | "filled";
+  compact?: boolean;
   onSelectProject: (path: string) => void;
   onOpenProject?: () => void;
 };
@@ -51,6 +52,7 @@ export function SearchableProjectPicker({
   className,
   buttonClassName,
   appearance = "ghost",
+  compact = false,
   onSelectProject,
   onOpenProject,
 }: Props) {
@@ -170,7 +172,9 @@ export function SearchableProjectPicker({
           event.preventDefault();
           openPicker();
         }}
-        className={`flex h-6.5 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] leading-none ${
+        className={`flex min-w-0 items-center rounded-md text-[12px] leading-none ${
+          compact ? "size-8 justify-center p-0" : "h-6.5 gap-1.5 px-2"
+        } ${
           open
             ? "bg-selection text-content"
             : appearance === "filled"
@@ -181,27 +185,31 @@ export function SearchableProjectPicker({
         {!inProject ? null : logoPath ? (
           <ProjectLogoIcon
             path={logoPath}
-            className="size-3.5 shrink-0 rounded-sm"
-            imageClassName="size-3.5"
+            className={`${compact ? "size-4" : "size-3.5"} shrink-0 rounded-sm`}
+            imageClassName={compact ? "size-4" : "size-3.5"}
           />
         ) : (
           <ProjectMascot
             project={seed}
             color={color}
             name={resolveTabGroupMascot(key, groupMascots)}
-            className="size-3 shrink-0"
+            className={`${compact ? "size-4" : "size-3"} shrink-0`}
             active={busy}
           />
         )}
-        <span className="min-w-0 truncate font-medium text-content/90">
-          {label}
-        </span>
-        <ChevronDown
-          className={`size-3 shrink-0 text-content/45 transition-transform ${
-            open ? "rotate-180" : ""
-          }`}
-          strokeWidth={1.75}
-        />
+        {compact ? null : (
+          <>
+            <span className="min-w-0 truncate font-medium text-content/90">
+              {label}
+            </span>
+            <ChevronDown
+              className={`size-3 shrink-0 text-content/45 transition-transform ${
+                open ? "rotate-180" : ""
+              }`}
+              strokeWidth={1.75}
+            />
+          </>
+        )}
       </button>
       {open ? (
         <Popover

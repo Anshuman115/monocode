@@ -288,6 +288,56 @@ describe("settings pages", () => {
     expect(localStorage.getItem("monocode.tabAnimationsEnabled")).toBe("1");
   });
 
+  it("lets users opt into the compact project rail", async () => {
+    await render("appearance");
+    let control = container.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Collapsed project rail"]',
+    )!;
+    let [iconRail, hidden] = Array.from(
+      control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    );
+
+    expect(iconRail?.getAttribute("aria-checked")).toBe("false");
+    expect(hidden?.getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => iconRail?.click());
+
+    expect(iconRail?.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("monocode.collapsedProjectRailMode")).toBe(
+      "compact",
+    );
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render("appearance");
+
+    control = container.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Collapsed project rail"]',
+    )!;
+    [iconRail, hidden] = Array.from(
+      control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    );
+    expect(iconRail?.getAttribute("aria-checked")).toBe("true");
+    expect(hidden?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("reports collapsed project rail changes to the app shell", async () => {
+    const onCollapsedProjectRailModeChange = vi.fn();
+    await render("appearance", {
+      collapsedProjectRailMode: "compact",
+      onCollapsedProjectRailModeChange,
+    });
+    const control = container.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Collapsed project rail"]',
+    )!;
+    const hidden =
+      control.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1];
+
+    await act(async () => hidden?.click());
+
+    expect(onCollapsedProjectRailModeChange).toHaveBeenCalledWith("hidden");
+  });
+
   // The search index is hand-maintained; this is what keeps it honest.
   it.each(
     [...new Set(SETTINGS_INDEX.map((entry) => entry.section))].map(

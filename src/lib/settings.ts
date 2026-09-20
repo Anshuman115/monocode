@@ -45,8 +45,9 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     group: "app",
     label: "Appearance",
     description:
-      "Theme, tint, translucency, and the image behind your conversations.",
-    keywords: "theme dark light color accent glass blur zoom scale wallpaper",
+      "Theme, tint, translucency, workspace layout, and conversation backgrounds.",
+    keywords:
+      "theme dark light color accent glass blur zoom scale wallpaper rail sidebar",
   },
   {
     id: "keybindings",
@@ -239,6 +240,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section: "appearance",
     label: "Interface scale",
     keywords: "zoom font size bigger smaller ui",
+  },
+  {
+    id: "collapsed-project-rail",
+    section: "appearance",
+    label: "Collapsed project rail",
+    keywords: "sidebar compact icons hidden navigation layout",
   },
   {
     id: "chat-background",
@@ -459,6 +466,8 @@ const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 
 const TAB_ANIMATIONS_ENABLED_KEY = "monocode.tabAnimationsEnabled";
 
+const COLLAPSED_PROJECT_RAIL_MODE_KEY = "monocode.collapsedProjectRailMode";
+
 export type FollowUpBehavior = "steer" | "queue";
 
 export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "steer";
@@ -522,6 +531,53 @@ export function saveTabAnimationsEnabled(value: boolean) {
   } catch {
     // private mode / quota
   }
+}
+
+export type CollapsedProjectRailMode = "compact" | "hidden";
+
+export const COLLAPSED_PROJECT_RAIL_MODE_DEFAULT: CollapsedProjectRailMode =
+  "hidden";
+
+export const COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT =
+  "monocode:collapsed-project-rail-mode-change";
+
+export function loadCollapsedProjectRailMode(): CollapsedProjectRailMode {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_PROJECT_RAIL_MODE_KEY);
+    return raw === "compact" || raw === "hidden"
+      ? raw
+      : COLLAPSED_PROJECT_RAIL_MODE_DEFAULT;
+  } catch {
+    return COLLAPSED_PROJECT_RAIL_MODE_DEFAULT;
+  }
+}
+
+export function saveCollapsedProjectRailMode(value: CollapsedProjectRailMode) {
+  try {
+    localStorage.setItem(COLLAPSED_PROJECT_RAIL_MODE_KEY, value);
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<CollapsedProjectRailMode>(
+      COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT,
+      { detail: value },
+    ),
+  );
+}
+
+export function subscribeCollapsedProjectRailMode(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(
+    COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT,
+    onStoreChange,
+  );
+  return () =>
+    window.removeEventListener(
+      COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT,
+      onStoreChange,
+    );
 }
 
 export type ModelControls = "menu" | "beside";

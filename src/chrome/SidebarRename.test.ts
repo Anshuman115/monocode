@@ -6,10 +6,11 @@ import { formatSessionTitle } from "../lib/session";
 import { formatReminderTime } from "../lib/sessionReminders";
 import { Sidebar } from "./Sidebar";
 import { loadSessionFolders } from "../lib/sessionFolders";
+import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 
 // Keep native services out of these menu/input interaction tests.
 vi.mock("../hooks/useProjectDiffStats", () => ({
-  useProjectDiffStats: () => null,
+  useProjectDiffStats: vi.fn(() => null),
 }));
 vi.mock("../hooks/useGitFileStatuses", () => ({
   useGitFileStatuses: () => ({ files: new Map(), dirs: new Map() }),
@@ -75,6 +76,7 @@ function startRename() {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.mocked(useProjectDiffStats).mockReturnValue(null);
   const stored = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => stored.get(key) ?? null,
@@ -144,33 +146,51 @@ describe("sidebar session multiselection", () => {
       }));
       props.onPinSession = vi.fn();
       act(() => render());
-      act(() => container.querySelector('[data-session-card="session-3"]')!
-        .dispatchEvent(new MouseEvent("click", {
-          bubbles: true,
-          [modifier]: true,
-        })));
-      act(() => container.querySelector('[data-session-card="session-2"]')!
-        .dispatchEvent(new MouseEvent("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-        })));
+      act(() =>
+        container
+          .querySelector('[data-session-card="session-3"]')!
+          .dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              [modifier]: true,
+            }),
+          ),
+      );
+      act(() =>
+        container
+          .querySelector('[data-session-card="session-2"]')!
+          .dispatchEvent(
+            new MouseEvent("contextmenu", {
+              bubbles: true,
+              cancelable: true,
+            }),
+          ),
+      );
       const pin = Array.from(
         document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
       ).find((item) => item.textContent === "Pin")!;
       act(() => pin.click());
       expect(props.onPinSession).toHaveBeenCalledWith("session-2", true);
-      expect(container.querySelectorAll('[data-session-selected="true"]'))
-        .toHaveLength(0);
-
-      act(() => container.querySelector('[data-session-card="session-4"]')!
-        .dispatchEvent(new MouseEvent("click", {
-          bubbles: true,
-          shiftKey: true,
-        })));
-      expect(Array.from(
+      expect(
         container.querySelectorAll('[data-session-selected="true"]'),
-        (el) => el.getAttribute("data-session-card"),
-      )).toEqual(["session-1", "session-2", "session-3", "session-4"]);
+      ).toHaveLength(0);
+
+      act(() =>
+        container
+          .querySelector('[data-session-card="session-4"]')!
+          .dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              shiftKey: true,
+            }),
+          ),
+      );
+      expect(
+        Array.from(
+          container.querySelectorAll('[data-session-selected="true"]'),
+          (el) => el.getAttribute("data-session-card"),
+        ),
+      ).toEqual(["session-1", "session-2", "session-3", "session-4"]);
       expect(props.onSelectSession).not.toHaveBeenCalled();
     },
   );
@@ -183,9 +203,11 @@ describe("sidebar session multiselection", () => {
     }));
     props.activeSessionId = "session-80";
     act(() => render());
-    act(() => container.querySelector<HTMLElement>(
-      '[data-session-card="session-40"]',
-    )!.click());
+    act(() =>
+      container
+        .querySelector<HTMLElement>('[data-session-card="session-40"]')!
+        .click(),
+    );
 
     // Switching panes does not discard the last plain-click anchor.
     props.activeSessionId = "session-1";
@@ -195,18 +217,25 @@ describe("sidebar session multiselection", () => {
     )!;
     // All sessions still match, but the list returns to its first page.
     typeTitle(search, "Original conversation");
-    expect(container.querySelector('[data-session-card="session-40"]')).toBeNull();
+    expect(
+      container.querySelector('[data-session-card="session-40"]'),
+    ).toBeNull();
     expect(container.querySelectorAll("[data-session-card]")).toHaveLength(32);
 
-    act(() => container.querySelector('[data-session-card="session-3"]')!
-      .dispatchEvent(new MouseEvent("click", {
-        bubbles: true,
-        shiftKey: true,
-      })));
-    expect(Array.from(
-      container.querySelectorAll('[data-session-selected="true"]'),
-      (el) => el.getAttribute("data-session-card"),
-    )).toEqual(["session-1", "session-2", "session-3"]);
+    act(() =>
+      container.querySelector('[data-session-card="session-3"]')!.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          shiftKey: true,
+        }),
+      ),
+    );
+    expect(
+      Array.from(
+        container.querySelectorAll('[data-session-selected="true"]'),
+        (el) => el.getAttribute("data-session-card"),
+      ),
+    ).toEqual(["session-1", "session-2", "session-3"]);
     expect(props.onSelectSession).toHaveBeenCalledTimes(1);
     expect(props.onSelectSession).toHaveBeenCalledWith("session-40");
   });
@@ -224,22 +253,34 @@ describe("sidebar session multiselection", () => {
         '[data-session-card="session-3"]',
       )!;
       for (let click = 0; click < 2; click++) {
-        act(() => thirdCard.dispatchEvent(new MouseEvent("click", {
-          bubbles: true,
-          [modifier]: true,
-        })));
-        expect(container.querySelectorAll('[data-session-selected="true"]'))
-          .toHaveLength(click === 0 ? 1 : 0);
+        act(() =>
+          thirdCard.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              [modifier]: true,
+            }),
+          ),
+        );
+        expect(
+          container.querySelectorAll('[data-session-selected="true"]'),
+        ).toHaveLength(click === 0 ? 1 : 0);
       }
-      act(() => container.querySelector('[data-session-card="session-4"]')!
-        .dispatchEvent(new MouseEvent("click", {
-          bubbles: true,
-          shiftKey: true,
-        })));
-      expect(Array.from(
-        container.querySelectorAll('[data-session-selected="true"]'),
-        (el) => el.getAttribute("data-session-card"),
-      )).toEqual(["session-1", "session-2", "session-3", "session-4"]);
+      act(() =>
+        container
+          .querySelector('[data-session-card="session-4"]')!
+          .dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              shiftKey: true,
+            }),
+          ),
+      );
+      expect(
+        Array.from(
+          container.querySelectorAll('[data-session-selected="true"]'),
+          (el) => el.getAttribute("data-session-card"),
+        ),
+      ).toEqual(["session-1", "session-2", "session-3", "session-4"]);
       expect(props.onSelectSession).not.toHaveBeenCalled();
     },
   );
@@ -252,27 +293,35 @@ describe("sidebar session multiselection", () => {
     }));
     props.onDeleteSession = vi.fn();
     act(() => render());
-    const firstTitle = card().querySelector<HTMLElement>("[data-session-select]")!;
+    const firstTitle = card().querySelector<HTMLElement>(
+      "[data-session-select]",
+    )!;
     const secondTitle = container.querySelector<HTMLElement>(
       '[data-session-select="session-2"]',
     )!;
     act(() => firstTitle.focus());
     act(() => {
-      secondTitle.dispatchEvent(new MouseEvent("mousedown", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-        ctrlKey: true,
-      }));
-      secondTitle.dispatchEvent(new MouseEvent("click", {
-        bubbles: true,
-        ctrlKey: true,
-      }));
+      secondTitle.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          ctrlKey: true,
+        }),
+      );
+      secondTitle.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          ctrlKey: true,
+        }),
+      );
     });
     expect(card().getAttribute("data-session-selected")).toBeNull();
-    expect(secondTitle.closest("[data-session-card]")!.getAttribute(
-      "data-session-selected",
-    )).toBe("true");
+    expect(
+      secondTitle
+        .closest("[data-session-card]")!
+        .getAttribute("data-session-selected"),
+    ).toBe("true");
     expect(props.onSelectSession).not.toHaveBeenCalled();
     pressKey(document.activeElement as HTMLElement, "Delete");
     expect(props.onDeleteSession).not.toHaveBeenCalled();
@@ -296,10 +345,14 @@ describe("sidebar session multiselection", () => {
     act(() => title.dispatchEvent(mouseDown));
     expect(mouseDown.defaultPrevented).toBe(true);
     expect(document.activeElement).not.toBe(title);
-    act(() => title.dispatchEvent(new MouseEvent("click", {
-      bubbles: true,
-      shiftKey: true,
-    })));
+    act(() =>
+      title.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          shiftKey: true,
+        }),
+      ),
+    );
     expect(card().getAttribute("data-session-selected")).toBe("true");
     expect(props.onSelectSession).not.toHaveBeenCalled();
     act(() => title.focus());
@@ -1079,34 +1132,256 @@ describe("sidebar session reminders", () => {
 });
 
 describe("collapsed rail Inbox actions", () => {
-  it.each(["mouse", "ContextMenu", "Shift+F10"])("opens the shared Inbox menu via %s", async (input) => {
+  it("restores the hidden rail layout when compact mode is disabled", async () => {
+    props.projectRailOpen = false;
+    props.compactProjectRail = false;
+    props.onSelectProject = vi.fn();
+    props.onOpenProject = vi.fn();
+    props.onNew = vi.fn();
+    props.onSearch = vi.fn();
+    props.onOpenInbox = vi.fn();
+    props.onOpenNotes = vi.fn();
+    props.onOpenAutomations = vi.fn();
+    props.onOpenSettings = vi.fn();
+    props.onToggleProjectRail = vi.fn();
+    await act(async () => render());
+
+    const sidebar = container.querySelector("aside")!;
+    expect(container.querySelector("[data-compact-project-rail]")).toBeNull();
+    expect(
+      sidebar.querySelector('button[aria-label^="Toggle Projects"]'),
+    ).not.toBeNull();
+    expect(
+      sidebar.querySelector('button[aria-label^="Search"]'),
+    ).not.toBeNull();
+    expect(
+      sidebar.querySelector('button[aria-label^="Settings"]'),
+    ).not.toBeNull();
+  });
+
+  it("yields its local header to the full-width title bar", async () => {
+    props.projectRailOpen = false;
+    props.titleBarAbove = true;
+    props.onSelectProject = vi.fn();
+    props.onOpenProject = vi.fn();
+    props.onGoBack = vi.fn();
+    await act(async () => render());
+
+    const rail = container.querySelector<HTMLElement>(
+      "[data-compact-project-rail]",
+    )!;
+    expect(
+      rail.querySelector("[data-compact-rail-divider]")?.className,
+    ).toContain("top-0");
+    expect(
+      rail.querySelector("[data-compact-rail-divider]")?.className,
+    ).not.toContain("top-10");
+    expect(container.textContent).not.toContain("Development");
+    expect(container.querySelector('button[aria-label^="Back"]')).toBeNull();
+  });
+
+  it("keeps project shortcuts in a compact vertical rail", async () => {
+    props.projectRailOpen = false;
+    props.onSelectProject = vi.fn();
+    props.onOpenProject = vi.fn();
+    props.onNew = vi.fn();
+    props.onSearch = vi.fn();
+    props.onOpenInbox = vi.fn();
+    props.onOpenNotes = vi.fn();
+    props.onOpenAutomations = vi.fn();
+    props.onOpenSettings = vi.fn();
+    props.onToggleProjectRail = vi.fn();
+    await act(async () => render());
+
+    const rail = container.querySelector<HTMLElement>(
+      "[data-compact-project-rail]",
+    )!;
+    expect(rail).not.toBeNull();
+    expect(rail.className).toContain("w-12");
+    expect(rail.className).not.toContain("border-r");
+    expect(
+      rail.querySelector("[data-compact-rail-divider]")?.className,
+    ).toContain("top-10");
+    expect(
+      rail.querySelectorAll('[class*="border-b"], [class*="border-t"]'),
+    ).toHaveLength(1);
+    expect(rail.firstElementChild?.className).toContain("border-b");
+    expect(
+      rail.querySelector("[data-compact-rail-actions]")?.className,
+    ).toContain("gap-1.5");
+    expect(
+      Array.from(rail.querySelectorAll("button"), (button) =>
+        button.getAttribute("aria-label")?.replace(/ \(.+\)$/, ""),
+      ),
+    ).toEqual([
+      "Expand projects",
+      "Switch project, current project project",
+      "Sessions",
+      "Explorer",
+      "Changes",
+      "Search",
+      "Inbox",
+      "Notes",
+      "Automations",
+      "Settings",
+    ]);
+    const workspaceTabs = rail.querySelector<HTMLElement>(
+      '[role="tablist"][aria-label="Workspace"]',
+    )!;
+    expect(workspaceTabs).not.toBeNull();
+    expect(
+      Array.from(workspaceTabs.querySelectorAll('[role="tab"]'), (button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Sessions", "Explorer", "Changes"]);
+    const sessionsTab = workspaceTabs.querySelector<HTMLButtonElement>(
+      '[aria-label="Sessions"]',
+    )!;
+    expect(sessionsTab.getAttribute("aria-selected")).toBe("true");
+    expect(sessionsTab.querySelector("span")).toBeNull();
+    expect(
+      container.querySelectorAll('[role="tablist"][aria-label="Workspace"]'),
+    ).toHaveLength(1);
+    act(() =>
+      workspaceTabs
+        .querySelector<HTMLButtonElement>('[aria-label="Explorer"]')!
+        .click(),
+    );
+    expect(props.onTabChange).toHaveBeenCalledWith("files");
+    expect(
+      container.querySelector('button[aria-label="Inbox"]')?.closest("nav"),
+    ).toBe(rail);
+    const projectPicker = rail.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Switch project"]',
+    )!;
+    expect(projectPicker.className).toContain("size-8");
+    expect(
+      Array.from(rail.querySelectorAll("button")).every((button) =>
+        button.className.includes("size-8"),
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(rail.querySelectorAll("button")).every(
+        (button) => !button.className.includes("transition"),
+      ),
+    ).toBe(true);
+    expect(projectPicker.querySelector("svg, img")).not.toBeNull();
+    expect(projectPicker.querySelector("span")).toBeNull();
+    expect(
+      container.querySelectorAll('button[aria-label^="Switch project"]'),
+    ).toHaveLength(1);
+
+    act(() => projectPicker.click());
+    expect(projectSearchInput()).not.toBeNull();
+
+    act(() =>
+      rail
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand projects"]',
+        )!
+        .click(),
+    );
+    expect(props.onToggleProjectRail).toHaveBeenCalledOnce();
+  });
+
+  it("marks the compact Changes shortcut when the working tree has changes", async () => {
+    vi.mocked(useProjectDiffStats).mockReturnValue({
+      files: 1,
+      additions: 3,
+      deletions: 0,
+    });
+    props.projectRailOpen = false;
+    props.onSelectProject = vi.fn();
+    props.onOpenProject = vi.fn();
+    await act(async () => render());
+
+    const changes = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Changes +3"]',
+    )!;
+    expect(changes).not.toBeNull();
+    expect(changes.querySelector("span.bg-accent")).not.toBeNull();
+  });
+
+  it("uses an active compact shortcut to return to the workspace", async () => {
     props.projectRailOpen = false;
     props.onSelectProject = vi.fn();
     props.onOpenProject = vi.fn();
     props.onOpenInbox = vi.fn();
-    props.onOpenNotificationSettings = vi.fn();
-    props.recents = [{ path: "/workspace/other", openedAt: 1 }];
+    props.onGoBack = vi.fn();
+    props.inboxActive = true;
     await act(async () => render());
-    const inbox = container.querySelector<HTMLButtonElement>('button[aria-label="Inbox"]')!;
-    expect(inbox).not.toBeNull();
-    await act(async () => {
-      inbox.dispatchEvent(input === "mouse"
-        ? new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 150, clientY: 60 })
-        : new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: input === "Shift+F10" ? "F10" : input, shiftKey: input === "Shift+F10" }));
-    });
-    const menu = document.querySelector('[role="menu"][aria-label="Inbox actions"]');
-    expect(menu).not.toBeNull();
-    expect(menu!.textContent).toContain("Mark all as read");
-    expect(menu!.textContent).toContain("Mute all projects");
-    expect(menu!.textContent).toContain("Resume muted projects");
-    expect(menu!.textContent).toContain("2 projects");
-    const settings = [...menu!.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Notification settings"))!;
-    act(() => settings.click());
-    expect(props.onOpenNotificationSettings).toHaveBeenCalledExactlyOnceWith();
+
+    const inbox = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Inbox"]',
+    )!;
+    expect(inbox.getAttribute("aria-pressed")).toBe("true");
+    act(() => inbox.click());
+    expect(props.onGoBack).toHaveBeenCalledOnce();
     expect(props.onOpenInbox).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(inbox);
-    expect(document.querySelector('[role="menu"][aria-label="Inbox actions"]')).toBeNull();
+
+    props.inboxActive = false;
+    act(() => render());
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Inbox"]')!
+        .click(),
+    );
+    expect(props.onOpenInbox).toHaveBeenCalledOnce();
   });
+
+  it.each(["mouse", "ContextMenu", "Shift+F10"])(
+    "opens the shared Inbox menu via %s",
+    async (input) => {
+      props.projectRailOpen = false;
+      props.onSelectProject = vi.fn();
+      props.onOpenProject = vi.fn();
+      props.onOpenInbox = vi.fn();
+      props.onOpenNotificationSettings = vi.fn();
+      props.recents = [{ path: "/workspace/other", openedAt: 1 }];
+      await act(async () => render());
+      const inbox = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Inbox"]',
+      )!;
+      expect(inbox).not.toBeNull();
+      await act(async () => {
+        inbox.dispatchEvent(
+          input === "mouse"
+            ? new MouseEvent("contextmenu", {
+                bubbles: true,
+                cancelable: true,
+                clientX: 150,
+                clientY: 60,
+              })
+            : new KeyboardEvent("keydown", {
+                bubbles: true,
+                cancelable: true,
+                key: input === "Shift+F10" ? "F10" : input,
+                shiftKey: input === "Shift+F10",
+              }),
+        );
+      });
+      const menu = document.querySelector(
+        '[role="menu"][aria-label="Inbox actions"]',
+      );
+      expect(menu).not.toBeNull();
+      expect(menu!.textContent).toContain("Mark all as read");
+      expect(menu!.textContent).toContain("Mute all projects");
+      expect(menu!.textContent).toContain("Resume muted projects");
+      expect(menu!.textContent).toContain("2 projects");
+      const settings = [...menu!.querySelectorAll("button")].find((button) =>
+        button.textContent?.startsWith("Notification settings"),
+      )!;
+      act(() => settings.click());
+      expect(
+        props.onOpenNotificationSettings,
+      ).toHaveBeenCalledExactlyOnceWith();
+      expect(props.onOpenInbox).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(inbox);
+      expect(
+        document.querySelector('[role="menu"][aria-label="Inbox actions"]'),
+      ).toBeNull();
+    },
+  );
 });
 
 describe("sidebar working agents", () => {
@@ -1161,7 +1436,6 @@ describe("sidebar working agents", () => {
     expect(container.querySelector("[data-live-agents-preview]")).toBeNull();
   });
 });
-
 
 it("labels preserved sessions as having no branch selected", () => {
   props.sessions = [

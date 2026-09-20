@@ -208,6 +208,7 @@ import {
   KEYBINDINGS,
   loadClaudeHooks,
   loadCloseToTray,
+  loadCollapsedProjectRailMode,
   loadComposerRunner,
   loadDiffViewer,
   loadFileTabMode,
@@ -219,6 +220,7 @@ import {
   loadTabAnimationsEnabled,
   saveClaudeHooks,
   saveCloseToTray,
+  saveCollapsedProjectRailMode,
   saveComposerRunner,
   saveDiffViewer,
   saveFileTabMode,
@@ -231,6 +233,8 @@ import {
   searchSettings,
   settingsSectionDescription,
   settingsSectionLabel,
+  COLLAPSED_PROJECT_RAIL_MODE_DEFAULT,
+  type CollapsedProjectRailMode,
   type DiffViewer,
   type FileTabMode,
   type FollowUpBehavior,
@@ -299,6 +303,8 @@ type Props = {
   onRestoreProject?: (path: string) => void;
   onDeleteProject?: (path: string) => void;
   onOpenWhatsNew: (version: string) => void;
+  collapsedProjectRailMode?: CollapsedProjectRailMode;
+  onCollapsedProjectRailModeChange?: (mode: CollapsedProjectRailMode) => void;
 };
 
 export function SettingsView({
@@ -322,12 +328,17 @@ export function SettingsView({
   onRestoreProject,
   onDeleteProject,
   onOpenWhatsNew,
+  collapsedProjectRailMode,
+  onCollapsedProjectRailModeChange,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const [revealed, setRevealed] = useState<string | null>(anchor);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const appearance = useAppearanceSettings();
+  const appearance = useAppearanceSettings(
+    collapsedProjectRailMode,
+    onCollapsedProjectRailModeChange,
+  );
 
   useEffect(() => setRevealed(anchor), [anchor, notificationSettingsRequest]);
 
@@ -1599,7 +1610,12 @@ function UpdateRow({
 
 type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 
-function useAppearanceSettings() {
+function useAppearanceSettings(
+  controlledCollapsedProjectRailMode?: CollapsedProjectRailMode,
+  onControlledCollapsedProjectRailModeChange?: (
+    mode: CollapsedProjectRailMode,
+  ) => void,
+) {
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(loadThemePreference);
   const [accentColor, setAccentColor] = useState(loadAccentColor);
@@ -1626,6 +1642,10 @@ function useAppearanceSettings() {
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
+  const [storedCollapsedProjectRailMode, setStoredCollapsedProjectRailMode] =
+    useState<CollapsedProjectRailMode>(loadCollapsedProjectRailMode);
+  const collapsedProjectRailMode =
+    controlledCollapsedProjectRailMode ?? storedCollapsedProjectRailMode;
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -1732,6 +1752,15 @@ function useAppearanceSettings() {
     void applyUiScale(next);
   }, []);
 
+  const onCollapsedProjectRailMode = useCallback(
+    (next: CollapsedProjectRailMode) => {
+      saveCollapsedProjectRailMode(next);
+      setStoredCollapsedProjectRailMode(next);
+      onControlledCollapsedProjectRailModeChange?.(next);
+    },
+    [onControlledCollapsedProjectRailModeChange],
+  );
+
   const restoreDefaults = useCallback(() => {
     onThemePreference(THEME_PREFERENCE_DEFAULT);
     onAccentColor(ACCENT_COLOR_DEFAULT);
@@ -1749,6 +1778,7 @@ function useAppearanceSettings() {
     onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
+    onCollapsedProjectRailMode(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT);
   }, [
     chatBackgroundPath,
     onBlur,
@@ -1763,6 +1793,7 @@ function useAppearanceSettings() {
     onTint,
     onDarkLightness,
     onUiScale,
+    onCollapsedProjectRailMode,
   ]);
 
   return {
@@ -1781,6 +1812,7 @@ function useAppearanceSettings() {
     chatBackgroundBusy,
     chatBackgroundError,
     uiScale,
+    collapsedProjectRailMode,
     onThemePreference,
     onAccentColor,
     onOpacity,
@@ -1794,6 +1826,7 @@ function useAppearanceSettings() {
     onChatBackgroundSessionOpacity,
     onChatBackgroundScope,
     onUiScale,
+    onCollapsedProjectRailMode,
     restoreDefaults,
   };
 }
@@ -1946,6 +1979,21 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       <ChatBackgroundCard appearance={appearance} />
 
       <Group title="Layout">
+        <Row
+          id="collapsed-project-rail"
+          label="Collapsed project rail"
+          description="Keep project navigation available as a compact icon rail, or hide the rail completely."
+        >
+          <Segmented
+            label="Collapsed project rail"
+            value={appearance.collapsedProjectRailMode}
+            options={[
+              { value: "compact", label: "Icon rail" },
+              { value: "hidden", label: "Hidden" },
+            ]}
+            onChange={appearance.onCollapsedProjectRailMode}
+          />
+        </Row>
         <Row
           id="interface-scale"
           label="Interface scale"

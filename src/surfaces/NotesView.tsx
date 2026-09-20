@@ -84,6 +84,7 @@ function enqueueNoteSave(
 
 type Props = {
   besideRail?: boolean;
+  compactRail?: boolean;
   cwd?: string;
   recents: RecentProject[];
   onClose: () => void;
@@ -92,6 +93,7 @@ type Props = {
 
 export function NotesView({
   besideRail = false,
+  compactRail = false,
   cwd,
   recents,
   onClose,
@@ -320,6 +322,7 @@ export function NotesView({
         className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
+        {IS_MAC && compactRail ? <div className="w-4 shrink-0" /> : null}
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         {besideRail ? null : (
           <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />

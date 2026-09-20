@@ -81,6 +81,11 @@ type Props = {
   activeId: string;
   cwd: string;
   projectRailOpen?: boolean;
+  compactRail?: boolean;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
   onToggleSidebar: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
@@ -442,22 +447,34 @@ export function IconButton({
         if (disabled) return;
         onClick?.();
       }}
-      onContextMenu={onOpenContextMenu ? (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (disabled) return;
-        event.currentTarget.focus();
-        onOpenContextMenu(event.clientX, event.clientY);
-      } : undefined}
-      onKeyDown={onOpenContextMenu ? (event) => {
-        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (disabled) return;
-        event.currentTarget.focus();
-        const rect = event.currentTarget.getBoundingClientRect();
-        onOpenContextMenu(rect.left, rect.bottom);
-      } : undefined}
+      onContextMenu={
+        onOpenContextMenu
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (disabled) return;
+              event.currentTarget.focus();
+              onOpenContextMenu(event.clientX, event.clientY);
+            }
+          : undefined
+      }
+      onKeyDown={
+        onOpenContextMenu
+          ? (event) => {
+              if (
+                event.key !== "ContextMenu" &&
+                !(event.shiftKey && event.key === "F10")
+              )
+                return;
+              event.preventDefault();
+              event.stopPropagation();
+              if (disabled) return;
+              event.currentTarget.focus();
+              const rect = event.currentTarget.getBoundingClientRect();
+              onOpenContextMenu(rect.left, rect.bottom);
+            }
+          : undefined
+      }
       className={`grid size-6.5 place-items-center rounded-md ${
         disabled
           ? "text-content/25"
@@ -573,6 +590,11 @@ function TitleBarComponent({
   activeId,
   cwd,
   projectRailOpen = true,
+  compactRail = false,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
   onToggleSidebar,
   onSelect,
   onNew,
@@ -589,11 +611,7 @@ function TitleBarComponent({
   onSelectProject,
 }: Props) {
   const tabIds = tabs.map((tab) => tab.id);
-  const {
-    displayed,
-    setTabNode,
-    finishMotion,
-  } = useTabCloseMotion(tabs);
+  const { displayed, setTabNode, finishMotion } = useTabCloseMotion(tabs);
   const externalTabDrop = useMemo<ReorderExternalDrop<string> | undefined>(
     () =>
       onPlaceOnPane
@@ -777,52 +795,68 @@ function TitleBarComponent({
       railClosed &&
       Boolean(onOpenInbox || onOpenNotes || onOpenSettings)) ||
     (railClosed && !projectless);
-  const trailingControls = showTrailingActions || !IS_MAC ? (
-    <div className="flex h-full shrink-0 items-stretch">
-      {showTrailingActions ? (
-        <div className="flex items-center gap-0.5 px-2">
-          {projectless && railClosed && onOpenInbox ? (
-            <IconButton label="Inbox" onClick={onOpenInbox}>
-              <Inbox className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          ) : null}
-          {projectless && railClosed && onOpenNotes ? (
-            <IconButton label="Notes" onClick={onOpenNotes}>
-              <StickyNote className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          ) : null}
-          {railClosed && !projectless ? (
-            <>
-              <IconButton label={`Go to File (${MOD}P)`} onClick={onGoToFile}>
-                <Search className="size-3.5" strokeWidth={1.75} />
+  const trailingControls =
+    showTrailingActions || !IS_MAC ? (
+      <div className="flex h-full shrink-0 items-stretch">
+        {showTrailingActions ? (
+          <div className="flex items-center gap-0.5 px-2">
+            {projectless && railClosed && onOpenInbox ? (
+              <IconButton label="Inbox" onClick={onOpenInbox}>
+                <Inbox className="size-3.5" strokeWidth={1.75} />
               </IconButton>
-              <IconButton label={`New session (${MOD}T)`} onClick={onNew}>
-                <Plus className="size-3.5" strokeWidth={1.75} />
+            ) : null}
+            {projectless && railClosed && onOpenNotes ? (
+              <IconButton label="Notes" onClick={onOpenNotes}>
+                <StickyNote className="size-3.5" strokeWidth={1.75} />
               </IconButton>
-            </>
-          ) : null}
-          {!projectRailOpen && !showCurrentProject && onOpenSettings ? (
-            <IconButton label={`Settings (${MOD},)`} onClick={onOpenSettings}>
-              <Settings className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          ) : null}
-        </div>
-      ) : null}
-      {!IS_MAC ? <WindowControls /> : null}
-    </div>
-  ) : null;
+            ) : null}
+            {railClosed && !projectless ? (
+              <>
+                <IconButton label={`Go to File (${MOD}P)`} onClick={onGoToFile}>
+                  <Search className="size-3.5" strokeWidth={1.75} />
+                </IconButton>
+                <IconButton label={`New session (${MOD}T)`} onClick={onNew}>
+                  <Plus className="size-3.5" strokeWidth={1.75} />
+                </IconButton>
+              </>
+            ) : null}
+            {!projectRailOpen && !showCurrentProject && onOpenSettings ? (
+              <IconButton label={`Settings (${MOD},)`} onClick={onOpenSettings}>
+                <Settings className="size-3.5" strokeWidth={1.75} />
+              </IconButton>
+            ) : null}
+          </div>
+        ) : null}
+        {!IS_MAC ? <WindowControls /> : null}
+      </div>
+    ) : null;
 
   // "deep" drags from anywhere in the subtree. The bare attribute only drags
   // on a direct hit, which left every label and spacer dead. Tauri still
   // exempts buttons, links and inputs on its own.
   return (
     <header
-      className="flex h-10 shrink-0 select-none items-stretch border-b border-stroke"
+      className={`flex h-10 shrink-0 select-none items-stretch border-b border-stroke${
+        compactRail ? " body-glass" : ""
+      }`}
       data-tauri-drag-region="deep"
     >
+      {compactRail ? (
+        <div
+          data-compact-title-nav
+          className="flex shrink-0 items-center pl-[70px]"
+        >
+          <TabVisitNav
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
+          />
+        </div>
+      ) : null}
       {/* Both the rail and the sidebar step aside without a project, so the
           title bar takes over the traffic lights and the rail toggle. */}
-      {projectless && railClosed ? (
+      {projectless && railClosed && !compactRail ? (
         <>
           <div className="w-[78px] shrink-0" />
           <div className="flex shrink-0 items-center px-1.5">

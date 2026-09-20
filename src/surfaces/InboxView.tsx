@@ -331,6 +331,7 @@ type Props = {
   cwd: string;
   recents: RecentProject[];
   besideRail?: boolean;
+  compactRail?: boolean;
   onClose?: () => void;
   onToggleSidebar?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
@@ -349,6 +350,7 @@ export function InboxView({
   cwd,
   recents,
   besideRail = false,
+  compactRail = false,
   onClose,
   onToggleSidebar,
   onStart,
@@ -1040,6 +1042,7 @@ export function InboxView({
         className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
+        {IS_MAC && compactRail ? <div className="w-4 shrink-0" /> : null}
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         {besideRail ? null : (
           <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
