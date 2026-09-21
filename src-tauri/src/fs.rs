@@ -94,7 +94,7 @@ fn directory_identity(path: &Path) -> Result<String, String> {
 
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS as i32)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
         .map_err(|error| error.to_string())?;
     let mut info = BY_HANDLE_FILE_INFORMATION::default();
