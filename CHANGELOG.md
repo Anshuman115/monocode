@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Hermes turns stay busy while detached subagents are running and resume automatically with their completed transcripts instead of requiring a manual Continue. Hermes ACP usage updates also populate the context meter. In #335.
+
 ## [0.1.53] - 2026-09-21
 
 ### Added
