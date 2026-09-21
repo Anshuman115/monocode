@@ -54,7 +54,7 @@ import {
 import { syncWatchedMtime, watchFile } from "../model/fileWatch";
 import { displayPath } from "../../../shared/lib/paths";
 import type { EditorNavigation } from "../../search/model/search";
-import { MarkdownPreview } from "../../sessions/ui/AgentMarkdown";
+import { MarkdownDocumentPreview } from "../../sessions/ui/MarkdownDocumentPreview";
 import {
   DiffCommentComposer,
   type DiffCommentComposerTarget,
@@ -408,7 +408,12 @@ export function FileEditor({
           onModeChange={setMode}
           preview={
             markdown ? (
-              <MarkdownPreview text={draft} cwd={cwd} onOpenFile={onOpenFile} />
+              <MarkdownDocumentPreview
+                text={draft}
+                metadataLabel="Properties"
+                cwd={cwd}
+                onOpenFile={onOpenFile}
+              />
             ) : (
               <SvgPreview source={draft} />
             )
