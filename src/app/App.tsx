@@ -317,6 +317,7 @@ import {
   type AddToChatRequest,
 } from "../features/sessions/model/quoteDraft";
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
+import { shouldGenerateSessionTitle } from "../features/sessions/model/sessionTitle";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
   providerAccountExists,
@@ -458,6 +459,7 @@ import {
   type InboxItem,
 } from "../features/inbox/model/githubTasks";
 import {
+  linkedWorkItemFromAutomationEvent,
   linkedWorkItemFromInboxItem,
   resolveLinkedWorkItem,
 } from "../features/sessions/model/sessionWorkItem";
@@ -553,6 +555,8 @@ type SubmitOptions = ComposerTurnOptions & {
   managed?: boolean;
   orchestrationRetry?: OrchestrationProposal;
   onSettled?: (outcome: ControlOutcome) => void;
+  /** Generate a fresh title even when this is not the session's first turn. */
+  refreshTitle?: boolean;
   /** Internal guard for the retry after resolving a renamed project. */
   projectLocationReady?: boolean;
 };
@@ -5778,7 +5782,16 @@ export default function App({
       if (!options?.resendEdited) flushSync(commitSubmittedTurn);
 
       const launchTitleGeneration = (workCwd: string) => {
-        if (!isFirstTurn || !live || !placeholderTitle) return;
+        if (
+          !live ||
+          !shouldGenerateSessionTitle(
+            isFirstTurn,
+            placeholderTitle,
+            options?.refreshTitle,
+          )
+        ) {
+          return;
+        }
         const titleMessage =
           harnessText || attachments.map((file) => file.name).join(", ");
         void generateHarnessTitle(current.harness, {
@@ -5788,6 +5801,13 @@ export default function App({
           providerAccountId,
         })
           .then(async (generated) => {
+            if (
+              options?.refreshTitle &&
+              !isFirstTurn &&
+              turnGen.current.get(sessionId) !== gen
+            ) {
+              return;
+            }
             const linkedWorkItem = await resolveLinkedWorkItem(
               titleMessage,
               workCwd,
@@ -5800,7 +5820,8 @@ export default function App({
                 let next = s;
                 if (
                   generated &&
-                  canReplaceSessionTitle(s.title, s.harness, titleSeed)
+                  (options?.refreshTitle ||
+                    canReplaceSessionTitle(s.title, s.harness, titleSeed))
                 ) {
                   next = {
                     ...next,
@@ -6368,6 +6389,7 @@ export default function App({
       run: AutomationRun,
       reveal = false,
       prompt = run.prompt ?? automation.prompt,
+      sourceWorkItem?: LinkedWorkItem,
     ) => {
       let reservationId: string | undefined;
       let releaseAfterSettle = false;
@@ -6376,6 +6398,9 @@ export default function App({
         automationSessionReservations.current.delete(reservationId);
       };
       try {
+        const eventRun = run.trigger === "event";
+        const linkedWorkItem =
+          sourceWorkItem ?? linkedWorkItemFromAutomationEvent(run);
         let session =
           automation.reuseSession && automation.lastSessionId
             ? sessionsRef.current.find(
@@ -6405,8 +6430,11 @@ export default function App({
               automation.runtimeMode,
               automation.modelSettings,
             ),
-            title: formatSessionTitle(automation.harness, automation.name),
+            title: eventRun
+              ? HARNESS_LABEL[automation.harness]
+              : formatSessionTitle(automation.harness, automation.name),
             automationId: automation.id,
+            ...(linkedWorkItem ? { linkedWorkItem } : {}),
             ...(automation.workspaceMode === "worktree"
               ? { workspaceMode: "worktree" as const, worktreeBase: "HEAD" }
               : automation.workspaceMode === "existing" &&
@@ -6430,6 +6458,7 @@ export default function App({
             model: automation.model,
             modelSettings: automation.modelSettings ?? {},
             runtimeMode: automation.runtimeMode,
+            ...(linkedWorkItem ? { linkedWorkItem } : {}),
           };
           session = stamped;
           const nextSessions = sessionsRef.current.map((entry) =>
@@ -6468,6 +6497,7 @@ export default function App({
           sessionId: session.id,
         });
         const accepted = onSubmit(session.id, prompt, [], {
+          refreshTitle: eventRun,
           onSettled: (outcome) => {
             const status =
               outcome.status === "completed"
@@ -6572,6 +6602,7 @@ export default function App({
               item.run,
               false,
               item.prompt,
+              item.linkedWorkItem,
             ).catch(() => undefined);
           }
         })
