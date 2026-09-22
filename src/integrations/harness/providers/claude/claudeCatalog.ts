@@ -23,6 +23,7 @@ import {
   MINIMUM_CLAUDE_FABLE_5_VERSION,
   MINIMUM_CLAUDE_OPUS_4_7_VERSION,
   MINIMUM_CLAUDE_OPUS_4_8_VERSION,
+  MINIMUM_CLAUDE_OPUS_5_5_VERSION,
   MINIMUM_CLAUDE_OPUS_5_VERSION,
   MINIMUM_CLAUDE_SONNET_5_VERSION,
   parseClaudeVersion,
@@ -128,6 +129,13 @@ export const CLAUDE_MODEL_CATALOG: AgentModel[] = [
     harness: "claude",
     name: "Claude Opus 5",
     nativeId: "claude-opus-5",
+    settings: [EFFORT_WITH_XHIGH, FAST_MODE, contextWindow("1m")],
+  },
+  {
+    id: "claude:opus-5-5",
+    harness: "claude",
+    name: "Claude Opus 5.5",
+    nativeId: "claude-opus-5-5",
     settings: [EFFORT_WITH_XHIGH, FAST_MODE, contextWindow("1m")],
   },
   {
@@ -499,6 +507,11 @@ export function modelsForClaudeVersion(
 ): AgentModel[] {
   return CLAUDE_MODEL_CATALOG.filter((model) => {
     const slug = model.nativeId ?? "";
+    if (slug === "claude-opus-5-5") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_OPUS_5_5_VERSION) >= 0
+        : false;
+    }
     if (slug === "claude-opus-5") {
       return version
         ? compareSemver(version, MINIMUM_CLAUDE_OPUS_5_VERSION) >= 0
