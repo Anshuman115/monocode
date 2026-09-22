@@ -293,6 +293,24 @@ describe("modelsForClaudeVersion", () => {
     expect(next).toContain("claude-opus-5");
     expect(next).toContain("claude-fable-5");
     expect(next).toContain("claude-sonnet-5");
+    expect(next).not.toContain("claude-opus-5-5");
+  });
+
+  it("hides Opus 5.5 until 2.1.280, and rejects a missing version", () => {
+    const beforeMinimum = modelsForClaudeVersion("2.1.279").map(
+      (model) => model.nativeId,
+    );
+    expect(beforeMinimum).not.toContain("claude-opus-5-5");
+    expect(beforeMinimum).toContain("claude-opus-5");
+
+    const atMinimum = modelsForClaudeVersion("2.1.280").map(
+      (model) => model.nativeId,
+    );
+    expect(atMinimum).toContain("claude-opus-5-5");
+    expect(atMinimum).toContain("claude-opus-5");
+
+    const missing = modelsForClaudeVersion(null).map((model) => model.nativeId);
+    expect(missing).not.toContain("claude-opus-5-5");
   });
 
   it("hides Sonnet 5 until 2.1.197, and rejects a missing version", () => {
