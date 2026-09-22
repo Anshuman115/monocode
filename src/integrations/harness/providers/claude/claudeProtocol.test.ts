@@ -444,6 +444,49 @@ describe("list_models catalog", () => {
     expect(haiku?.settings).toBeUndefined();
   });
 
+  it("adds resolved versions to generic live-catalog alias labels", () => {
+    const models = modelsFromClaudeListModels([
+      {
+        value: "opus[1m]",
+        resolvedModel: "claude-opus-5-5",
+        displayName: "Opus (1M context)",
+        description: "Most capable for complex tasks",
+      },
+      {
+        value: "fable",
+        resolvedModel: "claude-fable-5-1",
+        displayName: "Fable",
+        description: "Fast and capable",
+      },
+      {
+        value: "haiku",
+        resolvedModel: "claude-haiku-4-5-20251001",
+        displayName: "Haiku 4.5",
+        description: "Fastest for quick answers",
+      },
+      {
+        value: "next-family",
+        resolvedModel: "claude-next-family-7.2-20300101",
+        displayName: "Next Family — recommended",
+        description: "A future model family",
+      },
+    ]);
+
+    expect(models.map((model) => model.name)).toEqual([
+      "Opus 5.5 (1M context)",
+      "Fable 5.1",
+      "Haiku 4.5",
+      "Next Family 7.2 — recommended",
+    ]);
+    expect(models[0]).toMatchObject({
+      id: "claude:opus",
+      nativeId: "opus",
+    });
+    expect(
+      models[0]?.settings?.find((setting) => setting.id === "context")?.value,
+    ).toBe("1m");
+  });
+
   it("parses success and error control responses", () => {
     expect(
       parseControlResponse({
