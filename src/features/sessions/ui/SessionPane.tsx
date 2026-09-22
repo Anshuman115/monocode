@@ -52,6 +52,7 @@ import {
 } from "../model/quoteDraft";
 import { createNote, noteTitle } from "../../notes";
 import { loadNotesEnabled, subscribeNotesEnabled } from "../../settings/model/settings";
+import { getComposerDraft, setComposerDraft } from "../model/draftCache";
 import { resolveModel } from "../model/models";
 import { isAstraModel } from "../model/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
@@ -365,7 +366,7 @@ export const SessionPane = memo(function SessionPane({
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer =
     !draftBlock && (!isEmpty || inSplit || !!session.inboxAsk);
-  const draftRef = useRef<string | undefined>(undefined);
+  const draftRef = useRef<string | undefined>(getComposerDraft(session.id));
   const composer = (
     <Composer
       enabled={visible}
@@ -398,6 +399,7 @@ export const SessionPane = memo(function SessionPane({
       }
       onDraftChange={(text) => {
         draftRef.current = text;
+        setComposerDraft(session.id, text);
       }}
       inboxCard={session.inboxCard}
       noteCard={session.noteCard}
