@@ -1369,15 +1369,15 @@ function UserMessageBlock({
       >
         <div
           data-draft={block.draft ? "true" : undefined}
-          className={`user-message-bubble relative min-w-0 px-3 py-2 font-sans text-content transition-[background-color,outline-color] duration-200 ${
-            editing
-              ? "edit-last-turn-bubble"
-              : block.draft
-                ? "border border-dashed border-content/30 bg-content/4"
-                : "bg-content/10"
+          className={`user-message-bubble relative min-w-0 px-3 py-2 font-sans text-content transition-[background-color] duration-200 ${
+            block.draft
+              ? "border border-dashed border-content/30 bg-content/4"
+              : "bg-content/10"
+          } ${
+            editing ? "edit-last-turn-bubble" : ""
           } ${
             chat
-              ? `w-fit max-w-xl ${singleLine && !editing ? "rounded-full" : "rounded-xl"}`
+              ? `w-fit max-w-xl ${singleLine ? "rounded-full" : "rounded-xl"}`
               : "rounded-lg border border-content/10"
           }`}
           style={{ zIndex: stickyIndex }}

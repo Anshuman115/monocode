@@ -242,8 +242,8 @@ import {
 import { requestOutgoingHandoff } from "../features/sessions/model/handoffTurn";
 import { isEditTool } from "../integrations/harness/core/preview";
 import {
-  prepareEditedResend,
-  replaceEditedResend,
+  createEditedResendAttempt,
+  createEditedResendCoordinator,
 } from "../features/sessions/model/editLastTurn";
 import {
   beginSessionTurn,
@@ -340,6 +340,7 @@ import {
   titleFromPrompt,
   type Attachment,
   type Block,
+  type ComposerTurnOptions,
   type HarnessId,
   type LinkedWorkItem,
   type ModelTarget,
@@ -348,7 +349,6 @@ import {
   type PlanStatus,
   type SecondOpinionMeta,
   type Session,
-  type TurnIntent,
   type WorkspaceMode,
 } from "../features/sessions/model/session";
 
@@ -542,23 +542,19 @@ type LinkedWorkItemPanelState = {
   cwd: string;
 };
 
-type SubmitOptions = {
+type SubmitOptions = ComposerTurnOptions & {
   secondOpinion?: SecondOpinionMeta;
   followUpBehavior?: FollowUpBehavior;
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
   queuedMessageId?: string;
-  intent?: TurnIntent;
   planBlockId?: string;
   buildTarget?: PlanBuildTarget;
   managed?: boolean;
   orchestrationRetry?: OrchestrationProposal;
-  draftBlockId?: string;
   onSettled?: (outcome: ControlOutcome) => void;
   /** Internal guard for the retry after resolving a renamed project. */
   projectLocationReady?: boolean;
-  onResendRejected?: () => void;
-  resendEdited?: boolean;
 };
 
 type Submit = (
@@ -993,7 +989,7 @@ export default function App({
     canForward: false,
   });
   const turnGen = useRef(new Map<string, number>());
-  const rewindingLastTurn = useRef(new Set<string>());
+  const editedResends = useRef(createEditedResendCoordinator()).current;
   const lastPersisted = useRef(new Map<string, string>());
   const lastBoundProvider = useRef(new Map<string, string>());
   const lastPersistedUserBlock = useRef(new Map<string, string>());
@@ -5319,14 +5315,7 @@ export default function App({
       attachments: Attachment[] = [],
       options?: SubmitOptions,
     ) => {
-      let resendCommitted = false;
-      let resendRejected = false;
-      const rejectResend = () => {
-        if (!options?.resendEdited || resendCommitted || resendRejected) return;
-        resendRejected = true;
-        options.onResendRejected?.();
-      };
-      if (rewindingLastTurn.current.has(sessionId)) return false;
+      if (editedResends.isActive(sessionId)) return false;
       const controlError = orchestrator.submissionError(
         sessionId,
         options?.managed,
@@ -5388,7 +5377,7 @@ export default function App({
         ? withPlanBuildTarget(draftCleared, options.buildTarget)
         : draftCleared;
       const editedResend = options?.resendEdited
-        ? prepareEditedResend(current)
+        ? createEditedResendAttempt(current, options.onResendRejected)
         : undefined;
       if (options?.resendEdited && !editedResend) return false;
       const editedProviderTurnId = editedResend?.providerTurnId;
@@ -5618,7 +5607,7 @@ export default function App({
               message,
             });
             flushHarnessEvents();
-            rejectResend();
+            editedResend?.reject();
             options?.onSettled?.({
               status: "failed",
               text: "",
@@ -5713,8 +5702,8 @@ export default function App({
               noteCard: rawCommand ? s.noteCard : undefined,
               handoffCard: rawCommand ? s.handoffCard : undefined,
             };
-            if (options?.resendEdited) {
-              next = replaceEditedResend(next);
+            if (editedResend) {
+              next = editedResend.replace(next);
             }
             if (approvedPlan && intent === "build") {
               next = {
@@ -5832,7 +5821,7 @@ export default function App({
         if (pendingSwitch) {
           void forgetHarnessSession(pendingSwitch.from, sessionId);
         }
-        rejectResend();
+        editedResend?.reject();
         options?.onSettled?.({
           status: "failed",
           text: "",
@@ -5840,8 +5829,8 @@ export default function App({
         });
         return true;
       }
-      if (options?.resendEdited && canRewindHarnessLastTurn(current.harness)) {
-        rewindingLastTurn.current.add(sessionId);
+      if (editedResend && canRewindHarnessLastTurn(current.harness)) {
+        editedResends.start(sessionId);
         const locked = sessionsRef.current.map((session) =>
           session.id === sessionId ? { ...session, busy: true } : session,
         );
@@ -6021,68 +6010,63 @@ export default function App({
           return event;
         };
 
+        const pendingEditedEvents: HarnessEvent[] = [];
+        const applyTurnEvent = (event: HarnessEvent) => {
+          orchestrator.observe(sessionId, event);
+          if (options?.onSettled && event.type === "message.delta")
+            controlText = (controlText + event.text).slice(-20_000);
+          if (options?.onSettled && event.type === "message.completed")
+            controlText += "\n";
+          if (event.type === "session.error")
+            controlOutcome.error = event.message;
+          if (
+            wrap &&
+            (event.type === "session.started" ||
+              event.type === "session.providerBound")
+          ) {
+            revealHandoff(wrap.text);
+          }
+          nudgeOpenEditors(event, workCwd);
+          if (!orchestrator.forSession(sessionId))
+            trackSessionEdits(sessionId, workCwd, event);
+          const routed = routePlanEvent(event);
+          if (routed) enqueueHarnessEvent(sessionId, routed);
+        };
+        const routeTurnEvent = (event: HarnessEvent) => {
+          if (turnGen.current.get(sessionId) !== gen) return;
+          if (editedResend && !editedResend.isAccepted()) {
+            pendingEditedEvents.push(event);
+            return;
+          }
+          applyTurnEvent(event);
+        };
+        const acceptEditedResend = () => {
+          if (!editedResend || editedResend.isAccepted()) return;
+          flushSync(commitSubmittedTurn);
+          editedResend.markAccepted();
+          for (const event of pendingEditedEvents) applyTurnEvent(event);
+          pendingEditedEvents.length = 0;
+        };
+        const recoverEditedResend = () => {
+          if (!editedResend || editedResend.isAccepted()) return;
+          pendingEditedEvents.length = 0;
+          flushSync(() => {
+            setSessions((prev) =>
+              prev.map((session) =>
+                session.id === sessionId
+                  ? editedResend.recoverAfterFailure(session)
+                  : session,
+              ),
+            );
+          });
+        };
+
         if (!current.inboxAsk && !orchestrator.forSession(sessionId)) {
           await beginSessionTurn(sessionId, workCwd).catch(() => undefined);
         }
         if (turnGen.current.get(sessionId) !== gen) return;
         let buildSucceeded = false;
         try {
-          if (
-            options?.resendEdited &&
-            canRewindHarnessLastTurn(current.harness)
-          ) {
-            try {
-              await rewindHarnessLastTurn({
-                harness: current.harness,
-                sessionId,
-                cwd: workCwd,
-                model: current.model,
-                modelSettings: current.modelSettings,
-                runtimeMode: current.runtimeMode,
-                ...(editedProviderTurnId
-                  ? { providerTurnId: editedProviderTurnId }
-                  : {}),
-                onEvent: (event) => {
-                  if (turnGen.current.get(sessionId) !== gen) return;
-                  enqueueHarnessEvent(sessionId, event);
-                },
-              });
-            } catch (error) {
-              flushHarnessEvents();
-              rejectResend();
-              throw error;
-            }
-            flushHarnessEvents();
-            if (turnGen.current.get(sessionId) !== gen) {
-              const latest = sessionsRef.current.find(
-                (session) => session.id === sessionId,
-              );
-              if (
-                !latest ||
-                (!latest.busy &&
-                  latest.providerSessionId === current.providerSessionId)
-              ) {
-                await forgetHarnessSession(current.harness, sessionId);
-                if (latest) {
-                  setSessions((prev) =>
-                    prev.map((session) =>
-                      session.id === sessionId &&
-                      session.providerSessionId === current.providerSessionId
-                        ? { ...session, providerSessionId: undefined }
-                        : session,
-                    ),
-                  );
-                }
-              }
-              return;
-            }
-          }
-          if (options?.resendEdited) {
-            flushSync(() => {
-              commitSubmittedTurn();
-              resendCommitted = true;
-            });
-          }
           const prepared = await prepareAttachments(attachments);
           const prompt =
             intent === "build" && approvedPlan
@@ -6110,6 +6094,58 @@ export default function App({
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
+          if (
+            editedResend &&
+            canRewindHarnessLastTurn(current.harness)
+          ) {
+            try {
+              await rewindHarnessLastTurn({
+                harness: current.harness,
+                sessionId,
+                cwd: workCwd,
+                model: current.model,
+                modelSettings: current.modelSettings,
+                runtimeMode: current.runtimeMode,
+                ...(editedProviderTurnId
+                  ? { providerTurnId: editedProviderTurnId }
+                  : {}),
+                onEvent: (event) => {
+                  if (turnGen.current.get(sessionId) !== gen) return;
+                  enqueueHarnessEvent(sessionId, event);
+                },
+              });
+            } catch (error) {
+              flushHarnessEvents();
+              editedResend.reject();
+              throw error;
+            }
+            editedResend.markProviderRewound();
+            flushHarnessEvents();
+            if (turnGen.current.get(sessionId) !== gen) {
+              const latest = sessionsRef.current.find(
+                (session) => session.id === sessionId,
+              );
+              if (
+                !latest ||
+                (!latest.busy &&
+                  latest.providerSessionId === current.providerSessionId)
+              ) {
+                await forgetHarnessSession(current.harness, sessionId);
+                if (latest) {
+                  setSessions((prev) =>
+                    prev.map((session) =>
+                      session.id === sessionId &&
+                      session.providerSessionId === current.providerSessionId
+                        ? { ...session, providerSessionId: undefined }
+                        : session,
+                    ),
+                  );
+                }
+              }
+              recoverEditedResend();
+              return;
+            }
+          }
           const sendTurn = (text: string, turnAttachments = prepared) =>
             sendHarnessTurn({
               harness: current.harness,
@@ -6125,28 +6161,8 @@ export default function App({
               controlsAgents: orchestrator.run(sessionId)?.status === "active",
               text,
               attachments: turnAttachments,
-              onEvent: (event) => {
-                if (turnGen.current.get(sessionId) !== gen) return;
-                orchestrator.observe(sessionId, event);
-                if (options?.onSettled && event.type === "message.delta")
-                  controlText = (controlText + event.text).slice(-20_000);
-                if (options?.onSettled && event.type === "message.completed")
-                  controlText += "\n";
-                if (event.type === "session.error")
-                  controlOutcome.error = event.message;
-                if (
-                  wrap &&
-                  (event.type === "session.started" ||
-                    event.type === "session.providerBound")
-                ) {
-                  revealHandoff(wrap.text);
-                }
-                nudgeOpenEditors(event, workCwd);
-                if (!orchestrator.forSession(sessionId))
-                  trackSessionEdits(sessionId, workCwd, event);
-                const routed = routePlanEvent(event);
-                if (routed) enqueueHarnessEvent(sessionId, routed);
-              },
+              ...(editedResend ? { onAccepted: acceptEditedResend } : {}),
+              onEvent: routeTurnEvent,
             });
           await sendTurn(
             orchestrator.prompt(
@@ -6164,6 +6180,7 @@ export default function App({
               ),
             ),
           );
+          acceptEditedResend();
           if (proposalDraft && !providerFailureSeen) {
             completedProposal = await completeOrRepairOrchestrationProposal(
               proposalDraft,
@@ -6199,6 +6216,7 @@ export default function App({
           }
           buildSucceeded = true;
         } catch (error: unknown) {
+          recoverEditedResend();
           if (turnGen.current.get(sessionId) !== gen) return;
           if (wrap) revealHandoff(wrap.text);
           const message =
@@ -6321,10 +6339,8 @@ export default function App({
           }
         })
         .finally(() => {
-          rejectResend();
-          if (options?.resendEdited) {
-            rewindingLastTurn.current.delete(sessionId);
-          }
+          editedResend?.reject();
+          if (editedResend) editedResends.finish(sessionId);
           options?.onSettled?.(
             turnGen.current.get(sessionId) !== gen
               ? { status: "cancelled", text: controlText }

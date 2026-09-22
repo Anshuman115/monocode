@@ -373,6 +373,7 @@ html.has-user-accent .user-message-bubble {
 }
 
 .edit-last-turn-composer {
+  border-style: dashed;
   border-color: color-mix(
     in srgb,
     var(--user-accent-color, var(--color-accent)) 32%,
@@ -381,12 +382,7 @@ html.has-user-accent .user-message-bubble {
 }
 
 .edit-last-turn-bubble {
-  background: color-mix(
-    in srgb,
-    var(--user-accent-color, var(--color-accent)) 10%,
-    transparent
-  );
-  outline: 1px solid
+  outline: 1px dashed
     color-mix(
       in srgb,
       var(--user-accent-color, var(--color-accent)) 45%,
