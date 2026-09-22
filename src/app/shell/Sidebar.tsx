@@ -136,6 +136,7 @@ import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
 import { Popover } from "../../shared/ui/Popover";
 import { SearchableProjectPicker } from "../../features/projects/ui/SearchableProjectPicker";
 import { SessionFiltersMenu } from "../../features/sessions/ui/SessionFiltersMenu";
+import { LinkSessionWorkItemDialog } from "../../features/sessions/ui/LinkSessionWorkItemDialog";
 import { sessionReminderPresets } from "../../features/sessions/ui/sessionReminderPresets";
 import {
   formatReminderTime,
@@ -213,6 +214,10 @@ type Props = {
   ) => void;
   onPinSession?: (sessionId: string, pinned: boolean) => void;
   onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
+  onSetSessionLinkedWorkItem?: (
+    sessionId: string,
+    item: LinkedWorkItem | undefined,
+  ) => void;
   reminders?: readonly SessionReminder[];
   onSetReminders?: (sessionIds: readonly string[], dueAt: number) => void;
   onCancelReminders?: (sessionIds: readonly string[]) => void;
@@ -300,6 +305,7 @@ function SidebarComponent({
   onArchiveSessions,
   onPinSession,
   onPinSessions,
+  onSetSessionLinkedWorkItem,
   reminders = [],
   onSetReminders,
   onCancelReminders,
@@ -382,6 +388,9 @@ function SidebarComponent({
     y: number;
     sessionId: string;
   } | null>(null);
+  const [linkingSession, setLinkingSession] = useState<SessionSummary | null>(
+    null,
+  );
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -792,6 +801,17 @@ function SidebarComponent({
           },
         ]
       : []),
+    ...(!multipleMenuSessions && onSetSessionLinkedWorkItem
+      ? [
+          {
+            kind: "item" as const,
+            id: "link-work-item",
+            label: menuSessions[0]?.linkedWorkItem
+              ? "Edit GitHub issue or PR link…"
+              : "Link GitHub issue or PR…",
+          },
+        ]
+      : []),
     {
       kind: "item",
       id: "reminder",
@@ -917,6 +937,10 @@ function SidebarComponent({
     }
     if (id === "rename") {
       setRenamingSessionId(sessionId);
+      return;
+    }
+    if (id === "link-work-item") {
+      setLinkingSession(menuSessions[0] ?? null);
       return;
     }
     if (id === "folder-new") {
@@ -1695,6 +1719,20 @@ function SidebarComponent({
           filters={sessionFilters}
           onChange={onSessionFiltersChange}
           onClose={() => setFilterMenu(null)}
+        />
+      ) : null}
+      {linkingSession ? (
+        <LinkSessionWorkItemDialog
+          initial={linkingSession.linkedWorkItem}
+          sessionTitle={sessionDisplayTitle(
+            linkingSession.title,
+            linkingSession.harness,
+          )}
+          onSave={(item) => {
+            onSetSessionLinkedWorkItem?.(linkingSession.id, item);
+            setLinkingSession(null);
+          }}
+          onClose={() => setLinkingSession(null)}
         />
       ) : null}
       <div
