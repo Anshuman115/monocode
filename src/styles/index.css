@@ -451,6 +451,17 @@ input,
   user-select: text;
 }
 
+.markdown-view-actions {
+  top: 0.5rem;
+}
+
+.markdown-view-shell:has([data-file-preview-search-open])
+  > .markdown-view-actions,
+.markdown-view-shell:has(> [data-markdown-view-active] .cm-panel.cm-find)
+  > .markdown-view-actions {
+  top: calc(35px + 0.5rem);
+}
+
 .inbox-comment-md.agent-markdown p:first-child,
 .inbox-comment-md.agent-markdown li:first-child,
 .inbox-comment-md.agent-markdown blockquote:first-child {
