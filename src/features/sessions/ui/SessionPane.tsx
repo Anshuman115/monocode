@@ -25,7 +25,10 @@ import {
   type ApprovalDecision,
   type UserQuestionReply,
 } from "../../../integrations/harness";
-import { looksLikeProject, type RecentProject } from "../../projects/model/recents";
+import {
+  looksLikeProject,
+  type RecentProject,
+} from "../../projects/model/recents";
 import {
   sessionDisplayTitle,
   sessionDraftBlock,
@@ -51,7 +54,10 @@ import {
   type QuoteRequest,
 } from "../model/quoteDraft";
 import { createNote, noteTitle } from "../../notes";
-import { loadNotesEnabled, subscribeNotesEnabled } from "../../settings/model/settings";
+import {
+  loadNotesEnabled,
+  subscribeNotesEnabled,
+} from "../../settings/model/settings";
 import { getComposerDraft, setComposerDraft } from "../model/draftCache";
 import { resolveModel } from "../model/models";
 import { isAstraModel } from "../model/astraWelcome";
@@ -60,10 +66,11 @@ import { projectKey } from "../../../shared/lib/paths";
 import { canEditLastTurn, lastTurnRecall } from "../model/editLastTurn";
 import {
   loadProjectChatBackgroundSettings,
+  projectChatBackgroundImageRevision,
   projectChatBackgroundRevision,
   subscribeProjectChatBackground,
 } from "../../projects/model/projectChatBackground";
-import { projectChatBackgroundSrc } from "../../projects/model/chatBackground";
+import { useProjectBackgroundEffect } from "../../projects/ui/useProjectBackgroundEffect";
 import {
   loadChatBackgroundPath,
   subscribeChatBackgroundPath,
@@ -234,7 +241,7 @@ export const SessionPane = memo(function SessionPane({
   const editLastTurnSupported = canEditLastTurn(session);
   const turnRecall = editLastTurnSupported ? lastTurnRecall(session) : null;
   const draftBlock = sessionDraftBlock(session);
-  const backgroundRevision = useSyncExternalStore(
+  useSyncExternalStore(
     subscribeProjectChatBackground,
     projectChatBackgroundRevision,
     projectChatBackgroundRevision,
@@ -247,11 +254,16 @@ export const SessionPane = memo(function SessionPane({
   const projectBackground = loadProjectChatBackgroundSettings(
     projectKey(session.cwd),
   );
+  const projectBackgroundUrl = useProjectBackgroundEffect(
+    projectBackground?.path ?? null,
+    projectBackground?.effect ?? "none",
+    projectChatBackgroundImageRevision(),
+  );
   const projectBackgroundStyle = projectBackground
     ? ({
-        "--chat-background-image": `url(${JSON.stringify(
-          projectChatBackgroundSrc(projectBackground.path, backgroundRevision),
-        )})`,
+        "--chat-background-image": projectBackgroundUrl
+          ? `url(${JSON.stringify(projectBackgroundUrl)})`
+          : "none",
         "--chat-background-empty-opacity": String(
           projectBackground.emptyOpacity,
         ),
