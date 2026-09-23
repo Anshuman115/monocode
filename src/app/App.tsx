@@ -8523,9 +8523,10 @@ export default function App({
           run("prev-project", () => a.onNavigateProjectList(-1));
         else if (cmd === "next-project")
           run("next-project", () => a.onNavigateProjectList(1));
-        else if ("focus" in cmd)
+        else if (typeof cmd === "object" && "focus" in cmd)
           run(`focus-${cmd.focus}`, () => a.onFocusDir(cmd.focus));
-        else run(`activate-${cmd.activate}`, () => a.onActivate(cmd.activate));
+        else if (typeof cmd === "object" && "activate" in cmd)
+          run(`activate-${cmd.activate}`, () => a.onActivate(cmd.activate));
         return;
       }
       if (
