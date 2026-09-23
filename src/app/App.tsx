@@ -547,6 +547,9 @@ import {
   type ResumedWorkspace,
 } from "./model/appLifecycle";
 
+/** How long a hidden idle session stays attached after it leaves every tab. */
+const SESSION_DETACH_DELAY_MS = 250;
+
 type LinkedWorkItemPanelState = {
   item: LinkedWorkItem;
   sessionId: string;
@@ -1772,8 +1775,16 @@ export default function App({
   // Tabs are views. Hidden idle sessions drop their child. A visible session
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
-  useEffect(() => {
-    const visibleIds = openSessionIds(tabs);
+  // Dropping a session re-renders the whole app, so it waits until a switch
+  // has painted, and a burst of switches pays for it once.
+  const detachInputs = useRef({ orchestrationRuns, liveAgentsEnabled });
+  detachInputs.current = { orchestrationRuns, liveAgentsEnabled };
+  const detachTimer = useRef<number | null>(null);
+  const detachIdleSessions = useCallback(() => {
+    detachTimer.current = null;
+    const sessions = sessionsRef.current;
+    const { orchestrationRuns, liveAgentsEnabled } = detachInputs.current;
+    const visibleIds = openSessionIds(tabsRef.current);
     // Inbox owns these panes independently of project tabs. Keep their drafts
     // and attachments mounted when the panel closes or switches items.
     for (const session of sessions) {
@@ -1826,7 +1837,28 @@ export default function App({
           skipForgetSessionIds.current.has(session.id),
       ),
     );
-  }, [sessions, tabs, persistSession, liveAgentsEnabled, orchestrationRuns]);
+  }, [persistSession]);
+
+  useEffect(() => {
+    if (detachTimer.current != null) return;
+    detachTimer.current = window.setTimeout(
+      detachIdleSessions,
+      SESSION_DETACH_DELAY_MS,
+    );
+  }, [
+    sessions,
+    tabs,
+    liveAgentsEnabled,
+    orchestrationRuns,
+    detachIdleSessions,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (detachTimer.current != null) window.clearTimeout(detachTimer.current);
+    },
+    [],
+  );
 
   const activateTab = useCallback((id: string, paneId?: string) => {
     const tab = tabsRef.current.find((entry) => entry.id === id);
