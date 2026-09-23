@@ -1591,12 +1591,12 @@ header[data-tauri-drag-region] button {
 }
 
 /*
- * A live step arrives in beats, one after another over its --step-ms: its
- * slot opens and pushes what is below down while the spine runs on past the
- * step above into the gap, the branch curves off it, and only then does the
- * row fade up into the room made for it. The next step in a burst waits for
- * the last beat. The slot clips while it opens, so the row's rise never adds
- * scrollable overflow to the pinned live window.
+ * A live step arrives in beats over its --step-ms: its slot opens and pushes
+ * what is below down while the spine runs on past the step above into the
+ * gap and the branch curves off it. Only once the branch is drawn does the
+ * row rise into the room, revealed from the bottom up by a soft-edged mask. The next step in a burst
+ * waits for the last beat. The slot clips while it opens, so the row's rise
+ * never adds scrollable overflow to the pinned live window.
  */
 @keyframes zen-step-open {
   from {
@@ -1623,10 +1623,23 @@ header[data-tauri-drag-region] button {
   }
 }
 
+/*
+ * The mask is three times the row's height: clear on top, a soft ramp, then
+ * solid. Sliding it up from the clear third to the solid one sweeps the ramp
+ * over the row from its bottom edge to its top.
+ */
 @keyframes zen-step-in {
   from {
     opacity: 0;
-    transform: translateY(3px);
+    transform: translateY(10px);
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    -webkit-mask-position: 0 100%;
+    mask-position: 0 100%;
   }
 }
 
@@ -1654,7 +1667,7 @@ header[data-tauri-drag-region] button {
 .zen-phase-step[data-entering] {
   display: grid;
   overflow: clip;
-  animation: zen-step-open calc(var(--step-ms) * 0.45)
+  animation: zen-step-open calc(var(--step-ms) * 0.4)
     cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -1663,19 +1676,25 @@ header[data-tauri-drag-region] button {
     :has(+ .zen-phase-step[data-waiting])
   )::before {
   transform-origin: top;
-  animation: zen-rail-grow calc(var(--step-ms) * 0.1) linear
-    calc(var(--step-ms) * 0.3) both;
+  animation: zen-rail-grow calc(var(--step-ms) * 0.15) ease-in-out
+    calc(var(--step-ms) * 0.15) both;
 }
 
 .zen-phase-step[data-entering]::after {
   animation: zen-branch-draw calc(var(--step-ms) * 0.2) ease-out
-    calc(var(--step-ms) * 0.4) both;
+    calc(var(--step-ms) * 0.3) both;
 }
 
 .zen-phase-step[data-entering] > * {
   min-height: 0;
-  animation: zen-step-in calc(var(--step-ms) * 0.4) ease-out
-    calc(var(--step-ms) * 0.6) both;
+  -webkit-mask-image: linear-gradient(to top, #000 33.3%, transparent 66.7%);
+  mask-image: linear-gradient(to top, #000 33.3%, transparent 66.7%);
+  -webkit-mask-size: 100% 300%;
+  mask-size: 100% 300%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation: zen-step-in calc(var(--step-ms) * 0.5)
+    cubic-bezier(0.16, 1, 0.3, 1) calc(var(--step-ms) * 0.5) both;
 }
 
 /*
@@ -1746,6 +1765,8 @@ header[data-tauri-drag-region] button {
   }
 
   .zen-phase-step[data-entering] > * {
+    -webkit-mask-image: none;
+    mask-image: none;
     animation: none;
   }
 

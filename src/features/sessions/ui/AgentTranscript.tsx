@@ -134,10 +134,10 @@ const NEAR_BOTTOM_PX = 16;
  * STEP_QUEUE_CALM_MS plays the rest faster, down to STEP_ENTRANCE_MIN_MS by
  * STEP_QUEUE_MS, so a long burst still catches up.
  */
-const STEP_ENTRANCE_MS = 320;
-const STEP_ENTRANCE_MIN_MS = 120;
-const STEP_QUEUE_CALM_MS = 640;
-const STEP_QUEUE_MS = 1400;
+const STEP_ENTRANCE_MS = 480;
+const STEP_ENTRANCE_MIN_MS = 160;
+const STEP_QUEUE_CALM_MS = 960;
+const STEP_QUEUE_MS = 2000;
 const INITIAL_TURNS = 20;
 const TURN_PAGE_SIZE = 20;
 
