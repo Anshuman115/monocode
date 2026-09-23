@@ -480,7 +480,7 @@ import {
 } from "../features/inbox/model/linkedWorkItemActivity";
 import type { LinkedSessionUpdate } from "../features/inbox/model/linkedSessionUpdates";
 import { markLinkedSessionUpdateSeen } from "../features/inbox/model/linkedSessionSeen";
-import { linearIssueDetails, peekLinearIssueDetails } from "../features/inbox/model/linear";
+import { inboxTrackerDescription } from "../features/inbox/model/inboxContext";
 import { gitlabWorkItemDetails, peekGitlabWorkItemDetails } from "../features/inbox/model/gitlab";
 import {
   azureDevOpsWorkItemDetails,
@@ -2020,7 +2020,7 @@ export default function App({
         const cwd =
           item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
         const ref =
-          item.provider === "linear"
+          item.provider === "linear" || item.provider === "jira"
             ? item.identifier?.trim() || `#${item.number}`
             : `#${item.number}`;
         const linkedWorkItem = linkedWorkItemFromInboxItem(item);
@@ -2037,24 +2037,7 @@ export default function App({
         setComposerFocused(true);
       };
 
-      if (item.provider !== "linear") {
-        start();
-        return;
-      }
-      if (!item.id) {
-        throw new Error("Missing Linear issue");
-      }
-      if (body !== undefined) {
-        start(body);
-        return;
-      }
-      const cached = peekLinearIssueDetails(item.id);
-      if (cached) {
-        start(cached.body);
-        return;
-      }
-      const details = await linearIssueDetails(item.id);
-      start(details.body);
+      start(await inboxTrackerDescription(item, body));
     },
     [
       active?.cwd,
@@ -3630,11 +3613,8 @@ export default function App({
               ? candidate
               : await invoke<string>("default_cwd");
           const description =
-            item.provider === "linear" && item.id
-              ? (
-                  peekLinearIssueDetails(item.id) ??
-                  (await linearIssueDetails(item.id))
-                ).body
+            item.provider === "linear" || item.provider === "jira"
+              ? await inboxTrackerDescription(item)
               : item.provider === "gitlab" &&
                   (item.kind === "issue" || item.kind === "pr")
                 ? (
