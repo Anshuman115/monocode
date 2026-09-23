@@ -312,8 +312,17 @@ html.has-chat-background.chat-background-effect-ready
   opacity: var(--chat-background-session-opacity);
 }
 
+/*
+ * Sending the first message eases the background into its session look (or
+ * out entirely when it only shows on empty sessions) alongside the composer.
+ */
+.chat-pane-background[data-session-empty="false"]::before {
+  transition-duration: 600ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .chat-pane-background::before {
+  .chat-pane-background::before,
+  .chat-pane-background[data-session-empty="false"]::before {
     transition-duration: 0ms;
   }
 }

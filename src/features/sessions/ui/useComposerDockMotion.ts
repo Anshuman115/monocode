@@ -16,12 +16,9 @@ function reducedMotion() {
 export function useComposerDockMotion(docked: boolean) {
   const centeredRef = useRef<HTMLDivElement>(null);
   const dockedRef = useRef<HTMLDivElement>(null);
-  const launch = useRef<{
-    top: number;
-    centerX: number;
-    width: number;
-    at: number;
-  } | null>(null);
+  const launch = useRef<{ top: number; centerX: number; at: number } | null>(
+    null,
+  );
 
   const captureLaunch = useCallback(() => {
     const rect = centeredRef.current?.getBoundingClientRect();
@@ -29,7 +26,6 @@ export function useComposerDockMotion(docked: boolean) {
       ? {
           top: rect.top,
           centerX: rect.left + rect.width / 2,
-          width: rect.width,
           at: performance.now(),
         }
       : null;
@@ -43,18 +39,14 @@ export function useComposerDockMotion(docked: boolean) {
     if (!from || !element || reducedMotion()) return;
     if (performance.now() - from.at > LAUNCH_WINDOW_MS) return;
     const to = element.getBoundingClientRect();
-    // Align centers so the composer drops straight down, and grow it from
-    // the narrower centered width instead of snapping to the dock width.
+    // Align centers so the composer drops straight down.
     const dx = from.centerX - (to.left + to.width / 2);
     const dy = from.top - to.top;
     if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
     const animation = element.animate(
       [
-        {
-          transform: `translate(${dx}px, ${dy}px)`,
-          width: `${from.width}px`,
-        },
-        { transform: "translate(0, 0)", width: `${to.width}px` },
+        { transform: `translate(${dx}px, ${dy}px)` },
+        { transform: "translate(0, 0)" },
       ],
       { duration: DURATION_MS, easing: EASING },
     );

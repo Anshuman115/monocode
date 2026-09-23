@@ -58,11 +58,7 @@ describe("useComposerDockMotion", () => {
 
     expect(animate).toHaveBeenCalledTimes(1);
     const [frames] = animate.mock.calls[0];
-    expect(frames[0]).toEqual({
-      transform: "translate(0px, -400px)",
-      width: "600px",
-    });
-    expect(frames[1].width).toBe("700px");
+    expect(frames[0]).toEqual({ transform: "translate(0px, -400px)" });
   });
 
   it("does not animate when the composer docks without a submit", () => {
