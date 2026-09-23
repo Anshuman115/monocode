@@ -46,6 +46,7 @@ import {
 } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
 import { EmptySession } from "./EmptySession";
+import { useComposerDockMotion } from "./useComposerDockMotion";
 import { MOD } from "../../../platform/tauri/platform";
 import {
   acknowledgeQuoteRequest,
@@ -378,6 +379,7 @@ export const SessionPane = memo(function SessionPane({
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer =
     !draftBlock && (!isEmpty || inSplit || !!session.inboxAsk);
+  const composerDockMotion = useComposerDockMotion(dockComposer);
   const draftRef = useRef<string | undefined>(getComposerDraft(session.id));
   const composer = (
     <Composer
@@ -470,9 +472,10 @@ export const SessionPane = memo(function SessionPane({
       onSaveDraft={(text, attachments) =>
         onSaveDraft(session.id, text, attachments)
       }
-      onSubmit={(text, attachments, options) =>
-        onSubmit(session.id, text, attachments, options)
-      }
+      onSubmit={(text, attachments, options) => {
+        if (!dockComposer) composerDockMotion.captureLaunch();
+        return onSubmit(session.id, text, attachments, options);
+      }}
       onStop={() => onStop(session.id)}
       onCompactContext={() => onCompactContext(session.id)}
       onPlaceInFolder={(target) => onPlaceSessionInFolder(session.id, target)}
@@ -605,7 +608,11 @@ export const SessionPane = memo(function SessionPane({
                 hasChatBackground={Boolean(
                   projectBackground || globalBackgroundPath,
                 )}
-                composer={dockComposer ? undefined : composer}
+                composer={
+                  dockComposer ? undefined : (
+                    <div ref={composerDockMotion.centeredRef}>{composer}</div>
+                  )
+                }
               />
             )
           ) : (
@@ -720,7 +727,12 @@ export const SessionPane = memo(function SessionPane({
           )}
         </div>
         {dockComposer ? (
-          <div className="mx-auto w-full max-w-4xl shrink-0">{composer}</div>
+          <div
+            ref={composerDockMotion.dockedRef}
+            className="mx-auto w-full max-w-4xl shrink-0"
+          >
+            {composer}
+          </div>
         ) : null}
       </div>
     </div>
