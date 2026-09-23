@@ -24,6 +24,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
@@ -126,6 +127,17 @@ import {
 } from "../model/transcriptHighlights";
 
 const NEAR_BOTTOM_PX = 16;
+/*
+ * Tool calls often land in a burst. Each arrival waits for the one before it
+ * to finish its whole entrance — rail, branch, row — before starting its own.
+ * The first few play at STEP_ENTRANCE_MS; a queue running past
+ * STEP_QUEUE_CALM_MS plays the rest faster, down to STEP_ENTRANCE_MIN_MS by
+ * STEP_QUEUE_MS, so a long burst still catches up.
+ */
+const STEP_ENTRANCE_MS = 320;
+const STEP_ENTRANCE_MIN_MS = 120;
+const STEP_QUEUE_CALM_MS = 640;
+const STEP_QUEUE_MS = 1400;
 const INITIAL_TURNS = 20;
 const TURN_PAGE_SIZE = 20;
 
@@ -1943,6 +1955,14 @@ function ActivityPhaseGroup({
   const open = waiting || (override ?? active);
   const [liveScroller, setLiveScroller] = useState<HTMLDivElement | null>(null);
   useLivePhaseScroll(liveScroller, active && open, phase.steps);
+  // Steps already here when the group mounted, or that landed while it was
+  // folded, are history: only a step you watch arrive gets the entrance.
+  const settled = useRef<Set<Block["id"]> | null>(null);
+  settled.current ??= new Set(phase.steps.map((step) => step.id));
+  useEffect(() => {
+    for (const step of phase.steps) settled.current?.add(step.id);
+  }, [phase.steps]);
+  const turnFor = useStepQueue();
   const title = activityPhaseTitle(phase, active);
   // Opening a group on purpose is also how you read the line that titled it,
   // whole. The auto-open while it runs is a live view, not a reading one, and
@@ -2045,25 +2065,114 @@ function ActivityPhaseGroup({
                   />
                 </div>
               ) : null}
-              {phase.steps.map((block) => (
-                <div
-                  key={block.id}
-                  className={`zen-phase-step${active ? " zen-step-in" : ""}`}
-                >
-                  <ActivityRow
-                    block={block}
-                    cwd={cwd}
+              {phase.steps.map((block) => {
+                const arriving = active && !settled.current?.has(block.id);
+                return (
+                  <PhaseStep
+                    key={block.id}
                     live={active}
-                    onApproval={onApproval}
-                    onOpenFile={onOpenFile}
-                    onOpenDiff={onOpenDiff}
-                  />
-                </div>
-              ))}
+                    turn={arriving ? turnFor(block.id) : undefined}
+                  >
+                    <ActivityRow
+                      block={block}
+                      cwd={cwd}
+                      live={active}
+                      onApproval={onApproval}
+                      onOpenFile={onOpenFile}
+                      onOpenDiff={onOpenDiff}
+                    />
+                  </PhaseStep>
+                );
+              })}
             </div>
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+type StepTurn = { wait: number; pace: number };
+
+/**
+ * A group's queue of arriving steps: how long each one waits for the step
+ * before it to finish, and how long its own entrance then takes. A step keeps
+ * the turn it was first given however often the group renders.
+ */
+function useStepQueue() {
+  const queue = useRef({ next: 0, turns: new Map<Block["id"], StepTurn>() });
+
+  return (id: Block["id"]) => {
+    const { turns } = queue.current;
+    let turn = turns.get(id);
+    if (!turn) {
+      const now = performance.now();
+      const start = Math.max(now, queue.current.next);
+      const wait = start - now;
+      const backlog =
+        (STEP_QUEUE_MS - wait) / (STEP_QUEUE_MS - STEP_QUEUE_CALM_MS);
+      const pace = Math.max(
+        STEP_ENTRANCE_MIN_MS,
+        STEP_ENTRANCE_MS * Math.min(1, backlog),
+      );
+      queue.current.next = start + pace;
+      turn = { wait, pace };
+      turns.set(id, turn);
+    }
+    return turn;
+  };
+}
+
+/**
+ * One step on a phase's rail. A step that lands while you watch makes room
+ * first — what is below glides down, the rail runs into the gap and branches
+ * off — and only then does the row fade in. One that lands behind others
+ * stays out of the layout until its turn. The grid and clipping that does
+ * that come off once the row has settled, so nothing inside stays clipped.
+ */
+function PhaseStep({
+  live,
+  turn: arrival,
+  children,
+}: {
+  live: boolean;
+  /** Set only on the render a step arrives in; later renders drop it. */
+  turn?: StepTurn;
+  children: ReactNode;
+}) {
+  const [turn] = useState(arrival);
+  const [stage, setStage] = useState<"waiting" | "entering" | "settled">(() =>
+    !turn ? "settled" : turn.wait > 0 ? "waiting" : "entering",
+  );
+
+  useEffect(() => {
+    if (stage !== "waiting" || !turn) return;
+    const timer = window.setTimeout(() => setStage("entering"), turn.wait);
+    return () => window.clearTimeout(timer);
+  }, [stage, turn]);
+
+  return (
+    <div
+      className="zen-phase-step"
+      style={
+        turn
+          ? ({ "--step-ms": `${Math.round(turn.pace)}ms` } as CSSProperties)
+          : undefined
+      }
+      data-live={live || undefined}
+      data-waiting={stage === "waiting" || undefined}
+      data-entering={stage === "entering" || undefined}
+      onAnimationEnd={(e) => {
+        // The row's own fade is the last beat; nested rails bubble theirs.
+        if (
+          e.animationName === "zen-step-in" &&
+          (e.target as Element).parentElement === e.currentTarget
+        ) {
+          setStage("settled");
+        }
+      }}
+    >
+      {children}
     </div>
   );
 }
