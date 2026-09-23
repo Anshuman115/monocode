@@ -174,6 +174,9 @@ type Props = {
   latestTurnAccessory?: ReactNode;
   /** False while another tab is in front; local transcript state is retained. */
   visible?: boolean;
+  /** Kept mounted after its pane closed. Showing it again counts as a new visit. */
+  parked?: boolean;
+  onScrollerChange?: (el: HTMLDivElement | null) => void;
   /** A worker's transcript: show the orchestrator's turns instead of hiding them. */
   managed?: boolean;
 };
@@ -206,6 +209,8 @@ function AgentTranscriptComponent({
   onNavigateReady,
   latestTurnAccessory,
   visible = true,
+  parked = false,
+  onScrollerChange,
   managed = false,
 }: Props) {
   const blocks = useMemo(() => {
@@ -247,6 +252,19 @@ function AgentTranscriptComponent({
   // the tab is a new visit: the remount uses the true transcript height so
   // the latest reply sits on the composer instead of a hole of empty space.
   const [anchorTurn, setAnchorTurn] = useState(!!busy);
+  // Parking detaches the scroller, which drops its scroll offset.
+  const restoreScroll = useRef(false);
+  const wasParked = useRef(parked);
+  if (wasParked.current !== parked) {
+    wasParked.current = parked;
+    if (parked) {
+      restoreScroll.current = true;
+      setSearchCurrent(null);
+      setSearchQuery("");
+    } else if (anchorTurn !== !!busy) {
+      setAnchorTurn(!!busy);
+    }
+  }
   const { selection, dismissSelection } = useTranscriptSelection(
     scrollerEl,
     onAddToChat !== undefined || onSaveSelectionNote !== undefined,
@@ -310,6 +328,16 @@ function AgentTranscriptComponent({
     onJumpToBottomReady?.(jumpToBottom);
   }, [jumpToBottom, onJumpToBottomReady]);
 
+  // A pooled transcript outlives its pane; tell each new owner where it stands.
+  useEffect(() => {
+    onJumpToBottomChange?.(showJumpRef.current);
+  }, [onJumpToBottomChange]);
+
+  useLayoutEffect(() => {
+    onScrollerChange?.(scrollerEl);
+    return () => onScrollerChange?.(null);
+  }, [onScrollerChange, scrollerEl]);
+
   useEffect(() => {
     if (!visible || !scrollerEl) return;
     syncPinned(scrollerEl);
@@ -364,12 +392,19 @@ function AgentTranscriptComponent({
     const el = scroller.current;
     if (!el) return;
     syncTranscriptViewport(el);
+    const restore = restoreScroll.current;
+    restoreScroll.current = false;
     // Previously opened tabs normally retain their scroll position. Only pin
     // when the scroller looks empty after being hidden with `display: none`.
     if (el.scrollHeight <= el.clientHeight + NEAR_BOTTOM_PX) {
       stickToBottom.current = true;
       setShowJump(false);
       pinToBottom(el);
+    } else if (restore && !stickToBottom.current) {
+      el.scrollTop = Math.max(
+        0,
+        el.scrollHeight - el.clientHeight - distanceFromBottom.current,
+      );
     }
   }, [visible, setShowJump]);
 
@@ -385,6 +420,8 @@ function AgentTranscriptComponent({
     const inner = el?.firstElementChild;
     if (!visible || !el || !inner) return;
     const onResize = () => {
+      // A parked transcript's scroller is detached and measures zero.
+      if (!el.isConnected) return;
       syncTranscriptViewport(el);
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (stickToBottom.current) {
@@ -831,7 +868,10 @@ function AgentTranscriptComponent({
                       <OrchestrationPreview block={block} busy={!!busy} />
                     </div>
                   ))}
-              {isLastTurn && latestTurnAccessory ? latestTurnAccessory : null}
+              {/* The accessory keeps the pane's props, which go stale once parked. */}
+              {isLastTurn && latestTurnAccessory && !parked
+                ? latestTurnAccessory
+                : null}
               {durationMs != null && settled ? (
                 <TurnDuration
                   elapsedMs={durationMs}

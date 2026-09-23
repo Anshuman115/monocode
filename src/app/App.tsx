@@ -380,6 +380,10 @@ import {
   type SessionSummary,
 } from "../features/sessions/data/sessionStore";
 import { rememberLoadedSession } from "../features/sessions/data/sessionCache";
+import {
+  TranscriptPool,
+  TranscriptPoolOutlet,
+} from "../features/sessions/ui/TranscriptPool";
 import { syncDockBadge } from "../features/notifications/model/dockBadge";
 import { liveAgentsFromSessions } from "../features/sessions/model/liveAgents";
 import { hiddenApprovalNotices } from "../features/notifications/model/approvalToast";
@@ -1016,6 +1020,7 @@ export default function App({
   const sessionLoadEpochs = useRef(new Map<string, number>());
   const openingSessionIds = useRef(new Set<string>());
   const activeSessionPrefetch = useRef<Promise<Session | null> | null>(null);
+  const [transcriptPool] = useState(() => new TranscriptPool());
   // Tokens arrive many times per frame; apply them once so React/markdown aren't
   // recomputed for every delta.
   const harnessQueued = useRef(new Map<string, HarnessEvent[]>());
@@ -1603,6 +1608,9 @@ export default function App({
     )
       return;
     const fingerprint = persistFingerprint(session);
+    // Leaving a session flushes it. An unchanged one would still rewrite and
+    // re-diff its whole transcript under the store lock, stalling the next load.
+    if (lastPersisted.current.get(session.id) === fingerprint) return;
     void upsertSession(session)
       .then((summary) => {
         if (!summary) return;
@@ -8296,13 +8304,24 @@ export default function App({
         delta,
       );
       if (!next || next === current.id) return;
+      // Stepping gives no hover to warm the transcript, so load the one a
+      // further step away once this switch has its own session.
+      const prefetchAhead = () => {
+        const ahead = adjacentItemId(
+          sessionNavigationIdsRef.current,
+          next,
+          delta,
+        );
+        if (ahead && ahead !== current.id) onPrefetchHistorySession(ahead);
+      };
       if (!inCurrentTab) {
-        void onSelectHistorySession(next);
+        void onSelectHistorySession(next).then(prefetchAhead);
         return;
       }
       const activeTabId = activeWorkspace.id;
       const focusedId = current.id;
       void ensureOpenSession(next).then((session) => {
+        prefetchAhead();
         if (!session || session.inboxAsk) return;
         if (activeTabIdRef.current !== activeTabId) return;
         const currentTab = tabsRef.current.find((tab) => tab.id === activeTabId);
@@ -8315,7 +8334,12 @@ export default function App({
         if (linkedUpdate) revealLinkedSessionUpdate(next, linkedUpdate);
       });
     },
-    [ensureOpenSession, onSelectHistorySession, revealLinkedSessionUpdate],
+    [
+      ensureOpenSession,
+      onPrefetchHistorySession,
+      onSelectHistorySession,
+      revealLinkedSessionUpdate,
+    ],
   );
 
   const onNavigateProjectList = useCallback(
@@ -9082,6 +9106,7 @@ export default function App({
                                 onReorderFiles={onReorderFiles}
                                 onFileDirtyChange={onFileDirtyChange}
                                 onFileErrorCountChange={onFileErrorCountChange}
+                                transcriptPool={transcriptPool}
                                 onRatio={(splitId, index, ratio) =>
                                   onRatio(tab.id, splitId, index, ratio)
                                 }
@@ -9319,6 +9344,7 @@ export default function App({
             />
           ) : null}
         </div>
+        <TranscriptPoolOutlet pool={transcriptPool} />
       </OrchestrationWorkers.Provider>
     </OrchestrationActions.Provider>
   );
