@@ -80,7 +80,7 @@ export const ACCENT_COLOR_DEFAULT = null;
 /** Fired on `window` whenever the color scheme flips (detail: ColorScheme). */
 export const SCHEME_CHANGE_EVENT = "monocode:schemechange";
 
-export const TRANSCRIPT_LAYOUT_DEFAULT: TranscriptLayout = "full";
+export const TRANSCRIPT_LAYOUT_DEFAULT: TranscriptLayout = "chat";
 
 export const CHANGES_VIEW_DEFAULT: ChangesView = "list";
 
