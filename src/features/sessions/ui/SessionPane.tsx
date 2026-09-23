@@ -68,7 +68,9 @@ import {
 import { getComposerDraft, setComposerDraft } from "../model/draftCache";
 import { resolveModel } from "../model/models";
 import { isAstraModel } from "../model/astraWelcome";
+import { isOpus55Model } from "../model/opusWelcome";
 import { AstraWelcome } from "./AstraWelcome";
+import { OpusWelcome } from "./OpusWelcome";
 import { projectKey } from "../../../shared/lib/paths";
 import { canEditLastTurn, lastTurnRecall } from "../model/editLastTurn";
 import {
@@ -306,11 +308,14 @@ export const SessionPane = memo(function SessionPane({
   useEffect(() => {
     setEditingLastTurn(false);
   }, [session.id, editLastTurnSupported]);
-  const astraWelcomeSequence = useRef(0);
-  const [astraWelcomeRun, setAstraWelcomeRun] = useState<number | null>(null);
-  const dismissAstraWelcome = useCallback(() => setAstraWelcomeRun(null), []);
+  const modelWelcomeSequence = useRef(0);
+  const [modelWelcome, setModelWelcome] = useState<{
+    kind: "astra" | "opus";
+    run: number;
+  } | null>(null);
+  const dismissModelWelcome = useCallback(() => setModelWelcome(null), []);
   useEffect(() => {
-    if (!visible) setAstraWelcomeRun(null);
+    if (!visible) setModelWelcome(null);
   }, [visible]);
   // Restore a saved run for this lead; its agents render on the sidebar card.
   useEffect(() => {
@@ -358,13 +363,7 @@ export const SessionPane = memo(function SessionPane({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [
-    visible,
-    navigatorReady,
-    jumpRequest,
-    navigateBlock,
-    session.id,
-  ]);
+  }, [visible, navigatorReady, jumpRequest, navigateBlock, session.id]);
   const addSelectionToChat = useCallback(
     (text: string, mode?: QuoteRequest["mode"]) => {
       quoteRequestId.current += 1;
@@ -495,9 +494,12 @@ export const SessionPane = memo(function SessionPane({
         onModelChange(session.id, harness, model);
         const selected = resolveModel(harness, model);
         // A new key restarts the animation and its cleanup timer on every pick.
-        setAstraWelcomeRun(
-          isAstraModel(selected) ? ++astraWelcomeSequence.current : null,
-        );
+        const kind = isAstraModel(selected)
+          ? "astra"
+          : isOpus55Model(selected)
+            ? "opus"
+            : null;
+        setModelWelcome(kind && { kind, run: ++modelWelcomeSequence.current });
       }}
       onModelSettingsChange={(settings) =>
         onModelSettingsChange(session.id, settings)
@@ -557,8 +559,12 @@ export const SessionPane = memo(function SessionPane({
       className="chat-pane-background relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(session.id)}
     >
-      {astraWelcomeRun !== null && visible ? (
-        <AstraWelcome key={astraWelcomeRun} onDone={dismissAstraWelcome} />
+      {modelWelcome && visible ? (
+        modelWelcome.kind === "astra" ? (
+          <AstraWelcome key={modelWelcome.run} onDone={dismissModelWelcome} />
+        ) : (
+          <OpusWelcome key={modelWelcome.run} onDone={dismissModelWelcome} />
+        )
       ) : null}
       {inSplit ? (
         <div
@@ -652,7 +658,12 @@ export const SessionPane = memo(function SessionPane({
                 )}
                 composer={
                   dockComposer ? undefined : (
-                    <div ref={composerDockMotion.centeredRef}>{composer}</div>
+                    <div
+                      ref={composerDockMotion.centeredRef}
+                      data-session-composer
+                    >
+                      {composer}
+                    </div>
                   )
                 }
               />
@@ -786,6 +797,7 @@ export const SessionPane = memo(function SessionPane({
         {dockComposer ? (
           <div
             ref={composerDockMotion.dockedRef}
+            data-session-composer
             className="mx-auto w-full max-w-4xl shrink-0"
           >
             {composer}
