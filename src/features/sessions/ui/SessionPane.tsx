@@ -45,6 +45,12 @@ import {
   type ComposerTurnOptions,
 } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { TranscriptFind } from "./TranscriptFind";
+import {
+  clearTranscriptJump,
+  peekTranscriptJump,
+  subscribeTranscriptJump,
+} from "../model/transcriptJump";
 import { EmptySession } from "./EmptySession";
 import { useComposerDockMotion } from "./useComposerDockMotion";
 import { MOD } from "../../../platform/tauri/platform";
@@ -323,6 +329,42 @@ export const SessionPane = memo(function SessionPane({
     (blockId: string) => revealBlockRef.current?.(blockId) ?? false,
     [],
   );
+  const navigateBlockRef = useRef<
+    ((blockId: string | null, query?: string) => boolean) | null
+  >(null);
+  const [navigatorReady, setNavigatorReady] = useState(false);
+  const onNavigateReady = useCallback(
+    (navigate: (blockId: string | null, query?: string) => boolean) => {
+      navigateBlockRef.current = navigate;
+      setNavigatorReady(true);
+    },
+    [],
+  );
+  const navigateBlock = useCallback(
+    (blockId: string | null, query?: string) =>
+      navigateBlockRef.current?.(blockId, query) ?? false,
+    [],
+  );
+  const jumpRequest = useSyncExternalStore(
+    subscribeTranscriptJump,
+    () => peekTranscriptJump(session.id),
+    () => null,
+  );
+  useEffect(() => {
+    if (!visible || !navigatorReady || !jumpRequest) return;
+    const frame = requestAnimationFrame(() => {
+      if (navigateBlock(jumpRequest.blockId, jumpRequest.query)) {
+        clearTranscriptJump(session.id, jumpRequest.token);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    visible,
+    navigatorReady,
+    jumpRequest,
+    navigateBlock,
+    session.id,
+  ]);
   const addSelectionToChat = useCallback(
     (text: string, mode?: QuoteRequest["mode"]) => {
       quoteRequestId.current += 1;
@@ -668,6 +710,7 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomChange={setShowJumpToBottom}
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
+                onNavigateReady={onNavigateReady}
                 editingLastTurn={editingLastTurn}
                 onEditLastTurn={
                   editLastTurnSupported
@@ -703,6 +746,20 @@ export const SessionPane = memo(function SessionPane({
                   )
                 }
               />
+              {!session.inboxAsk ? (
+                <TranscriptFind
+                  blocks={session.blocks}
+                  visible={visible}
+                  focused={focused}
+                  onNavigate={navigateBlock}
+                  side={
+                    session.linkedWorkItemUpdateCard &&
+                    session.linkedWorkItemUpdateCard.status !== "loading"
+                      ? "left"
+                      : "right"
+                  }
+                />
+              ) : null}
               <PromptOutline
                 blocks={session.blocks}
                 scope={transcriptScope}

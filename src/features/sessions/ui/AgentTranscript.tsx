@@ -119,6 +119,11 @@ import {
   type TurnItem,
 } from "../model/transcriptActivity";
 import { lastUserTurnBlock } from "../model/editLastTurn";
+import {
+  clearTranscriptHighlights,
+  paintTranscriptHighlights,
+  transcriptWordRanges,
+} from "../model/transcriptHighlights";
 
 const NEAR_BOTTOM_PX = 16;
 const INITIAL_TURNS = 20;
@@ -150,6 +155,9 @@ type Props = {
   onJumpToBottomReady?: (jump: () => void) => void;
   /** Passes a function that renders the turn that holds a block. The render completes before the function returns. */
   onRevealReady?: (reveal: (blockId: string) => boolean) => void;
+  onNavigateReady?: (
+    navigate: (blockId: string | null, query?: string) => boolean,
+  ) => void;
   /** Session-level output shown after the latest reply and before its action row. */
   latestTurnAccessory?: ReactNode;
   /** False while another tab is in front; local transcript state is retained. */
@@ -183,6 +191,7 @@ function AgentTranscriptComponent({
   onJumpToBottomChange,
   onJumpToBottomReady,
   onRevealReady,
+  onNavigateReady,
   latestTurnAccessory,
   visible = true,
   managed = false,
@@ -216,6 +225,9 @@ function AgentTranscriptComponent({
   const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_TURNS);
   // Turns whose folded work the reader has opened, by turn id.
   const [openWork, setOpenWork] = useState<Record<string, boolean>>({});
+  const [searchCurrent, setSearchCurrent] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const highlightOwner = useRef(Symbol("transcript-search"));
   const toggleWork = useCallback((turnId: string, currentlyOpen: boolean) => {
     setOpenWork((open) => ({ ...open, [turnId]: !currentlyOpen }));
   }, []);
@@ -430,6 +442,88 @@ function AgentTranscriptComponent({
     onRevealReady?.(revealBlock);
   }, [revealBlock, onRevealReady]);
 
+  const navigateToBlock = useCallback(
+    (blockId: string | null, query = ""): boolean => {
+      if (!blockId) {
+        setSearchCurrent(null);
+        setSearchQuery("");
+        return true;
+      }
+      const turn = turnsRef.current.find((item) =>
+        item.some((block) => block.id === blockId),
+      );
+      if (!turn || !revealBlock(blockId)) return false;
+      const turnId = turn[0].id;
+      // A result inside folded work needs its row rendered before measuring it.
+      flushSync(() => {
+        setOpenWork((current) =>
+          current[turnId] ? current : { ...current, [turnId]: true },
+        );
+        setSearchCurrent(blockId);
+        setSearchQuery(query);
+      });
+      const el = scroller.current;
+      if (!el) return false;
+      el.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+      const align = () => {
+        const target =
+          el.querySelector<HTMLElement>(
+            '[data-transcript-search-current="true"]',
+          ) ??
+          el.querySelector<HTMLElement>(
+            `[data-transcript-turn="${CSS.escape(turnId)}"]`,
+          );
+        if (!target) return;
+        const wordRect = query
+          ? transcriptWordRanges(el, query).current?.getBoundingClientRect?.()
+          : null;
+        const targetTop =
+          wordRect && wordRect.height > 0
+            ? wordRect.top
+            : target.getBoundingClientRect().top;
+        const delta = targetTop - el.getBoundingClientRect().top - 42;
+        if (Math.abs(delta) > 2) el.scrollTop += delta;
+      };
+      align();
+      requestAnimationFrame(align);
+      return true;
+    },
+    [revealBlock],
+  );
+
+  useEffect(() => {
+    onNavigateReady?.(navigateToBlock);
+  }, [navigateToBlock, onNavigateReady]);
+
+  useEffect(() => {
+    const el = scroller.current;
+    const owner = highlightOwner.current;
+    if (!el || !visible || !searchQuery) {
+      clearTranscriptHighlights(owner);
+      return;
+    }
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const { matches, current } = transcriptWordRanges(el, searchQuery);
+      paintTranscriptHighlights(owner, matches, current);
+    };
+    const observer = new MutationObserver(() => {
+      if (!frame) frame = requestAnimationFrame(paint);
+    });
+    observer.observe(el, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    paint();
+    return () => {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      clearTranscriptHighlights(owner);
+    };
+  }, [visible, searchQuery, searchCurrent, visibleTurnCount, openWork]);
+
   return (
     <div
       ref={setScroller}
@@ -524,6 +618,10 @@ function AgentTranscriptComponent({
             : firstWork >= 0
               ? firstWork
               : items.length;
+          const isCurrentItem = (item: TurnItem) =>
+            item.type === "block"
+              ? item.block.id === searchCurrent
+              : item.blocks.some((block) => block.id === searchCurrent);
           const renderItem = (item: TurnItem, itemIndex: number) =>
             item.type === "subagents" ? (
               <SubagentStack
@@ -631,6 +729,7 @@ function AgentTranscriptComponent({
           return (
             <div
               key={turn[0].id}
+              data-transcript-turn={turnId}
               className={`transcript-turn flex min-w-0 flex-col${
                 isLastTurn ? " transcript-turn-live" : ""
               }${
@@ -651,6 +750,10 @@ function AgentTranscriptComponent({
                         foldWork.map(({ entry, index }, offset) => (
                           <div
                             key={turnItemKey(entry)}
+                            data-transcript-search-item
+                            data-transcript-search-current={
+                              isCurrentItem(entry) || undefined
+                            }
                             className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
                               offset === foldWork.length - 1
                                 ? "zen-fold-tail"
@@ -675,14 +778,28 @@ function AgentTranscriptComponent({
                     // and reading them as the first steps of the main trail
                     // is what made them look like its work.
                     ...foldSubagents.map(({ entry, index }) => (
-                      <div key={turnItemKey(entry)} className="flow-root pb-1">
+                      <div
+                        key={turnItemKey(entry)}
+                        data-transcript-search-item
+                        data-transcript-search-current={
+                          isCurrentItem(entry) || undefined
+                        }
+                        className="flow-root pb-1"
+                      >
                         {renderItem(entry, index)}
                       </div>
                     )),
                   ];
                 }
                 const row = (
-                  <div key={turnItemKey(item)} className="flow-root pb-1">
+                  <div
+                    key={turnItemKey(item)}
+                    data-transcript-search-item
+                    data-transcript-search-current={
+                      isCurrentItem(item) || undefined
+                    }
+                    className="flow-root pb-1"
+                  >
                     {renderItem(item, itemIndex)}
                   </div>
                 );
