@@ -310,6 +310,7 @@ import {
   filterTabsForProject,
   findOpenSessionTab,
   planWorkspaceTabClose,
+  switchSessionInTab,
   workspaceTabCwd,
   focusedWorkspaceTabCwd,
 } from "../features/workspace/model/workspaceTabGroups";
@@ -8279,7 +8280,7 @@ export default function App({
   }, []);
 
   const onNavigateSessionList = useCallback(
-    (delta: number) => {
+    (delta: number, inCurrentTab = false) => {
       const activeWorkspace = tabsRef.current.find(
         (entry) => entry.id === activeTabIdRef.current,
       );
@@ -8295,9 +8296,26 @@ export default function App({
         delta,
       );
       if (!next || next === current.id) return;
-      void onSelectHistorySession(next);
+      if (!inCurrentTab) {
+        void onSelectHistorySession(next);
+        return;
+      }
+      const activeTabId = activeWorkspace.id;
+      const focusedId = current.id;
+      void ensureOpenSession(next).then((session) => {
+        if (!session || session.inboxAsk) return;
+        if (activeTabIdRef.current !== activeTabId) return;
+        const currentTab = tabsRef.current.find((tab) => tab.id === activeTabId);
+        if (currentTab?.focusedId !== focusedId) return;
+        setTabs((prev) =>
+          switchSessionInTab(prev, activeTabId, focusedId, next) ?? prev,
+        );
+        setComposerFocused(true);
+        const linkedUpdate = linkedSessionUpdatesRef.current.get(next);
+        if (linkedUpdate) revealLinkedSessionUpdate(next, linkedUpdate);
+      });
     },
-    [onSelectHistorySession],
+    [ensureOpenSession, onSelectHistorySession, revealLinkedSessionUpdate],
   );
 
   const onNavigateProjectList = useCallback(
@@ -8417,6 +8435,8 @@ export default function App({
         const listNavigation =
           cmd === "prev-session" ||
           cmd === "next-session" ||
+          cmd === "prev-session-in-tab" ||
+          cmd === "next-session-in-tab" ||
           cmd === "prev-project" ||
           cmd === "next-project";
         if (listNavigation) {
@@ -8495,6 +8515,10 @@ export default function App({
           run("prev-session", () => a.onNavigateSessionList(-1));
         else if (cmd === "next-session")
           run("next-session", () => a.onNavigateSessionList(1));
+        else if (cmd === "prev-session-in-tab")
+          run("prev-session-in-tab", () => a.onNavigateSessionList(-1, true));
+        else if (cmd === "next-session-in-tab")
+          run("next-session-in-tab", () => a.onNavigateSessionList(1, true));
         else if (cmd === "prev-project")
           run("prev-project", () => a.onNavigateProjectList(-1));
         else if (cmd === "next-project")
