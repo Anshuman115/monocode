@@ -802,6 +802,12 @@ export default function App({
   const [projectTerminals, setProjectTerminals] = useState<ProjectTerminal[]>(
     () => windowTransfer?.projectTerminals ?? resumed?.projectTerminals ?? [],
   );
+  /** Dock side a brand-new project's terminal starts with, persisted in the workspace snapshot. */
+  const [lastDockSide, setLastDockSide] = useState<DockSide | null>(
+    () => resumed?.lastDockSide ?? null,
+  );
+  const lastDockSideRef = useRef(lastDockSide);
+  lastDockSideRef.current = lastDockSide;
   const [projectTerminalFocused, setProjectTerminalFocused] = useState(false);
   const [activeTabId, setActiveTabId] = useState(
     () => windowTransfer?.activeTabId ?? resumed?.activeTabId ?? seed.tab.id,
@@ -1151,6 +1157,7 @@ export default function App({
         readProjectReturnMemory(),
         "unload",
         projectTerminalsRef.current,
+        lastDockSideRef.current ?? undefined,
       ).finally(() => {
         void reapWindowRuntime(
           sessionsRef.current,
@@ -1517,6 +1524,7 @@ export default function App({
       () => projectTerminalsRef.current,
       readProjectReturnMemory,
       flushHarnessEvents,
+      () => lastDockSideRef.current,
     );
     void getCurrentWindow()
       .onCloseRequested((event) => {
@@ -1543,6 +1551,7 @@ export default function App({
           readProjectReturnMemory(),
           "unload",
           projectTerminalsRef.current,
+          lastDockSideRef.current ?? undefined,
         ).finally(() => {
           void (toTray ? hideCurrentWindow() : closeCurrentWindow());
         });
@@ -1731,6 +1740,7 @@ export default function App({
         activeTabId,
       }),
       projectTerminals,
+      lastDockSide ?? undefined,
     );
     const key = workspaceSnapshotKey(snapshot);
     if (workspaceSyncKey.current === key) return;
@@ -1745,6 +1755,7 @@ export default function App({
     activeTabId,
     projectCwd,
     projectTerminals,
+    lastDockSide,
     windowTransfer,
   ]);
 
@@ -2196,7 +2207,14 @@ export default function App({
           projectPath,
         );
         if (!existing) {
-          return [...prev, createProjectTerminal(projectPath, file)];
+          return [
+            ...prev,
+            createProjectTerminal(
+              projectPath,
+              file,
+              lastDockSideRef.current ?? "bottom",
+            ),
+          ];
         }
         return mapProjectTerminal(prev, projectPath, (dock) =>
           addTerminalToDock(dock, file),
@@ -2314,6 +2332,7 @@ export default function App({
   }, []);
 
   const onProjectTerminalSide = useCallback((side: DockSide) => {
+    setLastDockSide(side);
     setProjectTerminals((prev) =>
       mapProjectTerminal(prev, projectCwdRef.current, (dock) =>
         withDockSide(dock, side, {
