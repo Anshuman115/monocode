@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
+  defaultModelId,
+  loadLastModelChoice,
   resetHarnessModelOverlays,
   saveLastModelChoice,
   savePickerProviderVisible,
@@ -46,8 +48,21 @@ it("preserves a live-only model until its provider catalog arrives", () => {
   expect(initialQuickChoice()).toEqual(choice);
 });
 
-it("does not replace an explicit default just because its provider tab is hidden", () => {
+it("uses an enabled provider while the configured default is hidden", () => {
   saveLastModelChoice("codex", "codex:gpt-5.6-luna");
   savePickerProviderVisible("codex", false);
-  expect(initialQuickChoice().harness).toBe("codex");
+  expect(initialQuickChoice()).toEqual({
+    harness: "claude",
+    model: defaultModelId("claude"),
+  });
+  // Falling back must not overwrite the user's configured default.
+  expect(loadLastModelChoice()).toEqual({
+    harness: "codex",
+    model: "codex:gpt-5.6-luna",
+  });
+  savePickerProviderVisible("codex", true);
+  expect(initialQuickChoice()).toEqual({
+    harness: "codex",
+    model: "codex:gpt-5.6-luna",
+  });
 });
