@@ -112,7 +112,6 @@ import {
 import {
   closeLeaf,
   closeSurfacePanes,
-  editorTabKey,
   findSurfacePane,
   firstLeafId,
   focusedFileTab,
@@ -136,6 +135,9 @@ import {
   newAgentTab,
   openEditorTab,
   openSessionChangesTab,
+  pinEditorFile,
+  openWorkspaceFile,
+  previewWorkspaceFile,
   openTerminalTab,
   removePane,
   resetTabToSession,
@@ -746,6 +748,7 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.fileFocused === other.fileFocused &&
       tab.blank === other.blank &&
       tab.terminal === other.terminal &&
+      tab.previewFileId === other.previewFileId &&
       tab.groupId === other.groupId
     );
   });
@@ -1937,19 +1940,19 @@ export default function App({
   }, [activeTabId, commitTabVisit, tabs]);
 
   /** `cwd` scopes group inheritance: a tab from another project starts alone. */
+  const insertBesideActive = useCallback(
+    (prev: WorkspaceTab[], tab: WorkspaceTab, cwd?: string) =>
+      insertTabBesideActive(prev, tab, activeTabIdRef.current, (id) =>
+        id === tab.id ? (cwd ? projectName(cwd) : undefined) : projectOfTab(id),
+      ),
+    [projectOfTab],
+  );
+
   const appendTab = useCallback(
     (tab: WorkspaceTab, cwd?: string) => {
-      setTabs((prev) =>
-        insertTabBesideActive(prev, tab, activeTabIdRef.current, (id) =>
-          id === tab.id
-            ? cwd
-              ? projectName(cwd)
-              : undefined
-            : projectOfTab(id),
-        ),
-      );
+      setTabs((prev) => insertBesideActive(prev, tab, cwd));
     },
-    [projectOfTab],
+    [insertBesideActive],
   );
 
   const onSelectProviderAccount = useCallback(
@@ -3189,6 +3192,7 @@ export default function App({
       path?: string,
       session?: { sessionId: string; cwd: string },
       changeKind?: GitFileDiffKind,
+      pin = false,
     ) => {
       void (async () => {
         const diffCwd = session?.cwd ?? gitCwdRef.current;
@@ -3210,6 +3214,7 @@ export default function App({
                 session.sessionId,
                 resolved,
                 diffProjectCwd,
+                pin,
               );
             }
             if (loadDiffViewer() === "unified") {
@@ -3225,6 +3230,7 @@ export default function App({
             return openEditorTab(
               tab,
               newFileTab(resolved, diffCwd, true, changeKind, diffProjectCwd),
+              { pin },
             );
           }),
         );
@@ -3236,7 +3242,8 @@ export default function App({
   );
 
   const onOpenWorkingTreeDiff = useCallback(
-    (path: string, kind?: GitFileDiffKind) => onOpenDiff(path, undefined, kind),
+    (path: string, kind?: GitFileDiffKind, pin?: boolean) =>
+      onOpenDiff(path, undefined, kind, pin),
     [onOpenDiff],
   );
 
@@ -3259,7 +3266,7 @@ export default function App({
   }, [activeTabId]);
 
   const onOpenCommit = useCallback(
-    (commit: GitHistoryCommit) => {
+    (commit: GitHistoryCommit, pin?: boolean) => {
       setTabs((prev) =>
         prev.map((tab) =>
           tab.id === activeTabId
@@ -3272,6 +3279,7 @@ export default function App({
                   subject: commit.subject,
                 },
                 sidebarCwdRef.current,
+                pin,
               )
             : tab,
         ),
@@ -5153,29 +5161,31 @@ export default function App({
           undefined,
           fileProjectCwd,
         );
+        const pin = !!options?.pin;
         if (loadFileTabMode() === "workspace") {
-          const key = editorTabKey(file);
-          const existing = tabsRef.current
-            .flatMap((entry) =>
-              entry.editorPanes.map((pane) => ({ entry, pane })),
-            )
-            .find(({ pane }) =>
-              pane.files.some((open) => editorTabKey(open) === key),
-            );
-          if (existing) {
-            setTabs((prev) =>
-              prev.map((entry) =>
-                entry.id === existing.entry.id
-                  ? openEditorTab(entry, file)
-                  : entry,
-              ),
-            );
-            activateTab(existing.entry.id, existing.pane.id);
-          } else {
-            const next = newEditorWorkspaceTab(file);
-            appendTab(next, fileProjectCwd);
-            setActiveTabId(next.id);
-          }
+          // Built once: the updater may run twice in StrictMode.
+          const created = newEditorWorkspaceTab(
+            pin ? file : { ...file, preview: true },
+          );
+          let target: { tabId: string; paneId?: string } | undefined;
+          // Select inside the updater, not from `tabsRef`: two opens resuming
+          // before a render would otherwise both miss the preview and append
+          // twice. flushSync runs the updater now so `target` is set below.
+          flushSync(() => {
+            setTabs((prev) => {
+              const result = openWorkspaceFile(
+                prev,
+                file,
+                created,
+                (tabs, tab) => insertBesideActive(tabs, tab, fileProjectCwd),
+                pin,
+              );
+              target = result;
+              return result.tabs;
+            });
+          });
+          if (target?.paneId) activateTab(target.tabId, target.paneId);
+          else if (target) setActiveTabId(target.tabId);
           setProjectTerminalFocused(false);
           setComposerFocused(false);
           if (navigation) {
@@ -5196,6 +5206,7 @@ export default function App({
             );
             return openEditorTab(entry, file, {
               split: focusedSession?.blocks.length === 0 ? "left" : "right",
+              pin,
             });
           }),
         );
@@ -5210,7 +5221,7 @@ export default function App({
         setComposerFocused(false);
       })();
     },
-    [activateTab, appendTab],
+    [activateTab, insertBesideActive],
   );
 
   const onOpenPlan = useCallback(
@@ -5240,15 +5251,27 @@ export default function App({
     [activeTabId],
   );
 
-  const onFileDirtyChange = useCallback((fileId: string, dirty: boolean) => {
-    setDirtyFiles((prev) => {
-      if (prev.has(fileId) === dirty) return prev;
-      const next = new Set(prev);
-      if (dirty) next.add(fileId);
-      else next.delete(fileId);
-      return next;
+  const onPinFile = useCallback((fileId: string) => {
+    setTabs((prev) => {
+      const next = prev.map((tab) => pinEditorFile(tab, fileId));
+      return next.some((tab, index) => tab !== prev[index]) ? next : prev;
     });
   }, []);
+
+  const onFileDirtyChange = useCallback(
+    (fileId: string, dirty: boolean) => {
+      // An edited preview must not be replaced by the next click.
+      if (dirty) onPinFile(fileId);
+      setDirtyFiles((prev) => {
+        if (prev.has(fileId) === dirty) return prev;
+        const next = new Set(prev);
+        if (dirty) next.add(fileId);
+        else next.delete(fileId);
+        return next;
+      });
+    },
+    [onPinFile],
+  );
 
   /** The editor reports 0 as it unmounts, so closed tabs drop out on their own. */
   const onFileErrorCountChange = useCallback(
@@ -8873,6 +8896,7 @@ export default function App({
       onReorder={onReorderTabs}
       onPlaceOnPane={onPlaceTabOnPane}
       onGoToFile={onGoToFile}
+      onPinFile={onPinFile}
       recents={recents}
       onSelectProject={onSelectProject}
     />
@@ -9139,6 +9163,7 @@ export default function App({
                                 onSelectFile={onSelectFileSurface}
                                 onCloseFile={onCloseFile}
                                 onCloseOtherFiles={onCloseOtherFiles}
+                                onPinFile={onPinFile}
                                 onReorderFiles={onReorderFiles}
                                 onFileDirtyChange={onFileDirtyChange}
                                 onFileErrorCountChange={onFileErrorCountChange}
@@ -9552,6 +9577,7 @@ function toTitleTab(
       ),
     ),
     terminal: hasTerminal && harnesses.length === 0,
+    previewFileId: previewWorkspaceFile(tab)?.id,
     groupId: tab.groupId,
   };
 }
