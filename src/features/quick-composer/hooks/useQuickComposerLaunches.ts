@@ -49,7 +49,10 @@ export function useQuickComposerLaunches(
     });
     const take = () =>
       receive().catch((error) => {
-        console.error("Quick session is still queued for retry:", error);
+        console.error(
+          "Quick session delivery failed; session remains queued:",
+          error,
+        );
       });
     const onFocus = () => void take();
     const subscriptions: Array<() => void> = [];
@@ -83,6 +86,7 @@ export function useQuickComposerLaunches(
     window.addEventListener("focus", onFocus);
     return () => {
       disposed = true;
+      receive.dispose();
       stopPreparing();
       for (const stop of subscriptions) stop();
       window.removeEventListener("focus", onFocus);
