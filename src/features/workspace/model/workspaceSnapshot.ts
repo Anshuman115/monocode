@@ -570,6 +570,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
       ? { changeKind: value.changeKind }
       : {}),
     ...(value.terminal === true ? { terminal: true } : {}),
+    ...(value.preview === true ? { preview: true } : {}),
   };
 }
 

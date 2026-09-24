@@ -282,6 +282,8 @@ export type Block = {
   secondOpinion?: SecondOpinionMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
+  /** Exact CI repair instructions and evidence supplied with this user turn. */
+  ciContext?: string;
   /** Mid-turn interjection chrome; system blocks only. Body lives in text. */
   interjection?: InterjectionMeta;
   /**
@@ -322,7 +324,8 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
   supervised: "Ask before commands and file changes.",
   "auto-accept-edits": "Auto-approve edits, ask before other actions.",
   auto: "An AI reviewer can approve or deny actions.",
-  "full-access": "Allow commands and edits without prompts.",
+  "full-access":
+    "Allow commands, edits, and supported MCP confirmations in non-plan turns without prompts.",
 };
 
 export type WorkspaceMode = "current" | "worktree";

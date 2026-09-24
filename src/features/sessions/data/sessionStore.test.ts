@@ -1,3 +1,4 @@
+import { appendUser } from "../../../integrations/harness/core/apply";
 import { describe, expect, it } from "vitest";
 import { newSession, type Block, type Session } from "../model/session";
 import {
@@ -569,5 +570,21 @@ describe("persistFingerprint", () => {
     expect(
       persistFingerprint({ ...session, context: { used: 10, window: 0 } }),
     ).toBe(persistFingerprint({ ...session, context: { used: 10 } }));
+  });
+});
+it("saves the exact CI context alongside the compact user message", () => {
+  const context =
+    "Checked commit: abc123\n\nRun tests failed at src/app.test.ts:42\nExpected 2, received 1";
+  const session = appendUser(
+    newSession("codex", "/tmp/project"),
+    "Fix 1 failed CI check for acme/web PR #42.",
+    [],
+    { ciContext: context },
+  );
+  const saved = JSON.parse(JSON.stringify(sanitizeSessionForPersist(session)));
+  expect(saved.blocks[0]).toMatchObject({
+    role: "user",
+    text: "Fix 1 failed CI check for acme/web PR #42.",
+    ciContext: context,
   });
 });

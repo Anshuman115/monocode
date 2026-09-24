@@ -4,6 +4,12 @@ import {
   submitAfterProjectSync,
   type SubmissionAcceptance,
 } from "./model/submissionAcceptance";
+import type { CiRepairRequest } from "../features/inbox/model/ciRepair";
+import { ciRepairSessions } from "../features/inbox/model/ciRepairSessions";
+import {
+  rebaseCiRepairs,
+  trackCiRepair,
+} from "../features/inbox/model/ciRepairTracking";
 import { invoke } from "@tauri-apps/api/core";
 import {
   orchestrationCheckoutCwd,
@@ -118,7 +124,6 @@ import {
 import {
   closeLeaf,
   closeSurfacePanes,
-  editorTabKey,
   findSurfacePane,
   firstLeafId,
   focusedFileTab,
@@ -142,6 +147,9 @@ import {
   newAgentTab,
   openEditorTab,
   openSessionChangesTab,
+  pinEditorFile,
+  openWorkspaceFile,
+  previewWorkspaceFile,
   openTerminalTab,
   removePane,
   resetTabToSession,
@@ -452,11 +460,9 @@ import type { QuickLaunch } from "../features/quick-composer/model/quickComposer
 import { claimInboxAutomationRuns } from "../features/automations/model/automationEvents";
 import {
   SECOND_OPINION_TITLE,
-  buildSecondOpinionCard,
-  buildSecondOpinionPrompt,
+  buildSecondOpinionRequest,
   harnessForTurn,
   turnEditedFiles,
-  turnReport,
   turnUserRequest,
 } from "../features/sessions/model/secondOpinion";
 import { PaneTree } from "../features/workspace/ui/PaneTree";
@@ -567,6 +573,9 @@ type LinkedWorkItemPanelState = {
 };
 
 type SubmitOptions = ComposerTurnOptions & {
+  ciRepair?: CiRepairRequest;
+  /** Saved alongside the user turn; does not replace the submitted prompt. */
+  ciContext?: string;
   secondOpinion?: SecondOpinionMeta;
   followUpBehavior?: FollowUpBehavior;
   noteCard?: NoteComposerCard;
@@ -754,6 +763,7 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.fileFocused === other.fileFocused &&
       tab.blank === other.blank &&
       tab.terminal === other.terminal &&
+      tab.previewFileId === other.previewFileId &&
       tab.groupId === other.groupId
     );
   });
@@ -1945,19 +1955,19 @@ export default function App({
   }, [activeTabId, commitTabVisit, tabs]);
 
   /** `cwd` scopes group inheritance: a tab from another project starts alone. */
+  const insertBesideActive = useCallback(
+    (prev: WorkspaceTab[], tab: WorkspaceTab, cwd?: string) =>
+      insertTabBesideActive(prev, tab, activeTabIdRef.current, (id) =>
+        id === tab.id ? (cwd ? projectName(cwd) : undefined) : projectOfTab(id),
+      ),
+    [projectOfTab],
+  );
+
   const appendTab = useCallback(
     (tab: WorkspaceTab, cwd?: string) => {
-      setTabs((prev) =>
-        insertTabBesideActive(prev, tab, activeTabIdRef.current, (id) =>
-          id === tab.id
-            ? cwd
-              ? projectName(cwd)
-              : undefined
-            : projectOfTab(id),
-        ),
-      );
+      setTabs((prev) => insertBesideActive(prev, tab, cwd));
     },
-    [projectOfTab],
+    [insertBesideActive],
   );
 
   const onSelectProviderAccount = useCallback(
@@ -3197,6 +3207,7 @@ export default function App({
       path?: string,
       session?: { sessionId: string; cwd: string },
       changeKind?: GitFileDiffKind,
+      pin = false,
     ) => {
       void (async () => {
         const diffCwd = session?.cwd ?? gitCwdRef.current;
@@ -3218,6 +3229,7 @@ export default function App({
                 session.sessionId,
                 resolved,
                 diffProjectCwd,
+                pin,
               );
             }
             if (loadDiffViewer() === "unified") {
@@ -3233,6 +3245,7 @@ export default function App({
             return openEditorTab(
               tab,
               newFileTab(resolved, diffCwd, true, changeKind, diffProjectCwd),
+              { pin },
             );
           }),
         );
@@ -3244,7 +3257,8 @@ export default function App({
   );
 
   const onOpenWorkingTreeDiff = useCallback(
-    (path: string, kind?: GitFileDiffKind) => onOpenDiff(path, undefined, kind),
+    (path: string, kind?: GitFileDiffKind, pin?: boolean) =>
+      onOpenDiff(path, undefined, kind, pin),
     [onOpenDiff],
   );
 
@@ -3267,7 +3281,7 @@ export default function App({
   }, [activeTabId]);
 
   const onOpenCommit = useCallback(
-    (commit: GitHistoryCommit) => {
+    (commit: GitHistoryCommit, pin?: boolean) => {
       setTabs((prev) =>
         prev.map((tab) =>
           tab.id === activeTabId
@@ -3280,6 +3294,7 @@ export default function App({
                   subject: commit.subject,
                 },
                 sidebarCwdRef.current,
+                pin,
               )
             : tab,
         ),
@@ -5062,6 +5077,7 @@ export default function App({
   const applyProjectLocationChange = useCallback(
     async (from: string, to: string) => {
       await rebaseProjectSessions(from, to);
+      rebaseCiRepairs(from, to);
 
       const nextSessions = sessionsRef.current.map((session) =>
         sameProjectPath(session.cwd, from) ? { ...session, cwd: to } : session,
@@ -5161,29 +5177,31 @@ export default function App({
           undefined,
           fileProjectCwd,
         );
+        const pin = !!options?.pin;
         if (loadFileTabMode() === "workspace") {
-          const key = editorTabKey(file);
-          const existing = tabsRef.current
-            .flatMap((entry) =>
-              entry.editorPanes.map((pane) => ({ entry, pane })),
-            )
-            .find(({ pane }) =>
-              pane.files.some((open) => editorTabKey(open) === key),
-            );
-          if (existing) {
-            setTabs((prev) =>
-              prev.map((entry) =>
-                entry.id === existing.entry.id
-                  ? openEditorTab(entry, file)
-                  : entry,
-              ),
-            );
-            activateTab(existing.entry.id, existing.pane.id);
-          } else {
-            const next = newEditorWorkspaceTab(file);
-            appendTab(next, fileProjectCwd);
-            setActiveTabId(next.id);
-          }
+          // Built once: the updater may run twice in StrictMode.
+          const created = newEditorWorkspaceTab(
+            pin ? file : { ...file, preview: true },
+          );
+          let target: { tabId: string; paneId?: string } | undefined;
+          // Select inside the updater, not from `tabsRef`: two opens resuming
+          // before a render would otherwise both miss the preview and append
+          // twice. flushSync runs the updater now so `target` is set below.
+          flushSync(() => {
+            setTabs((prev) => {
+              const result = openWorkspaceFile(
+                prev,
+                file,
+                created,
+                (tabs, tab) => insertBesideActive(tabs, tab, fileProjectCwd),
+                pin,
+              );
+              target = result;
+              return result.tabs;
+            });
+          });
+          if (target?.paneId) activateTab(target.tabId, target.paneId);
+          else if (target) setActiveTabId(target.tabId);
           setProjectTerminalFocused(false);
           setComposerFocused(false);
           if (navigation) {
@@ -5204,6 +5222,7 @@ export default function App({
             );
             return openEditorTab(entry, file, {
               split: focusedSession?.blocks.length === 0 ? "left" : "right",
+              pin,
             });
           }),
         );
@@ -5218,7 +5237,7 @@ export default function App({
         setComposerFocused(false);
       })();
     },
-    [activateTab, appendTab],
+    [activateTab, insertBesideActive],
   );
 
   const onOpenPlan = useCallback(
@@ -5248,15 +5267,27 @@ export default function App({
     [activeTabId],
   );
 
-  const onFileDirtyChange = useCallback((fileId: string, dirty: boolean) => {
-    setDirtyFiles((prev) => {
-      if (prev.has(fileId) === dirty) return prev;
-      const next = new Set(prev);
-      if (dirty) next.add(fileId);
-      else next.delete(fileId);
-      return next;
+  const onPinFile = useCallback((fileId: string) => {
+    setTabs((prev) => {
+      const next = prev.map((tab) => pinEditorFile(tab, fileId));
+      return next.some((tab, index) => tab !== prev[index]) ? next : prev;
     });
   }, []);
+
+  const onFileDirtyChange = useCallback(
+    (fileId: string, dirty: boolean) => {
+      // An edited preview must not be replaced by the next click.
+      if (dirty) onPinFile(fileId);
+      setDirtyFiles((prev) => {
+        if (prev.has(fileId) === dirty) return prev;
+        const next = new Set(prev);
+        if (dirty) next.add(fileId);
+        else next.delete(fileId);
+        return next;
+      });
+    },
+    [onPinFile],
+  );
 
   /** The editor reports 0 as it unmounts, so closed tabs drop out on their own. */
   const onFileErrorCountChange = useCallback(
@@ -5484,6 +5515,14 @@ export default function App({
         return false;
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
       if (
+        options?.ciRepair &&
+        storedCurrent &&
+        (storedCurrent.busy ||
+          storedCurrent.pendingSwitch ||
+          isPreparingHandoff(storedCurrent))
+      )
+        return false;
+      if (
         !storedCurrent ||
         storedCurrent.worktreeRemoved ||
         [...removingWorktreePaths.current].some((path) =>
@@ -5591,9 +5630,12 @@ export default function App({
       }
       const submittedText = intent === "build" ? "Build approved plan" : text;
       const rawCommand = isNativeCommandPrompt(submittedText, current.harness);
-      const harnessText = rawCommand
-        ? submittedText
-        : composeNoteMessage(noteCard, submittedText);
+      const ciContext = options?.ciRepair?.prompt ?? options?.ciContext;
+      const harnessText =
+        options?.ciRepair?.prompt ??
+        (rawCommand
+          ? submittedText
+          : composeNoteMessage(noteCard, submittedText));
 
       const pendingSwitch =
         current.pendingSwitch && current.pendingSwitch.from !== current.harness
@@ -5726,11 +5768,24 @@ export default function App({
           cwd: current.cwd,
           sync,
           applyLocationChange: applyProjectLocationChange,
-          submit: () =>
-            submitAfterProjectSyncRef.current(sessionId, text, attachments, {
-              ...options,
-              projectLocationReady: true,
-            }),
+          submit: async () => {
+            const accepted = await submitAfterProjectSyncRef.current(
+              sessionId,
+              text,
+              attachments,
+              { ...options, projectLocationReady: true },
+            );
+            if (!accepted) {
+              editedResend?.reject();
+              options?.onSettled?.({
+                status: "failed",
+                text: "",
+                error:
+                  "The chat became unavailable before the request could start. Try again when it is ready.",
+              });
+            }
+            return accepted;
+          },
           onError: (error: unknown) => {
             const message =
               error instanceof Error
@@ -5800,6 +5855,7 @@ export default function App({
             : submittedText;
       const cards = {
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
+        ...(ciContext ? { ciContext } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
       };
@@ -5832,9 +5888,12 @@ export default function App({
               worktreePreparing: createDraftWorktree
                 ? true
                 : selected.worktreePreparing,
-              inboxCard: rawCommand ? s.inboxCard : undefined,
-              noteCard: rawCommand ? s.noteCard : undefined,
-              handoffCard: rawCommand ? s.handoffCard : undefined,
+              inboxCard:
+                rawCommand || options?.ciRepair ? s.inboxCard : undefined,
+              noteCard:
+                rawCommand || options?.ciRepair ? s.noteCard : undefined,
+              handoffCard:
+                rawCommand || options?.ciRepair ? s.handoffCard : undefined,
             };
             if (editedResend) {
               next = editedResend.replace(next);
@@ -6113,7 +6172,8 @@ export default function App({
           const latest = sessionsRef.current.find((s) => s.id === sessionId);
           const brief = chooseHandoffBrief(
             agentText,
-            buildDeterministicHandoff(latest ?? current, text),
+            latest ?? current,
+            text,
           );
           await forgetHarnessSession(pendingSwitch.from, sessionId);
           if (turnGen.current.get(sessionId) !== gen) return;
@@ -7055,13 +7115,11 @@ export default function App({
       const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
-      const userRequest = turnUserRequest(turn);
-      const files = turnEditedFiles(turn, cwd);
-      const prompt = buildSecondOpinionPrompt({
+      const request = buildSecondOpinionRequest({
         from,
-        userRequest,
-        report: turnReport(turn),
-        files,
+        to: harness,
+        turn,
+        cwd,
       });
       const session = {
         ...newSession(harness, source.cwd, model, source.runtimeMode),
@@ -7074,14 +7132,7 @@ export default function App({
         title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
       };
       openSessionBeside(sourceId, session, source.cwd);
-      onSubmit(session.id, prompt, [], {
-        secondOpinion: buildSecondOpinionCard({
-          from,
-          to: harness,
-          userRequest,
-          files,
-        }),
-      });
+      onSubmit(session.id, request.prompt, [], request.options);
     },
     [onSubmit, openSessionBeside],
   );
@@ -8059,6 +8110,10 @@ export default function App({
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     );
   }, [history, sessions, storedLinkedSessions]);
+  const repairSessions = useMemo(
+    () => ciRepairSessions(history, sessions),
+    [history, sessions],
+  );
   const openProjectSessions = useMemo(
     () =>
       sessions
@@ -8206,6 +8261,65 @@ export default function App({
       void onSelectHistorySession(sessionId);
     },
     [onSelectHistorySession],
+  );
+
+  const onRepairChecks = useCallback(
+    async (
+      item: InboxItem,
+      request: CiRepairRequest,
+      sessionId?: string,
+    ) => {
+      const cwd = item.projectPath;
+      if (!cwd) throw new Error("Choose a local project for this PR first.");
+      let session = sessionId ? await ensureOpenSession(sessionId) : undefined;
+      if (
+        sessionId &&
+        (!session ||
+          session.inboxAsk ||
+          session.orchestrationLeadId ||
+          !sameProjectPath(session.cwd, cwd))
+      ) {
+        throw new Error("Choose a chat from this project.");
+      }
+      if (
+        session &&
+        (session.busy || session.pendingSwitch || isPreparingHandoff(session))
+      ) {
+        throw new Error(
+          "This chat is busy. Choose another chat or start a new one.",
+        );
+      }
+      if (!session) {
+        session = {
+          ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+          title: `Fix CI #${item.number}: ${item.title}`,
+          linkedWorkItem: linkedWorkItemFromInboxItem(item) ?? undefined,
+        };
+        const next = [...sessionsRef.current, session];
+        sessionsRef.current = next;
+        setSessions(next);
+      }
+      const repairSessionId = session.id;
+      trackCiRepair(cwd, request, repairSessionId, (settle) =>
+        onSubmit(repairSessionId, request.text, [], {
+          ciRepair: request,
+          noteCard: undefined,
+          handoffCard: undefined,
+          onSettled: (outcome) => settle(outcome.status),
+        }),
+      );
+      setInboxViewOpen(false);
+      setNotesViewOpen(false);
+      setSearchViewOpen(false);
+      setSidebarTab("sessions");
+      await onSelectHistorySession(session.id);
+    },
+    [
+      ensureOpenSession,
+      onSubmit,
+      onSelectHistorySession,
+      sessionDefaults?.runtimeMode,
+    ],
   );
 
   const onOpenNotes = useCallback(() => {
@@ -8928,6 +9042,7 @@ export default function App({
       onReorder={onReorderTabs}
       onPlaceOnPane={onPlaceTabOnPane}
       onGoToFile={onGoToFile}
+      onPinFile={onPinFile}
       recents={recents}
       onSelectProject={onSelectProject}
     />
@@ -9194,6 +9309,7 @@ export default function App({
                                 onSelectFile={onSelectFileSurface}
                                 onCloseFile={onCloseFile}
                                 onCloseOtherFiles={onCloseOtherFiles}
+                                onPinFile={onPinFile}
                                 onReorderFiles={onReorderFiles}
                                 onFileDirtyChange={onFileDirtyChange}
                                 onFileErrorCountChange={onFileErrorCountChange}
@@ -9215,6 +9331,12 @@ export default function App({
                   </div>
                   {[...linkedWorkItemPanels.values()].map((panel) => (
                     <LinkedWorkItemPanel
+                      repairSessions={repairSessions}
+                      onRepairChecks={onRepairChecks}
+                      onOpenSession={(sessionId) => {
+                        closeLinkedWorkItemPanel(panel.sessionId);
+                        onOpenInboxSession(sessionId);
+                      }}
                       key={panel.sessionId}
                       target={panel.item}
                       cwd={panel.cwd}
@@ -9289,6 +9411,8 @@ export default function App({
                   onAskRestart={onRestartInboxAsk}
                   onAskMount={setInboxAskPortal}
                   sessions={inboxRelatedSessions}
+                  repairSessions={repairSessions}
+                  onRepairChecks={onRepairChecks}
                   onOpenSession={onOpenInboxSession}
                   onOpenIntegrations={onOpenInboxIntegrations}
                 />
@@ -9607,6 +9731,7 @@ function toTitleTab(
       ),
     ),
     terminal: hasTerminal && harnesses.length === 0,
+    previewFileId: previewWorkspaceFile(tab)?.id,
     groupId: tab.groupId,
   };
 }
