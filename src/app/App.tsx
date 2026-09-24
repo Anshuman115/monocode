@@ -1,4 +1,5 @@
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
+import { submitWithSettlement } from "./model/managedSubmission";
 import {
   submitAfterProjectSync,
   type SubmissionAcceptance,
@@ -6512,7 +6513,10 @@ export default function App({
   const onSubmit = useCallback(
     (...args: Parameters<Submit>): boolean => {
       const result = submitSession(...args);
-      return typeof result === "boolean" ? result : true;
+      if (typeof result === "boolean") return result;
+      // Deferred errors have already been displayed by submitAfterProjectSync.
+      void result.catch(() => undefined);
+      return true;
     },
     [submitSession],
   );
@@ -6534,6 +6538,7 @@ export default function App({
       const releaseReservation = () => {
         if (!reservationId) return;
         automationSessionReservations.current.delete(reservationId);
+        reservationId = undefined;
       };
       try {
         const eventRun = run.trigger === "event";
@@ -6634,8 +6639,17 @@ export default function App({
         await updateAutomationRun(run.id, "running", {
           sessionId: session.id,
         });
-        const accepted = onSubmit(session.id, prompt, [], {
-          refreshTitle: eventRun,
+        // From here the settlement callback owns reservation cleanup, including
+        // a rejected submission that never starts an agent turn.
+        releaseAfterSettle = true;
+        await submitWithSettlement({
+          submit: (onSettled) =>
+            submitSession(session.id, prompt, [], {
+              refreshTitle: eventRun,
+              onSettled,
+            }),
+          rejectionMessage:
+            "The selected agent session could not start this run.",
           onSettled: (outcome) => {
             const status =
               outcome.status === "completed"
@@ -6651,14 +6665,6 @@ export default function App({
               .finally(releaseReservation);
           },
         });
-        if (!accepted) {
-          await updateAutomationRun(run.id, "failed", {
-            sessionId: session.id,
-            error: "The selected agent session could not start this run.",
-          });
-        } else {
-          releaseAfterSettle = true;
-        }
       } catch (reason: unknown) {
         await updateAutomationRun(run.id, "failed", {
           error: reason instanceof Error ? reason.message : String(reason),
@@ -6668,7 +6674,7 @@ export default function App({
         if (!releaseAfterSettle) releaseReservation();
       }
     },
-    [appendTab, focusOpenSession, onSubmit],
+    [appendTab, focusOpenSession, submitSession],
   );
 
   const launchQuickSession = useCallback(
@@ -7659,11 +7665,23 @@ export default function App({
         return true;
       },
       submit: (id, text, done) => {
-        // Commit the new turn before the scheduler or confirmation updates
-        // another session snapshot in the same event loop.
-        flushSync(() =>
-          onSubmit(id, text, [], { managed: true, onSettled: done }),
-        );
+        void submitWithSettlement({
+          submit: (onSettled) => {
+            let acceptance: SubmissionAcceptance = false;
+            // Commit an immediate turn before another scheduler update. A
+            // deferred submission flushes its own turn after synchronization.
+            flushSync(() => {
+              acceptance = submitSession(id, text, [], {
+                managed: true,
+                onSettled,
+              });
+            });
+            return acceptance;
+          },
+          onSettled: done,
+          rejectionMessage:
+            "The selected agent session could not accept this turn.",
+        }).catch(console.error);
       },
       steer: async (id, text) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
@@ -7723,7 +7741,7 @@ export default function App({
         }
       },
     });
-  }, [checkOpenWorktreeFiles, onSubmit, onStop]);
+  }, [checkOpenWorktreeFiles, submitSession, onStop]);
 
   useEffect(() => {
     orchestrator.sync();

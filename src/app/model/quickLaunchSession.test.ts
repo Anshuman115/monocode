@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { rememberProject } from "../../features/projects/model/recents";
+import { ProjectNotFoundError } from "../../features/projects/model/projectLocationError";
 import { launchReceiver } from "../../features/quick-composer/model/launchDelivery";
 import type { QuickLaunch } from "../../features/quick-composer/model/quickComposer";
 import {
@@ -169,12 +170,7 @@ it("does not acknowledge or mark accepted while project synchronization is pendi
   ).toBe(true);
 });
 
-it.each([
-  "sync failure",
-  "missing project",
-  "deferred rejection",
-  "deferred exception",
-])(
+it.each(["sync failure", "deferred rejection", "deferred exception"])(
   "retains the prompt after %s and retries the same session",
   async (failure) => {
     const { state, workspace, commit, queue, ack, receive } = setup();
@@ -190,11 +186,11 @@ it.each([
         sync:
           failure === "sync failure"
             ? Promise.reject(new Error("disk unavailable"))
-            : Promise.resolve(
-                failure === "missing project"
-                  ? null
-                  : { path: "/new-project", identity: "repo", moved: false },
-              ),
+            : Promise.resolve({
+                path: "/new-project",
+                identity: "repo",
+                moved: false,
+              }),
         applyLocationChange: vi.fn(),
         submit: deferredSubmit,
         onError,
@@ -226,6 +222,43 @@ it.each([
     ).toBe(true);
   },
 );
+
+it("retains a missing project's prompt without automatic retries, then accepts an explicit retry after reconnection", async () => {
+  const { state, workspace, commit, queue, ack, receive } = setup();
+  const onError = vi.fn();
+  let connected = false;
+  workspace.submit.mockImplementation((...args) =>
+    submitAfterProjectSync({
+      cwd: "/new-project",
+      sync: Promise.resolve(
+        connected
+          ? { path: "/new-project", identity: "repo", moved: false }
+          : null,
+      ),
+      applyLocationChange: vi.fn(),
+      submit: () => commit(...args),
+      onError,
+    }),
+  );
+  await expect(receive()).rejects.toBeInstanceOf(ProjectNotFoundError);
+  await vi.advanceTimersByTimeAsync(300_000);
+  expect(vi.getTimerCount()).toBe(0);
+  expect(workspace.submit).toHaveBeenCalledOnce();
+  expect(onError).toHaveBeenCalledOnce();
+  expect(commit).not.toHaveBeenCalled();
+  expect(ack).not.toHaveBeenCalled();
+  expect(queue).toHaveLength(1);
+  expect(
+    state.sessions.find((s) => s.id === "quick-session")?.quickLaunchAccepted,
+  ).toBeUndefined();
+
+  connected = true;
+  await receive();
+  expect(queue).toHaveLength(0);
+  expect(commit).toHaveBeenCalledOnce();
+  expect(ack).toHaveBeenCalledOnce();
+  expect(workspace.appendTab).toHaveBeenCalledOnce();
+});
 
 it("does not submit an accepted prompt again after a lost ACK", async () => {
   const { workspace, ack, receive, queue } = setup();

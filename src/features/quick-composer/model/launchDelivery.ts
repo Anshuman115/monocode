@@ -1,4 +1,5 @@
 import { parseQuickLaunch, type QuickLaunch } from "./quickComposer";
+import { ProjectNotFoundError } from "../../projects/model/projectLocationError";
 
 const INITIAL_RETRY_MS = 250;
 const MAX_RETRY_MS = 30_000;
@@ -73,7 +74,13 @@ export function launchReceiver(options: {
       } while (requested && !disposed());
     })()
       .catch((error: unknown) => {
-        if (!disposed() && !(error instanceof InvalidLaunchError)) {
+        // Missing projects stay queued until an external receive retries them
+        // after reconnection; timers must not keep appending error blocks.
+        if (
+          !disposed() &&
+          !(error instanceof InvalidLaunchError) &&
+          !(error instanceof ProjectNotFoundError)
+        ) {
           retryTimer = setTimeout(() => {
             retryTimer = undefined;
             // receive schedules the next retry on failure. Consume the rejection
