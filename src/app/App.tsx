@@ -1,4 +1,8 @@
-import { applyQuickWorkspace } from "../features/quick-composer/model/quickWorkspace";
+import { acceptQuickLaunch } from "./model/quickLaunchSession";
+import {
+  submitAfterProjectSync,
+  type SubmissionAcceptance,
+} from "./model/submissionAcceptance";
 import { invoke } from "@tauri-apps/api/core";
 import {
   orchestrationCheckoutCwd,
@@ -583,7 +587,7 @@ type Submit = (
   text: string,
   attachments?: Attachment[],
   options?: SubmitOptions,
-) => boolean;
+) => SubmissionAcceptance;
 
 function withPlanStatus(
   session: Session,
@@ -5438,13 +5442,13 @@ export default function App({
     [invalidateLoadedSession],
   );
 
-  const onSubmit = useCallback(
+  const submitSession = useCallback(
     (
       sessionId: string,
       text: string,
       attachments: Attachment[] = [],
       options?: SubmitOptions,
-    ) => {
+    ): SubmissionAcceptance => {
       if (editedResends.isActive(sessionId)) return false;
       const controlError = orchestrator.submissionError(
         sessionId,
@@ -5717,22 +5721,16 @@ export default function App({
             () => projectLocationSyncs.current.delete(key),
           );
         }
-        void sync
-          .then(async (location) => {
-            if (!location) {
-              throw new Error(
-                `Project folder not found: ${displayPath(current.cwd)}. Reopen the folder to reconnect it.`,
-              );
-            }
-            if (location.moved) {
-              await applyProjectLocationChange(current.cwd, location.path);
-            }
+        return submitAfterProjectSync({
+          cwd: current.cwd,
+          sync,
+          applyLocationChange: applyProjectLocationChange,
+          submit: () =>
             submitAfterProjectSyncRef.current(sessionId, text, attachments, {
               ...options,
               projectLocationReady: true,
-            });
-          })
-          .catch((error: unknown) => {
+            }),
+          onError: (error: unknown) => {
             const message =
               error instanceof Error
                 ? error.message
@@ -5748,8 +5746,8 @@ export default function App({
               text: "",
               error: message,
             });
-          });
-        return true;
+          },
+        });
       }
 
       const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
@@ -6508,7 +6506,16 @@ export default function App({
       flushHarnessEvents,
     ],
   );
-  submitAfterProjectSyncRef.current = onSubmit;
+  submitAfterProjectSyncRef.current = submitSession;
+  // Interactive callers use the immediate result to clear their composer. The
+  // queued-launch receiver uses submitSession to await the actual acceptance.
+  const onSubmit = useCallback(
+    (...args: Parameters<Submit>): boolean => {
+      const result = submitSession(...args);
+      return typeof result === "boolean" ? result : true;
+    },
+    [submitSession],
+  );
 
   const automationSessionReservations = useRef(new Set<string>());
   const automationRecoveryRef = useRef<Promise<void> | null>(null);
@@ -6665,68 +6672,29 @@ export default function App({
   );
 
   const launchQuickSession = useCallback(
-    async (launch: QuickLaunch, deliveryId: string) => {
-      // Rehydrate image previews in this webview; the floating panel sends paths.
-      const attachments = await prepareAttachments(launch.attachments ?? []);
-      const existing = sessionsRef.current.find(
-        (session) => session.id === deliveryId,
-      );
-      if (
-        existing?.quickLaunchAccepted ||
-        existing?.blocks.some((block) => block.role === "user")
-      )
-        return;
-      const session =
-        existing ??
-        applyQuickWorkspace(
-          newSession(
-            launch.harness,
-            launch.cwd,
-            launch.model,
-            launch.runtimeMode,
-          ),
-          launch,
-        );
-      session.id = deliveryId;
-      if (launch.modelSettings) {
-        session.modelSettings = mergeModelSettings(
-          resolveModel(session.harness, session.model),
-          launch.modelSettings,
-        );
-      }
-      if (!existing) {
-        const nextSessions = [...sessionsRef.current, session];
-        sessionsRef.current = nextSessions;
-        setSessions(nextSessions);
-        const tab = newTab(session.id);
-        appendTab(tab, launch.cwd);
-        if (launch.reveal) {
-          setActiveTabId(tab.id);
+    (launch: QuickLaunch, deliveryId: string) =>
+      acceptQuickLaunch(launch, deliveryId, {
+        getSessions: () => sessionsRef.current,
+        updateSessions: (update) => {
+          sessionsRef.current = update(sessionsRef.current);
+          // Compose with submission's queued transcript updates.
+          setSessions(update);
+        },
+        appendTab,
+        setProjectCwd,
+        setRecents,
+        revealTab: (id) => {
+          setActiveTabId(id);
           setComposerFocused(false);
           setSearchViewOpen(false);
           setInboxViewOpen(false);
           setNotesViewOpen(false);
           setAutomationsViewOpen(false);
           setSidebarTab("sessions");
-        }
-      }
-      if (!onSubmit(session.id, launch.prompt, attachments)) {
-        throw new Error(
-          "The workspace could not accept the queued session yet.",
-        );
-      }
-      const markAccepted = (items: Session[]) =>
-        items.map((item) =>
-          item.id === deliveryId
-            ? { ...item, quickLaunchAccepted: true }
-            : item,
-        );
-      sessionsRef.current = markAccepted(sessionsRef.current);
-      // Compose with onSubmit's queued transcript updates; never overwrite them
-      // with the pre-submit snapshot held by the ref.
-      setSessions(markAccepted);
-    },
-    [appendTab, onSubmit],
+        },
+        submit: submitSession,
+      }),
+    [appendTab, submitSession],
   );
   useQuickComposerLaunches(launchQuickSession);
 
