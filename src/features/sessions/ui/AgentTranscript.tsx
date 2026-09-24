@@ -61,7 +61,6 @@ import type { Attachment } from "../model/session";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
-import { displayPath, resolveWorkspacePath } from "../../../shared/lib/paths";
 import { resolveModel } from "../model/models";
 import { harnessForTurn } from "../model/secondOpinion";
 import { Shimmer } from "../../../shared/ui/Shimmer";
@@ -91,7 +90,6 @@ import {
   activityPhaseTitle,
   activityStillRunning,
   buildActivityPhases,
-  editVerb,
   firstFoldableIndex,
   foldableWork,
   foldedBlocks,
@@ -106,6 +104,7 @@ import {
   needsApproval,
   nestedScrollAbsorbsWheel,
   proseSummary,
+  resolveToolCallDisplay,
   subagentBrief,
   subagentModelName,
   subagentName,
@@ -3214,40 +3213,8 @@ function ToolCallSummary({
   failed?: boolean;
   status?: ToolCallState;
 }) {
-  const parts = label.match(/^(Read|Find|Skill|List|Edit|Write)\s+(.+)$/);
-  // A write preview carries the path itself, so edits get the same verb + file
-  // chip as reads rather than falling through to a raw label.
-  const writeTarget =
-    preview?.kind === "write"
-      ? preview.path
-        ? displayPath(preview.path, cwd)
-        : preview.fileName
-      : undefined;
-  const action =
-    parts?.[1] ??
-    (writeTarget ? editVerb(label) : undefined) ??
-    (/^read$/i.test(label.trim()) && (preview?.path || preview?.fileName)
-      ? "Read"
-      : /^find$/i.test(label.trim()) && preview?.query
-        ? "Find"
-        : /^list$/i.test(label.trim()) && (preview?.path || preview?.fileName)
-          ? "List"
-          : /^skill$/i.test(label.trim())
-            ? "Skill"
-            : undefined);
-  const target =
-    parts?.[2] ??
-    writeTarget ??
-    (action === "Read" ||
-    action === "List" ||
-    action === "Edit" ||
-    action === "Write"
-      ? preview?.path
-        ? displayPath(preview.path, cwd)
-        : preview?.fileName
-      : action === "Find"
-        ? preview?.query
-        : undefined);
+  const { action, target, fileName, filePath, isFile, previewMatchesFile } =
+    resolveToolCallDisplay(label, preview, cwd);
   if (!action || !target) {
     return (
       <span
@@ -3259,16 +3226,6 @@ function ToolCallSummary({
       </span>
     );
   }
-  const isFile = action !== "Find" && action !== "Skill";
-  const fileName =
-    preview?.fileName ||
-    target
-      .replace(/[/\\]+$/, "")
-      .split(/[/\\]/)
-      .filter(Boolean)
-      .pop() ||
-    "file";
-  const filePath = resolveWorkspacePath(preview?.path || target, cwd);
   const openFile =
     action === "Edit" || action === "Write"
       ? (onOpenDiff ?? onOpenFile)
@@ -3277,6 +3234,7 @@ function ToolCallSummary({
   const canPreview =
     interactive &&
     preview?.kind === "write" &&
+    previewMatchesFile &&
     (preview.contentOnly ||
       preview.lines?.some((line) => line.kind !== "context"));
   const actionTone = failed ? "text-red-400" : "text-content/50";
@@ -3317,7 +3275,7 @@ function ToolCallSummary({
                 ? `max-w-full bg-content/6 hover:bg-content/10 ${targetTone}`
                 : `flex-1 hover:underline ${targetTone}`
             }`}
-            title={preview?.path || target}
+            title={target}
             onClick={(event) => {
               event.stopPropagation();
               openFile?.(filePath);
@@ -3333,7 +3291,7 @@ function ToolCallSummary({
                 ? `max-w-full bg-content/6 ${targetTone}`
                 : `flex-1 ${targetTone}`
             }`}
-            title={preview?.path || target}
+            title={target}
           >
             <FileTypeIcon name={fileName} isDir={action === "List"} />
             <span className="min-w-0 truncate">{target}</span>

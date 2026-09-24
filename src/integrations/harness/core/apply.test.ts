@@ -220,6 +220,34 @@ describe("streamed markdown", () => {
     expect(session.blocks[2]).toMatchObject({ role: "assistant", text: "Next message." });
   });
 
+  it("keeps adjacent completed assistant messages in separate blocks", () => {
+    let session = newSession("codex", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "message.delta",
+      text: "- update the notes and commit",
+    });
+    session = applyHarnessEvent(session, { type: "message.completed" });
+    session = applyHarnessEvent(session, {
+      type: "message.delta",
+      text: "Connect returned an empty file for one image.",
+    });
+    session = applyHarnessEvent(session, { type: "message.completed" });
+
+    expect(session.blocks).toMatchObject([
+      {
+        role: "assistant",
+        text: "- update the notes and commit",
+        streaming: false,
+      },
+      {
+        role: "assistant",
+        text: "Connect returned an empty file for one image.",
+        streaming: false,
+      },
+    ]);
+    expect(session.blocks[0].id).not.toBe(session.blocks[1].id);
+  });
+
   it.each([false, true])("seals open prose at an interjection, with preceding status: %s", status => {
     let session = newSession("omp", "/tmp");
     session = applyHarnessEvent(session, { type: "message.delta", text: "contributor（" });

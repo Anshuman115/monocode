@@ -160,6 +160,7 @@ type Live = {
   initialized: boolean;
   emittedAssistant: string;
   emittedReasoning: string;
+  pendingAssistantBoundary: boolean;
   manualCompaction: boolean;
   compactionConfirmed: boolean;
 };
@@ -444,6 +445,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     initialized: false,
     emittedAssistant: "",
     emittedReasoning: "",
+    pendingAssistantBoundary: false,
     manualCompaction: false,
     compactionConfirmed: false,
   };
@@ -517,6 +519,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
 
   live.emittedAssistant = "";
   live.emittedReasoning = "";
+  live.pendingAssistantBoundary = false;
   live.toolsByIndex.clear();
   live.toolsById.clear();
   live.agentTasks.clear();
@@ -667,6 +670,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
   if (delta) {
     if (subagent) return;
     if (delta.kind === "assistant") {
+      closePendingAssistantMessage(live);
       live.emittedAssistant = joinStreamText(live.emittedAssistant, delta.text);
       live.onEvent({ type: "message.delta", text: delta.text });
     } else {
@@ -746,6 +750,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   if (used !== undefined) live.onEvent({ type: "context", used });
 
   const snapshot = assistantTextBlocks(rec).join("");
+  if (snapshot) closePendingAssistantMessage(live);
   const extra = snapshotRemainder(live.emittedAssistant, snapshot);
   if (extra) {
     live.emittedAssistant = joinStreamText(live.emittedAssistant, extra);
@@ -805,6 +810,18 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     }
     emitTaskListIfNeeded(live, tool.name, tool.input);
   }
+
+  // Each assistant record is one Claude message. Wait until the next message
+  // begins to close its UI block, so a backgrounded turn stays visibly live.
+  live.pendingAssistantBoundary = !!(snapshot || live.emittedAssistant);
+  live.emittedAssistant = "";
+  live.emittedReasoning = "";
+}
+
+function closePendingAssistantMessage(live: Live): void {
+  if (!live.pendingAssistantBoundary) return;
+  live.pendingAssistantBoundary = false;
+  live.onEvent({ type: "message.completed" });
 }
 
 function handleUser(live: Live, rec: Record<string, unknown>): void {
@@ -1437,6 +1454,7 @@ function noteClaudeTurnStarted(live: Live): void {
   // compared against what the earlier turn streamed.
   live.emittedAssistant = "";
   live.emittedReasoning = "";
+  live.pendingAssistantBoundary = false;
   // Close the message Claude left off with, so the reply starts its own and
   // the fold puts the earlier one away, the same as prose between tool calls.
   // A background command's row already sits between the two; a subagent's

@@ -304,6 +304,46 @@ describe("claude streamed tool inputs", () => {
   });
 });
 
+describe("claude assistant message boundaries", () => {
+  it("keeps a follow-up paragraph separate and does not replay its snapshot", async () => {
+    const { events, turn } = await startTurn("s1");
+    const progress = "- update the notes and commit";
+    const update =
+      "Connect returned an empty file for one image on one post. The catch-up skips it and carries on, and I'll include it in the final tally.";
+    for (const text of [progress, update]) {
+      emit({
+        type: "stream_event",
+        session_id: "sess_1",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text },
+        },
+      });
+      emit({
+        type: "assistant",
+        session_id: "sess_1",
+        message: { content: [{ type: "text", text }] },
+      });
+    }
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("claude", "/repo"),
+    );
+    expect(session.blocks.map((block) => block.text)).toEqual([
+      progress,
+      update,
+    ]);
+    expect(events.filter((event) => event.type === "message.delta")).toEqual([
+      { type: "message.delta", text: progress },
+      { type: "message.delta", text: update },
+    ]);
+  });
+});
+
 describe("claude model switching", () => {
   it("restarts a named account with the new model while resuming the provider conversation", async () => {
     const first = await startTurn("s1", {
