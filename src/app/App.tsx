@@ -337,6 +337,8 @@ import {
   sessionNeedsInput,
   newDefaultSession,
   newSession,
+  newSessionForProject,
+  retargetSessionToProject,
   removeSessionDraft,
   sessionDisplayTitle,
   sessionDraftBlock,
@@ -4583,19 +4585,23 @@ export default function App({
       setProjectCwd(normalized);
       setRecents(rememberProject(normalized));
       setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? {
-                ...s,
-                cwd: normalized,
-                branch: undefined,
-                worktreeCwd: undefined,
-                worktreeRemoved: undefined,
-                workspaceMode: undefined,
-                worktreeBase: undefined,
-              }
-            : s,
-        ),
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          // A blank session moving into a project adopts its provider defaults;
+          // a conversation keeps its own provider.
+          const base = isBlankSession(s)
+            ? retargetSessionToProject(s, normalized)
+            : s;
+          return {
+            ...base,
+            cwd: normalized,
+            branch: undefined,
+            worktreeCwd: undefined,
+            worktreeRemoved: undefined,
+            workspaceMode: undefined,
+            worktreeBase: undefined,
+          };
+        }),
       );
       // The session's project just moved in place; a group only holds tabs that
       // share one project, so drop this tab out if it no longer matches.
@@ -4845,13 +4851,7 @@ export default function App({
       }
 
       const seed = current ?? sessionsRef.current[0];
-      const session = newSession(
-        seed?.harness ?? "claude",
-        normalized,
-        seed?.model,
-        seed?.runtimeMode,
-        seed?.modelSettings,
-      );
+      const session = newSessionForProject(seed, normalized);
       const tab = newTab(session.id);
       setProjectCwd(normalized);
       setRecents(rememberProject(normalized));
