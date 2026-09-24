@@ -361,20 +361,20 @@ describe("collapsed project rail setting", () => {
     localStorage.removeItem(COLLAPSED_PROJECT_RAIL_MODE_KEY);
   });
 
-  it("defaults to the previously shipped hidden rail", () => {
-    expect(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT).toBe("hidden");
-    expect(loadCollapsedProjectRailMode()).toBe("hidden");
+  it("defaults to the icon rail", () => {
+    expect(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT).toBe("compact");
+    expect(loadCollapsedProjectRailMode()).toBe("compact");
   });
 
-  it("persists the compact mode and ignores unknown values", () => {
-    saveCollapsedProjectRailMode("compact");
+  it("persists the hidden mode and ignores unknown values", () => {
+    saveCollapsedProjectRailMode("hidden");
     expect(localStorage.getItem(COLLAPSED_PROJECT_RAIL_MODE_KEY)).toBe(
-      "compact",
+      "hidden",
     );
-    expect(loadCollapsedProjectRailMode()).toBe("compact");
+    expect(loadCollapsedProjectRailMode()).toBe("hidden");
 
     localStorage.setItem(COLLAPSED_PROJECT_RAIL_MODE_KEY, "floating");
-    expect(loadCollapsedProjectRailMode()).toBe("hidden");
+    expect(loadCollapsedProjectRailMode()).toBe("compact");
   });
 });
 

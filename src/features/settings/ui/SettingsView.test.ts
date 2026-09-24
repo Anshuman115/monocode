@@ -356,7 +356,7 @@ describe("settings pages", () => {
     expect(localStorage.getItem("monocode.tabAnimationsEnabled")).toBe("1");
   });
 
-  it("lets users opt into the compact project rail", async () => {
+  it("defaults to the icon rail and lets users hide it", async () => {
     await render("appearance");
     let control = container.querySelector<HTMLElement>(
       '[role="radiogroup"][aria-label="Collapsed project rail"]',
@@ -365,14 +365,14 @@ describe("settings pages", () => {
       control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
     );
 
-    expect(iconRail?.getAttribute("aria-checked")).toBe("false");
-    expect(hidden?.getAttribute("aria-checked")).toBe("true");
-
-    await act(async () => iconRail?.click());
-
     expect(iconRail?.getAttribute("aria-checked")).toBe("true");
+    expect(hidden?.getAttribute("aria-checked")).toBe("false");
+
+    await act(async () => hidden?.click());
+
+    expect(hidden?.getAttribute("aria-checked")).toBe("true");
     expect(localStorage.getItem("monocode.collapsedProjectRailMode")).toBe(
-      "compact",
+      "hidden",
     );
 
     await act(async () => root.unmount());
@@ -385,8 +385,8 @@ describe("settings pages", () => {
     [iconRail, hidden] = Array.from(
       control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
     );
-    expect(iconRail?.getAttribute("aria-checked")).toBe("true");
-    expect(hidden?.getAttribute("aria-checked")).toBe("false");
+    expect(iconRail?.getAttribute("aria-checked")).toBe("false");
+    expect(hidden?.getAttribute("aria-checked")).toBe("true");
   });
 
   it("reports collapsed project rail changes to the app shell", async () => {

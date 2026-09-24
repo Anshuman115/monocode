@@ -539,7 +539,7 @@ export function saveTabAnimationsEnabled(value: boolean) {
 export type CollapsedProjectRailMode = "compact" | "hidden";
 
 export const COLLAPSED_PROJECT_RAIL_MODE_DEFAULT: CollapsedProjectRailMode =
-  "hidden";
+  "compact";
 
 export const COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT =
   "monocode:collapsed-project-rail-mode-change";
