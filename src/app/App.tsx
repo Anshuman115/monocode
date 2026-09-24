@@ -106,7 +106,10 @@ import {
   zoomOutUiScale,
 } from "../features/settings/model/uiScale";
 import { runUpdateFlow } from "./model/updater";
-import { displayAttachments, prepareAttachments } from "../features/sessions/model/attachments";
+import {
+  displayAttachments,
+  prepareAttachments,
+} from "../features/sessions/model/attachments";
 import {
   basename,
   notifyGitChanged,
@@ -167,7 +170,10 @@ import {
   type SplitDir,
   type WorkspaceTab,
 } from "../features/workspace/model/layout";
-import { releaseNotesForVersion, releaseNotesTitle } from "./model/releaseNotes";
+import {
+  releaseNotesForVersion,
+  releaseNotesTitle,
+} from "./model/releaseNotes";
 import { mergeOrderedSubset, orderByIds } from "../shared/lib/reorder";
 import {
   addTerminalToDock,
@@ -273,8 +279,14 @@ import {
   sessionCheckpointCleanupSafe,
 } from "../features/sessions/model/checkpoint";
 import { notifyDirsChanged } from "../features/files/model/fileTree";
-import { invalidateWatchedFiles, nudgeWatchedFiles } from "../features/files/model/fileWatch";
-import { type EditorNavigationTarget, type OpenFileFn } from "../features/search/model/search";
+import {
+  invalidateWatchedFiles,
+  nudgeWatchedFiles,
+} from "../features/files/model/fileWatch";
+import {
+  type EditorNavigationTarget,
+  type OpenFileFn,
+} from "../features/search/model/search";
 import {
   mergeModelSettings,
   preferredModelSettings,
@@ -434,7 +446,10 @@ import {
   type TabVisitHistory,
 } from "../features/workspace/model/tabVisitHistory";
 import { preparePrompt } from "../features/sessions/model/promptPreparation";
-import { warmNativeSkills, isNativeCommandPrompt } from "../features/skills/model/skills";
+import {
+  warmNativeSkills,
+  isNativeCommandPrompt,
+} from "../features/skills/model/skills";
 import { nativeSkillContextForSession } from "../features/sessions/model/sessionSkills";
 import {
   loadSessionFolders,
@@ -471,7 +486,10 @@ import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
 import { SearchView } from "../features/search/ui/SearchView";
 import { requestTranscriptJump } from "../features/sessions/model/transcriptJump";
-import { SettingsView, type SettingsAnchor } from "../features/settings/ui/SettingsView";
+import {
+  SettingsView,
+  type SettingsAnchor,
+} from "../features/settings/ui/SettingsView";
 import type { ConnectableInboxSource } from "../features/inbox/model/inboxFilters";
 import { InboxView, LinkedWorkItemPanel } from "../features/inbox/ui/InboxView";
 import type { InboxSessionPortal } from "../features/inbox/ui/InboxDiscussionPanel";
@@ -497,7 +515,10 @@ import {
 import type { LinkedSessionUpdate } from "../features/inbox/model/linkedSessionUpdates";
 import { markLinkedSessionUpdateSeen } from "../features/inbox/model/linkedSessionSeen";
 import { inboxTrackerDescription } from "../features/inbox/model/inboxContext";
-import { gitlabWorkItemDetails, peekGitlabWorkItemDetails } from "../features/inbox/model/gitlab";
+import {
+  gitlabWorkItemDetails,
+  peekGitlabWorkItemDetails,
+} from "../features/inbox/model/gitlab";
 import {
   azureDevOpsWorkItemDetails,
   peekAzureDevOpsWorkItemDetails,
@@ -1358,7 +1379,8 @@ export default function App({
     if (
       active?.harness === "claude" ||
       active?.harness === "codex" ||
-      active?.harness === "opencode"
+      active?.harness === "opencode" ||
+      active?.harness === "command-code"
     ) {
       return [active.harness];
     }
@@ -5875,7 +5897,9 @@ export default function App({
             const draftRemoved = draftBlock
               ? {
                   ...s,
-                  blocks: s.blocks.filter((block) => block.id !== draftBlock.id),
+                  blocks: s.blocks.filter(
+                    (block) => block.id !== draftBlock.id,
+                  ),
                 }
               : s;
             const selected = options?.buildTarget
@@ -6170,11 +6194,7 @@ export default function App({
           }
           if (turnGen.current.get(sessionId) !== gen) return;
           const latest = sessionsRef.current.find((s) => s.id === sessionId);
-          const brief = chooseHandoffBrief(
-            agentText,
-            latest ?? current,
-            text,
-          );
+          const brief = chooseHandoffBrief(agentText, latest ?? current, text);
           await forgetHarnessSession(pendingSwitch.from, sessionId);
           if (turnGen.current.get(sessionId) !== gen) return;
           wrap = { from: pendingSwitch.from, to: current.harness, text: brief };
@@ -6305,10 +6325,7 @@ export default function App({
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
-          if (
-            editedResend &&
-            canRewindHarnessLastTurn(current.harness)
-          ) {
+          if (editedResend && canRewindHarnessLastTurn(current.harness)) {
             try {
               await rewindHarnessLastTurn({
                 harness: current.harness,
@@ -8264,11 +8281,7 @@ export default function App({
   );
 
   const onRepairChecks = useCallback(
-    async (
-      item: InboxItem,
-      request: CiRepairRequest,
-      sessionId?: string,
-    ) => {
+    async (item: InboxItem, request: CiRepairRequest, sessionId?: string) => {
       const cwd = item.projectPath;
       if (!cwd) throw new Error("Choose a local project for this PR first.");
       let session = sessionId ? await ensureOpenSession(sessionId) : undefined;
@@ -8529,10 +8542,13 @@ export default function App({
         prefetchAhead();
         if (!session || session.inboxAsk) return;
         if (activeTabIdRef.current !== activeTabId) return;
-        const currentTab = tabsRef.current.find((tab) => tab.id === activeTabId);
+        const currentTab = tabsRef.current.find(
+          (tab) => tab.id === activeTabId,
+        );
         if (currentTab?.focusedId !== focusedId) return;
-        setTabs((prev) =>
-          switchSessionInTab(prev, activeTabId, focusedId, next) ?? prev,
+        setTabs(
+          (prev) =>
+            switchSessionInTab(prev, activeTabId, focusedId, next) ?? prev,
         );
         setComposerFocused(true);
         const linkedUpdate = linkedSessionUpdatesRef.current.get(next);
@@ -9368,7 +9384,8 @@ export default function App({
                   onToggleSidebar={onToggleSidebar}
                   onOpenFile={onOpenFile}
                   onOpenSession={(sessionId, blockId, query) => {
-                    if (blockId) requestTranscriptJump(sessionId, blockId, query);
+                    if (blockId)
+                      requestTranscriptJump(sessionId, blockId, query);
                     void onSelectHistorySession(sessionId);
                   }}
                   onOpenProject={onSelectProject}
