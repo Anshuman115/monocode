@@ -394,6 +394,7 @@ pub fn run() {
             harness::harness_resolve_codex,
             harness::harness_resolve_opencode,
             harness::harness_resolve_claude,
+            harness::harness_resolve_command_code,
             harness::harness_resolve_omp,
             harness::harness_resolve_pi,
             harness::harness_resolve_fx,

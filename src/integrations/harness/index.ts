@@ -52,6 +52,14 @@ export {
   bindClaudeSession,
 } from "./providers/claude/claude";
 export {
+  sendCommandCodeTurn,
+  cancelCommandCodeTurn,
+  respondCommandCodeApproval,
+  stopCommandCodeSession,
+  forgetCommandCodeSession,
+  bindCommandCodeSession,
+} from "./providers/command-code/commandCode";
+export {
   sendPiTurn,
   compactPiContext,
   rewindPiLastTurn,
@@ -141,6 +149,7 @@ export { refreshCursorCatalog } from "./providers/cursor/cursorCatalog";
 export { refreshCodexCatalog } from "./providers/codex/codexCatalog";
 export { refreshOpenCodeCatalog } from "./providers/opencode/opencodeCatalog";
 export { refreshClaudeCatalog } from "./providers/claude/claudeCatalog";
+export { refreshCommandCodeCatalog } from "./providers/command-code/commandCodeCatalog";
 export { refreshPiCatalog, refreshOmpCatalog } from "./providers/pi/piCatalog";
 export { refreshFxCatalog } from "./providers/fx/fxCatalog";
 export { refreshGrokCatalog } from "./providers/grok/grokCatalog";
@@ -157,6 +166,7 @@ export {
 } from "./core/availability";
 export {
   getHarness,
+  getHarnessCapabilities,
   requireHarness,
   isLiveHarness,
   sendHarnessTurn,
@@ -190,4 +200,20 @@ export type {
   UserQuestionPrompt,
   UserQuestionReply,
 } from "../../features/sessions/model/userQuestion";
-export type { HarnessAdapter } from "./core/registry";
+export type { HarnessAdapter, HarnessCapabilities } from "./core/registry";
+export {
+  commandCodeImportKey,
+  commandCodeTranscriptImporter,
+  parseCommandCodeTranscript,
+  parseCommandCodeTranscriptLines,
+  parseCommandCodeTranscriptRecords,
+} from "./providers/command-code/commandCodeTranscript";
+export type {
+  ImportedTranscriptMessage,
+  ProviderNeutralImportedSession,
+  TranscriptImporter,
+} from "./core/sessionImport";
+export {
+  getTranscriptImporter,
+  registerTranscriptImporter,
+} from "./core/sessionImport";

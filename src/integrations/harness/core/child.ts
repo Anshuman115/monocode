@@ -299,6 +299,10 @@ export function resolveClaudeBinary(): Promise<{ path: string }> {
   return invoke("harness_resolve_claude");
 }
 
+export function resolveCommandCodeBinary(): Promise<{ path: string }> {
+  return invoke("harness_resolve_command_code");
+}
+
 export function resolvePiBinary(): Promise<{ path: string }> {
   return invoke("harness_resolve_pi");
 }
