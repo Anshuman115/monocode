@@ -1,3 +1,9 @@
+import type { CiRepairRequest } from "../features/inbox/model/ciRepair";
+import { ciRepairSessions } from "../features/inbox/model/ciRepairSessions";
+import {
+  rebaseCiRepairs,
+  trackCiRepair,
+} from "../features/inbox/model/ciRepairTracking";
 import { invoke } from "@tauri-apps/api/core";
 import {
   orchestrationCheckoutCwd,
@@ -446,11 +452,9 @@ import {
 import { claimInboxAutomationRuns } from "../features/automations/model/automationEvents";
 import {
   SECOND_OPINION_TITLE,
-  buildSecondOpinionCard,
-  buildSecondOpinionPrompt,
+  buildSecondOpinionRequest,
   harnessForTurn,
   turnEditedFiles,
-  turnReport,
   turnUserRequest,
 } from "../features/sessions/model/secondOpinion";
 import { PaneTree } from "../features/workspace/ui/PaneTree";
@@ -561,6 +565,9 @@ type LinkedWorkItemPanelState = {
 };
 
 type SubmitOptions = ComposerTurnOptions & {
+  ciRepair?: CiRepairRequest;
+  /** Saved alongside the user turn; does not replace the submitted prompt. */
+  ciContext?: string;
   secondOpinion?: SecondOpinionMeta;
   followUpBehavior?: FollowUpBehavior;
   noteCard?: NoteComposerCard;
@@ -5062,6 +5069,7 @@ export default function App({
   const applyProjectLocationChange = useCallback(
     async (from: string, to: string) => {
       await rebaseProjectSessions(from, to);
+      rebaseCiRepairs(from, to);
 
       const nextSessions = sessionsRef.current.map((session) =>
         sameProjectPath(session.cwd, from) ? { ...session, cwd: to } : session,
@@ -5499,6 +5507,14 @@ export default function App({
         return false;
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
       if (
+        options?.ciRepair &&
+        storedCurrent &&
+        (storedCurrent.busy ||
+          storedCurrent.pendingSwitch ||
+          isPreparingHandoff(storedCurrent))
+      )
+        return false;
+      if (
         !storedCurrent ||
         storedCurrent.worktreeRemoved ||
         [...removingWorktreePaths.current].some((path) =>
@@ -5606,9 +5622,12 @@ export default function App({
       }
       const submittedText = intent === "build" ? "Build approved plan" : text;
       const rawCommand = isNativeCommandPrompt(submittedText, current.harness);
-      const harnessText = rawCommand
-        ? submittedText
-        : composeNoteMessage(noteCard, submittedText);
+      const ciContext = options?.ciRepair?.prompt ?? options?.ciContext;
+      const harnessText =
+        options?.ciRepair?.prompt ??
+        (rawCommand
+          ? submittedText
+          : composeNoteMessage(noteCard, submittedText));
 
       const pendingSwitch =
         current.pendingSwitch && current.pendingSwitch.from !== current.harness
@@ -5747,10 +5766,20 @@ export default function App({
             if (location.moved) {
               await applyProjectLocationChange(current.cwd, location.path);
             }
-            submitAfterProjectSyncRef.current(sessionId, text, attachments, {
-              ...options,
-              projectLocationReady: true,
-            });
+            const accepted = submitAfterProjectSyncRef.current(
+              sessionId,
+              text,
+              attachments,
+              { ...options, projectLocationReady: true },
+            );
+            if (!accepted) {
+              editedResend?.reject();
+              options?.onSettled?.({
+                status: "failed",
+                text: "",
+                error: "The chat became unavailable before the request could start. Try again when it is ready.",
+              });
+            }
           })
           .catch((error: unknown) => {
             const message =
@@ -5821,6 +5850,7 @@ export default function App({
             : submittedText;
       const cards = {
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
+        ...(ciContext ? { ciContext } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
       };
@@ -5853,9 +5883,12 @@ export default function App({
               worktreePreparing: createDraftWorktree
                 ? true
                 : selected.worktreePreparing,
-              inboxCard: rawCommand ? s.inboxCard : undefined,
-              noteCard: rawCommand ? s.noteCard : undefined,
-              handoffCard: rawCommand ? s.handoffCard : undefined,
+              inboxCard:
+                rawCommand || options?.ciRepair ? s.inboxCard : undefined,
+              noteCard:
+                rawCommand || options?.ciRepair ? s.noteCard : undefined,
+              handoffCard:
+                rawCommand || options?.ciRepair ? s.handoffCard : undefined,
             };
             if (editedResend) {
               next = editedResend.replace(next);
@@ -6134,7 +6167,8 @@ export default function App({
           const latest = sessionsRef.current.find((s) => s.id === sessionId);
           const brief = chooseHandoffBrief(
             agentText,
-            buildDeterministicHandoff(latest ?? current, text),
+            latest ?? current,
+            text,
           );
           await forgetHarnessSession(pendingSwitch.from, sessionId);
           if (turnGen.current.get(sessionId) !== gen) return;
@@ -7035,13 +7069,11 @@ export default function App({
       const { harness, model, modelSettings } = target;
       const cwd = sessionWorkCwd(source);
       const from = harnessForTurn(source.blocks, turn, source.harness);
-      const userRequest = turnUserRequest(turn);
-      const files = turnEditedFiles(turn, cwd);
-      const prompt = buildSecondOpinionPrompt({
+      const request = buildSecondOpinionRequest({
         from,
-        userRequest,
-        report: turnReport(turn),
-        files,
+        to: harness,
+        turn,
+        cwd,
       });
       const session = {
         ...newSession(harness, source.cwd, model, source.runtimeMode),
@@ -7054,14 +7086,7 @@ export default function App({
         title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
       };
       openSessionBeside(sourceId, session, source.cwd);
-      onSubmit(session.id, prompt, [], {
-        secondOpinion: buildSecondOpinionCard({
-          from,
-          to: harness,
-          userRequest,
-          files,
-        }),
-      });
+      onSubmit(session.id, request.prompt, [], request.options);
     },
     [onSubmit, openSessionBeside],
   );
@@ -8027,6 +8052,10 @@ export default function App({
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     );
   }, [history, sessions, storedLinkedSessions]);
+  const repairSessions = useMemo(
+    () => ciRepairSessions(history, sessions),
+    [history, sessions],
+  );
   const openProjectSessions = useMemo(
     () =>
       sessions
@@ -8174,6 +8203,65 @@ export default function App({
       void onSelectHistorySession(sessionId);
     },
     [onSelectHistorySession],
+  );
+
+  const onRepairChecks = useCallback(
+    async (
+      item: InboxItem,
+      request: CiRepairRequest,
+      sessionId?: string,
+    ) => {
+      const cwd = item.projectPath;
+      if (!cwd) throw new Error("Choose a local project for this PR first.");
+      let session = sessionId ? await ensureOpenSession(sessionId) : undefined;
+      if (
+        sessionId &&
+        (!session ||
+          session.inboxAsk ||
+          session.orchestrationLeadId ||
+          !sameProjectPath(session.cwd, cwd))
+      ) {
+        throw new Error("Choose a chat from this project.");
+      }
+      if (
+        session &&
+        (session.busy || session.pendingSwitch || isPreparingHandoff(session))
+      ) {
+        throw new Error(
+          "This chat is busy. Choose another chat or start a new one.",
+        );
+      }
+      if (!session) {
+        session = {
+          ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+          title: `Fix CI #${item.number}: ${item.title}`,
+          linkedWorkItem: linkedWorkItemFromInboxItem(item) ?? undefined,
+        };
+        const next = [...sessionsRef.current, session];
+        sessionsRef.current = next;
+        setSessions(next);
+      }
+      const repairSessionId = session.id;
+      trackCiRepair(cwd, request, repairSessionId, (settle) =>
+        onSubmit(repairSessionId, request.text, [], {
+          ciRepair: request,
+          noteCard: undefined,
+          handoffCard: undefined,
+          onSettled: (outcome) => settle(outcome.status),
+        }),
+      );
+      setInboxViewOpen(false);
+      setNotesViewOpen(false);
+      setSearchViewOpen(false);
+      setSidebarTab("sessions");
+      await onSelectHistorySession(session.id);
+    },
+    [
+      ensureOpenSession,
+      onSubmit,
+      onSelectHistorySession,
+      sessionDefaults?.runtimeMode,
+    ],
   );
 
   const onOpenNotes = useCallback(() => {
@@ -9185,6 +9273,12 @@ export default function App({
                   </div>
                   {[...linkedWorkItemPanels.values()].map((panel) => (
                     <LinkedWorkItemPanel
+                      repairSessions={repairSessions}
+                      onRepairChecks={onRepairChecks}
+                      onOpenSession={(sessionId) => {
+                        closeLinkedWorkItemPanel(panel.sessionId);
+                        onOpenInboxSession(sessionId);
+                      }}
                       key={panel.sessionId}
                       target={panel.item}
                       cwd={panel.cwd}
@@ -9259,6 +9353,8 @@ export default function App({
                   onAskRestart={onRestartInboxAsk}
                   onAskMount={setInboxAskPortal}
                   sessions={inboxRelatedSessions}
+                  repairSessions={repairSessions}
+                  onRepairChecks={onRepairChecks}
                   onOpenSession={onOpenInboxSession}
                   onOpenIntegrations={onOpenInboxIntegrations}
                 />
