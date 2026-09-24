@@ -1,3 +1,9 @@
+import { acceptQuickLaunch } from "./model/quickLaunchSession";
+import { submitWithSettlement } from "./model/managedSubmission";
+import {
+  submitAfterProjectSync,
+  type SubmissionAcceptance,
+} from "./model/submissionAcceptance";
 import type { CiRepairRequest } from "../features/inbox/model/ciRepair";
 import { ciRepairSessions } from "../features/inbox/model/ciRepairSessions";
 import {
@@ -449,6 +455,8 @@ import {
   type Automation,
   type AutomationRun,
 } from "../features/automations/model/automations";
+import { useQuickComposerLaunches } from "../features/quick-composer/hooks/useQuickComposerLaunches";
+import type { QuickLaunch } from "../features/quick-composer/model/quickComposer";
 import { claimInboxAutomationRuns } from "../features/automations/model/automationEvents";
 import {
   SECOND_OPINION_TITLE,
@@ -589,7 +597,7 @@ type Submit = (
   text: string,
   attachments?: Attachment[],
   options?: SubmitOptions,
-) => boolean;
+) => SubmissionAcceptance;
 
 function withPlanStatus(
   session: Session,
@@ -5466,13 +5474,13 @@ export default function App({
     [invalidateLoadedSession],
   );
 
-  const onSubmit = useCallback(
+  const submitSession = useCallback(
     (
       sessionId: string,
       text: string,
       attachments: Attachment[] = [],
       options?: SubmitOptions,
-    ) => {
+    ): SubmissionAcceptance => {
       if (editedResends.isActive(sessionId)) return false;
       const controlError = orchestrator.submissionError(
         sessionId,
@@ -5756,17 +5764,12 @@ export default function App({
             () => projectLocationSyncs.current.delete(key),
           );
         }
-        void sync
-          .then(async (location) => {
-            if (!location) {
-              throw new Error(
-                `Project folder not found: ${displayPath(current.cwd)}. Reopen the folder to reconnect it.`,
-              );
-            }
-            if (location.moved) {
-              await applyProjectLocationChange(current.cwd, location.path);
-            }
-            const accepted = submitAfterProjectSyncRef.current(
+        return submitAfterProjectSync({
+          cwd: current.cwd,
+          sync,
+          applyLocationChange: applyProjectLocationChange,
+          submit: async () => {
+            const accepted = await submitAfterProjectSyncRef.current(
               sessionId,
               text,
               attachments,
@@ -5777,11 +5780,13 @@ export default function App({
               options?.onSettled?.({
                 status: "failed",
                 text: "",
-                error: "The chat became unavailable before the request could start. Try again when it is ready.",
+                error:
+                  "The chat became unavailable before the request could start. Try again when it is ready.",
               });
             }
-          })
-          .catch((error: unknown) => {
+            return accepted;
+          },
+          onError: (error: unknown) => {
             const message =
               error instanceof Error
                 ? error.message
@@ -5797,8 +5802,8 @@ export default function App({
               text: "",
               error: message,
             });
-          });
-        return true;
+          },
+        });
       }
 
       const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
@@ -6562,7 +6567,19 @@ export default function App({
       flushHarnessEvents,
     ],
   );
-  submitAfterProjectSyncRef.current = onSubmit;
+  submitAfterProjectSyncRef.current = submitSession;
+  // Interactive callers use the immediate result to clear their composer. The
+  // queued-launch receiver uses submitSession to await the actual acceptance.
+  const onSubmit = useCallback(
+    (...args: Parameters<Submit>): boolean => {
+      const result = submitSession(...args);
+      if (typeof result === "boolean") return result;
+      // Deferred errors have already been displayed by submitAfterProjectSync.
+      void result.catch(() => undefined);
+      return true;
+    },
+    [submitSession],
+  );
 
   const automationSessionReservations = useRef(new Set<string>());
   const automationRecoveryRef = useRef<Promise<void> | null>(null);
@@ -6581,6 +6598,7 @@ export default function App({
       const releaseReservation = () => {
         if (!reservationId) return;
         automationSessionReservations.current.delete(reservationId);
+        reservationId = undefined;
       };
       try {
         const eventRun = run.trigger === "event";
@@ -6681,8 +6699,17 @@ export default function App({
         await updateAutomationRun(run.id, "running", {
           sessionId: session.id,
         });
-        const accepted = onSubmit(session.id, prompt, [], {
-          refreshTitle: eventRun,
+        // From here the settlement callback owns reservation cleanup, including
+        // a rejected submission that never starts an agent turn.
+        releaseAfterSettle = true;
+        await submitWithSettlement({
+          submit: (onSettled) =>
+            submitSession(session.id, prompt, [], {
+              refreshTitle: eventRun,
+              onSettled,
+            }),
+          rejectionMessage:
+            "The selected agent session could not start this run.",
           onSettled: (outcome) => {
             const status =
               outcome.status === "completed"
@@ -6698,14 +6725,6 @@ export default function App({
               .finally(releaseReservation);
           },
         });
-        if (!accepted) {
-          await updateAutomationRun(run.id, "failed", {
-            sessionId: session.id,
-            error: "The selected agent session could not start this run.",
-          });
-        } else {
-          releaseAfterSettle = true;
-        }
       } catch (reason: unknown) {
         await updateAutomationRun(run.id, "failed", {
           error: reason instanceof Error ? reason.message : String(reason),
@@ -6715,8 +6734,35 @@ export default function App({
         if (!releaseAfterSettle) releaseReservation();
       }
     },
-    [appendTab, focusOpenSession, onSubmit],
+    [appendTab, focusOpenSession, submitSession],
   );
+
+  const launchQuickSession = useCallback(
+    (launch: QuickLaunch, deliveryId: string) =>
+      acceptQuickLaunch(launch, deliveryId, {
+        getSessions: () => sessionsRef.current,
+        updateSessions: (update) => {
+          sessionsRef.current = update(sessionsRef.current);
+          // Compose with submission's queued transcript updates.
+          setSessions(update);
+        },
+        appendTab,
+        setProjectCwd,
+        setRecents,
+        revealTab: (id) => {
+          setActiveTabId(id);
+          setComposerFocused(false);
+          setSearchViewOpen(false);
+          setInboxViewOpen(false);
+          setNotesViewOpen(false);
+          setAutomationsViewOpen(false);
+          setSidebarTab("sessions");
+        },
+        submit: submitSession,
+      }),
+    [appendTab, submitSession],
+  );
+  useQuickComposerLaunches(launchQuickSession);
 
   const ensureAutomationRecovery = useCallback(() => {
     if (!automationRecoveryRef.current) {
@@ -7670,11 +7716,23 @@ export default function App({
         return true;
       },
       submit: (id, text, done) => {
-        // Commit the new turn before the scheduler or confirmation updates
-        // another session snapshot in the same event loop.
-        flushSync(() =>
-          onSubmit(id, text, [], { managed: true, onSettled: done }),
-        );
+        void submitWithSettlement({
+          submit: (onSettled) => {
+            let acceptance: SubmissionAcceptance = false;
+            // Commit an immediate turn before another scheduler update. A
+            // deferred submission flushes its own turn after synchronization.
+            flushSync(() => {
+              acceptance = submitSession(id, text, [], {
+                managed: true,
+                onSettled,
+              });
+            });
+            return acceptance;
+          },
+          onSettled: done,
+          rejectionMessage:
+            "The selected agent session could not accept this turn.",
+        }).catch(console.error);
       },
       steer: async (id, text) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
@@ -7734,7 +7792,7 @@ export default function App({
         }
       },
     });
-  }, [checkOpenWorktreeFiles, onSubmit, onStop]);
+  }, [checkOpenWorktreeFiles, submitSession, onStop]);
 
   useEffect(() => {
     orchestrator.sync();
