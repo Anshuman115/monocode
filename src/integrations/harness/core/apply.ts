@@ -680,10 +680,10 @@ function patchStreaming(
   )
     index--;
   const last = session.blocks[index];
-  if (
-    last?.role === role &&
-    (index === session.blocks.length - 1 || last.streaming)
-  ) {
+  // A completion closes one provider message. The next delta is a new message
+  // even when no tool or status row landed between them; joining the two can
+  // turn separate Markdown blocks into text such as `commitConnect`.
+  if (last?.role === role && last.streaming) {
     const nextText = joinStreamText(last.text, text);
     if (nextText === last.text && last.streaming === streaming) return session;
     const blocks = session.blocks.slice();
