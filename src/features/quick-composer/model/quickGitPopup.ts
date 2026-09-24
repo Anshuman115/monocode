@@ -15,4 +15,5 @@ export type QuickGitResult = {
   id: string;
   choice?: QuickWorkspace;
   restoreFocus: boolean;
+  triggerKind?: QuickGitKind | null;
 };

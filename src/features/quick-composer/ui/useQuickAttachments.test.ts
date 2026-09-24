@@ -169,3 +169,31 @@ it("shows a recoverable error when persisting a pasted image fails", async () =>
   expect(api.loading).toBe(false);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
 });
+
+it("releases discarded screenshots without releasing the remaining draft", async () => {
+  await act(async () => {
+    await api.takeScreenshot();
+  });
+  const id = api.files[0].id;
+  act(() => api.remove(id));
+  expect(invoke).toHaveBeenCalledWith("quick_composer_release_capture", {
+    paths: ["/tmp/Screenshot.png"],
+  });
+  expect(api.files).toHaveLength(0);
+});
+
+it("releases a capture when image inspection fails", async () => {
+  const impl = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "inspect_paths") throw new Error("Cannot decode capture");
+    if (command === "quick_composer_release_capture") return undefined;
+    return impl(command, args);
+  });
+  await act(async () => {
+    await api.takeScreenshot();
+  });
+  expect(api.files).toHaveLength(0);
+  expect(invoke).toHaveBeenCalledWith("quick_composer_release_capture", {
+    paths: ["/tmp/Screenshot.png"],
+  });
+});

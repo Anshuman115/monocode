@@ -1,5 +1,7 @@
 use std::sync::Mutex;
 
+use objc2::MainThreadMarker;
+use objc2_app_kit::{NSApplication, NSEvent, NSEventType};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use serde::{Deserialize, Serialize};
 use tauri::window::{Effect, EffectState, EffectsBuilder};
@@ -199,7 +201,7 @@ pub fn quick_git_complete(
     }
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        complete(&handle, Some(&id), choice, restore_focus);
+        complete(&handle, Some(&id), choice, restore_focus, false);
     })
     .map_err(|err| err.to_string())
 }
@@ -209,6 +211,7 @@ fn complete(
     id: Option<&str>,
     choice: Option<serde_json::Value>,
     restore_focus: bool,
+    blur: bool,
 ) {
     let state = app.state::<PopupState>();
     let request = {
@@ -230,12 +233,34 @@ fn complete(
         if restore_focus && parent.is_visible().unwrap_or(false) {
             super::present(&parent);
         }
-        let _ = parent.emit("quick_git_result", serde_json::json!({ "id": request.id, "choice": choice, "restoreFocus": restore_focus }));
+        let trigger_click = blur
+            && MainThreadMarker::new().is_some_and(|mtm| {
+                NSApplication::sharedApplication(mtm)
+                    .currentEvent()
+                    .is_some_and(|event| event.r#type() == NSEventType::LeftMouseDown)
+                    && crate::macos::ns_window(&parent).is_some_and(|window| {
+                        over_trigger(window.frame(), &request.anchor, NSEvent::mouseLocation())
+                    })
+            });
+        let _ = parent.emit(
+            "quick_git_result",
+            serde_json::json!({ "id": request.id, "choice": choice, "restoreFocus": restore_focus,
+            "triggerKind": if trigger_click { Some(request.kind) } else { None } }),
+        );
     }
 }
 
+fn over_trigger(parent: NSRect, anchor: &Anchor, point: NSPoint) -> bool {
+    let left = parent.origin.x + anchor.x;
+    let top = parent.origin.y + parent.size.height - anchor.y;
+    point.x >= left
+        && point.x <= left + anchor.width
+        && point.y <= top
+        && point.y >= top - anchor.height
+}
+
 pub(super) fn dismiss(app: &AppHandle, restore_focus: bool) {
-    complete(app, None, None, restore_focus);
+    complete(app, None, None, restore_focus, false);
 }
 
 #[tauri::command]
@@ -300,7 +325,7 @@ pub(super) fn prepare(app: &AppHandle, parent: &WebviewWindow) -> tauri::Result<
             && blurred.is_visible().unwrap_or(false)
             && !blurred.is_focused().unwrap_or(false)
         {
-            dismiss(&handle, false);
+            complete(&handle, None, None, false, true);
         }
     });
     Ok(popup)
@@ -309,6 +334,20 @@ pub(super) fn prepare(app: &AppHandle, parent: &WebviewWindow) -> tauri::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn blur_only_marks_a_click_inside_the_current_trigger() {
+        let parent = NSRect::new(NSPoint::new(-600.0, 400.0), NSSize::new(680.0, 140.0));
+        let anchor = Anchor {
+            x: 30.0,
+            y: 10.0,
+            width: 100.0,
+            height: 24.0,
+        };
+        assert!(over_trigger(parent, &anchor, NSPoint::new(-550.0, 520.0)));
+        assert!(!over_trigger(parent, &anchor, NSPoint::new(-400.0, 520.0)));
+        assert!(!over_trigger(parent, &anchor, NSPoint::new(-550.0, 490.0)));
+    }
+
     #[test]
     fn request_preserves_the_composers_branch_snapshot() {
         let value = serde_json::json!({

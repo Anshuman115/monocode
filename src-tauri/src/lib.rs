@@ -17,6 +17,8 @@ mod linear;
 mod link_preview;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_background;
 mod menu;
 mod notes;
 mod notifications;
@@ -465,6 +467,10 @@ pub fn run() {
             quick_composer::quick_composer_submit,
             #[cfg(target_os = "macos")]
             quick_composer::quick_composer_take,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_ack,
+            #[cfg(target_os = "macos")]
+            quick_composer::screenshots::quick_composer_release_capture,
             #[cfg(target_os = "macos")]
             quick_composer::quick_composer_capture,
             #[cfg(target_os = "macos")]

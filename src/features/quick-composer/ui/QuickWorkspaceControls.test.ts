@@ -143,3 +143,57 @@ it("recovers from failure to open a popup and disables controls outside reposito
   expect(button("Choose branch").disabled).toBe(true);
   expect(button("Workspace Current checkout").disabled).toBe(true);
 });
+
+it("keeps a trigger toggle closed when blur arrives between mousedown and click", async () => {
+  await act(async () => button("Choose branch").click());
+  const id = request().request.id;
+  act(() =>
+    button("Choose branch").dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true }),
+    ),
+  );
+  act(() => bridge.result({ payload: { id, restoreFocus: false } }));
+  await act(async () => button("Choose branch").click());
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "quick_git_open"),
+  ).toHaveLength(1);
+  await act(async () => button("Choose branch").click());
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "quick_git_open"),
+  ).toHaveLength(2);
+});
+
+it("handles native blur before DOM mousedown and still allows switching pickers", async () => {
+  await act(async () => button("Choose branch").click());
+  act(() =>
+    bridge.result({
+      payload: {
+        id: request().request.id,
+        restoreFocus: false,
+        triggerKind: "branch",
+      },
+    }),
+  );
+  act(() =>
+    button("Choose branch").dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true }),
+    ),
+  );
+  await act(async () => button("Choose branch").click());
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "quick_git_open"),
+  ).toHaveLength(1);
+  await act(async () => button("Choose branch").click());
+  act(() =>
+    button("Workspace Current checkout").dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true }),
+    ),
+  );
+  act(() =>
+    bridge.result({
+      payload: { id: request().request.id, restoreFocus: false },
+    }),
+  );
+  await act(async () => button("Workspace Current checkout").click());
+  expect(request().request.kind).toBe("workspace");
+});

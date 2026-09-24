@@ -4,11 +4,11 @@ import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type Event } from "@tauri-apps/api/event";
 import { loadQuickComposerEnabled } from "../../settings/model/settings";
+import { launchReceiver } from "../model/launchDelivery";
 import { prepareQuickComposerWhenIdle } from "../model/prepareQuickComposer";
 import {
   liveQuickCatalog,
   isHarnessId,
-  parseQuickLaunch,
   QUICK_COMPOSER_CATALOG_EVENT,
   QUICK_COMPOSER_CATALOG_REQUEST_EVENT,
   QUICK_COMPOSER_LAUNCH_EVENT,
@@ -19,13 +19,15 @@ import {
 
 /**
  * Claims the global shortcut per the setting, answers the panel's requests for
- * model catalogs, and starts the sessions the quick composer hands this window. The backend holds a launch until its
- * window asks, so one sent while this window was still booting is picked up
- * on mount, and a missed event on the next focus.
+ * model catalogs, and starts sessions handed to this window. The backend keeps
+ * each launch until acceptance is acknowledged; mount, focus, and launch events
+ * drain the queue through one serialized receiver.
  */
 export function useQuickComposerLaunches(
-  onLaunch: (launch: QuickLaunch) => void,
+  onLaunch: (launch: QuickLaunch, id: string) => Promise<void>,
 ) {
+  const accepting = useRef(new Map<string, Promise<void>>());
+  const accepted = useRef(new Set<string>());
   const onLaunchRef = useRef(onLaunch);
   onLaunchRef.current = onLaunch;
 
@@ -37,17 +39,18 @@ export function useQuickComposerLaunches(
     );
 
     let disposed = false;
-    const take = async () => {
-      if (disposed) return;
-      try {
-        const launch = parseQuickLaunch(
-          await invoke<unknown>("quick_composer_take"),
-        );
-        if (launch && !disposed) onLaunchRef.current(launch);
-      } catch {
-        // The launch stays queued in the backend for the next attempt.
-      }
-    };
+    const receive = launchReceiver({
+      take: () => invoke("quick_composer_take"),
+      accept: (launch, id) => onLaunchRef.current(launch, id),
+      ack: (id) => invoke("quick_composer_ack", { id }),
+      disposed: () => disposed,
+      accepted: accepted.current,
+      accepting: accepting.current,
+    });
+    const take = () =>
+      receive().catch((error) => {
+        console.error("Quick session is still queued for retry:", error);
+      });
     const onFocus = () => void take();
     const subscriptions: Array<() => void> = [];
     const subscribe = async (

@@ -8,7 +8,9 @@
 //! the panel hides. A non-activating panel takes keys while the other app
 //! stays active, and it can join a full-screen Space.
 
+mod delivery;
 pub mod git_popup;
+pub mod screenshots;
 
 use std::collections::HashMap;
 use std::sync::{
@@ -91,20 +93,17 @@ struct QuickAttachment {
     path: String,
 }
 
-struct PendingLaunch {
-    request: QuickLaunch,
-    window_label: Option<String>,
-}
-
 #[derive(Default)]
 pub struct QuickComposerState {
-    pending: Mutex<Option<PendingLaunch>>,
+    pending: Mutex<delivery::LaunchQueue>,
     capturing: AtomicBool,
 }
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     app.manage(QuickComposerState::default());
     app.manage(git_popup::PopupState::default());
+    app.manage(screenshots::Captures::default());
+    std::thread::spawn(screenshots::cleanup_abandoned);
     app.plugin(
         tauri_plugin_global_shortcut::Builder::new()
             .with_handler(|app, _shortcut, event: ShortcutEvent| {
@@ -221,11 +220,10 @@ pub fn quick_composer_fit(window: WebviewWindow, height: f64) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn quick_composer_submit(
+pub async fn quick_composer_submit(
     app: AppHandle,
     window: WebviewWindow,
-    state: State<'_, QuickComposerState>,
-    request: QuickLaunch,
+    mut request: QuickLaunch,
 ) -> Result<(), String> {
     if window.label() != QUICK_COMPOSER_LABEL {
         return Err("Only the quick composer can start quick sessions.".into());
@@ -242,30 +240,49 @@ pub fn quick_composer_submit(
 
     validate_workspace(&request)?;
     validate_attachments(&request.attachments, &request.harness)?;
-    let target = launch_target(&app);
-    let reveal = request.reveal;
-    *state.pending.lock().map_err(|err| err.to_string())? = Some(PendingLaunch {
-        request,
-        window_label: target.as_ref().map(|window| window.label().to_string()),
-    });
-    git_popup::dismiss(&app, false);
-    let _ = window.hide();
-
-    match target {
-        Some(target) => {
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let result = (|| {
+            let state = handle.state::<QuickComposerState>();
+            if !state
+                .pending
+                .lock()
+                .map_err(|err| err.to_string())?
+                .has_capacity()
+            {
+                return Err(
+                    "Too many sessions are waiting to start. Please try again shortly.".into(),
+                );
+            }
+            // Window creation and enqueueing are serialized on the main thread:
+            // a second submission sees the first submission's mounting window.
+            let target = target_or_create(launch_target(&handle), request.reveal, |reveal| {
+                crate::window::open_session_window(&handle, reveal)
+            })?;
+            screenshots::persist(&handle, &mut request.attachments)?;
+            let reveal = request.reveal;
+            state
+                .pending
+                .lock()
+                .map_err(|err| err.to_string())?
+                .push(request, target.label().to_string());
+            git_popup::dismiss(&handle, false);
+            let _ = window.hide();
             if reveal {
                 let _ = target.unminimize();
                 let _ = target.show();
                 let _ = target.set_focus();
             }
-            // A missed emit is recovered when the window next mounts or
-            // regains focus and asks for pending work.
             let _ = target.emit(LAUNCH, ());
             Ok(())
-        }
-        // Every window was closed: a fresh one takes the request on mount.
-        None => crate::window::open_new_window(&app),
-    }
+        })();
+        let _ = tx.try_send(result);
+    })
+    .map_err(|err| err.to_string())?;
+    rx.recv()
+        .await
+        .ok_or_else(|| "Session submission was interrupted.".to_string())?
 }
 
 fn validate_workspace(request: &QuickLaunch) -> Result<(), String> {
@@ -331,19 +348,24 @@ pub async fn quick_composer_capture(
         .await
         .map_err(|err| err.to_string())
         .and_then(|result| result);
+    if let Ok(Some(path)) = &result {
+        screenshots::register(window.app_handle(), path);
+    }
     let panel = window.clone();
     let restored = window.run_on_main_thread(move || present(&panel));
     state.capturing.store(false, Ordering::SeqCst);
-    restored.map_err(|err| err.to_string())?;
+    if let Err(err) = restored {
+        if let Ok(Some(path)) = &result {
+            screenshots::discard(window.app_handle(), path);
+        }
+        return Err(err.to_string());
+    }
     result
 }
 
 fn capture_screenshot() -> Result<Option<String>, String> {
-    let dir = std::env::temp_dir()
-        .join("monocode-attachments")
-        .join(uuid::Uuid::new_v4().to_string());
-    std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
-    let path = dir.join("Screenshot.png");
+    let path = screenshots::new_path()?;
+    let dir = path.parent().ok_or("Missing capture directory")?;
     // Let WindowServer remove the panel before the system capture overlay appears.
     std::thread::sleep(std::time::Duration::from_millis(150));
     let result = std::process::Command::new("/usr/sbin/screencapture")
@@ -353,7 +375,7 @@ fn capture_screenshot() -> Result<Option<String>, String> {
     if path.is_file() {
         return Ok(Some(path.to_string_lossy().into_owned()));
     }
-    let _ = std::fs::remove_dir(&dir);
+    let _ = std::fs::remove_dir(dir);
     let output = result.map_err(|err| format!("Could not take a screenshot: {err}"))?;
     let error = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() && !error.trim().is_empty() {
@@ -362,29 +384,52 @@ fn capture_screenshot() -> Result<Option<String>, String> {
     Ok(None)
 }
 
-/// The request waits until the chosen window has mounted and asks for it, so
-/// a window still booting cannot drop it.
+/// Reading claims a launch without removing it. Failed parsing or handoff can
+/// retry the same ID; only the owning workspace's acknowledgement removes it.
 #[tauri::command]
 pub fn quick_composer_take(
     app: AppHandle,
     window: WebviewWindow,
     state: State<'_, QuickComposerState>,
-) -> Result<Option<QuickLaunch>, String> {
+) -> Result<Option<delivery::Delivery>, String> {
     if !crate::window::is_workspace_window(window.label()) {
         return Ok(None);
     }
-    let mut pending = state.pending.lock().map_err(|err| err.to_string())?;
-    let mine = pending.as_ref().is_some_and(|launch| {
-        launch
-            .window_label
-            .as_deref()
-            .is_none_or(|label| label == window.label() || app.get_webview_window(label).is_none())
-    });
-    Ok(if mine {
-        pending.take().map(|launch| launch.request)
-    } else {
-        None
-    })
+    Ok(state
+        .pending
+        .lock()
+        .map_err(|err| err.to_string())?
+        .claim(window.label(), |label| {
+            app.get_webview_window(label).is_some()
+        }))
+}
+
+#[tauri::command]
+pub fn quick_composer_ack(
+    window: WebviewWindow,
+    state: State<'_, QuickComposerState>,
+    id: String,
+) -> Result<(), String> {
+    if !crate::window::is_workspace_window(window.label()) {
+        return Err("Only a workspace can acknowledge a session.".into());
+    }
+    state
+        .pending
+        .lock()
+        .map_err(|err| err.to_string())?
+        .acknowledge(window.label(), &id);
+    Ok(())
+}
+
+fn target_or_create<T>(
+    existing: Option<T>,
+    reveal: bool,
+    create: impl FnOnce(bool) -> Result<T, String>,
+) -> Result<T, String> {
+    match existing {
+        Some(window) => Ok(window),
+        None => create(reveal),
+    }
 }
 
 /// The window the user last looked at, else the first one. Hidden windows
@@ -597,7 +642,24 @@ fn make_panel(window: &WebviewWindow) {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_attachments, validate_workspace, QuickLaunch};
+    use super::{target_or_create, validate_attachments, validate_workspace, QuickLaunch};
+
+    #[test]
+    fn no_workspace_return_requests_hidden_creation_and_cmd_return_requests_reveal() {
+        for reveal in [false, true] {
+            let target = target_or_create(None, reveal, |visibility| {
+                assert_eq!(visibility, reveal);
+                Ok("new-workspace")
+            })
+            .unwrap();
+            assert_eq!(target, "new-workspace");
+        }
+        let existing = target_or_create(Some("mounting-workspace"), false, |_| {
+            panic!("A second submission must reuse the mounting workspace");
+        })
+        .unwrap();
+        assert_eq!(existing, "mounting-workspace");
+    }
 
     #[test]
     fn launch_preserves_model_settings_across_windows() {

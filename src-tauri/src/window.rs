@@ -68,6 +68,15 @@ struct QuitConfirm {
 }
 
 pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
+    open_session_window(app, true).map(|_| ())
+}
+
+fn configure_session_window(config: &mut tauri::utils::config::WindowConfig, reveal: bool) {
+    config.visible = reveal;
+    config.focus = reveal;
+}
+
+pub fn open_session_window(app: &AppHandle, reveal: bool) -> Result<WebviewWindow, String> {
     let mut config = app
         .config()
         .app
@@ -77,13 +86,28 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
         .ok_or("missing main window config")?
         .clone();
 
+    configure_session_window(&mut config, reveal);
     let id = WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed);
-    config.label = format!("window-{id}");
+    config.label = if reveal {
+        format!("window-{id}")
+    } else {
+        format!("quick-session-{}", uuid::Uuid::new_v4())
+    };
 
-    let window = WebviewWindowBuilder::from_config(app, &config)
-        .map_err(|err| err.to_string())?
-        .build()
-        .map_err(|err| err.to_string())?;
+    let build = || {
+        WebviewWindowBuilder::from_config(app, &config)
+            .map_err(|err| err.to_string())?
+            .build()
+            .map_err(|err| err.to_string())
+    };
+    #[cfg(target_os = "macos")]
+    let window = if reveal {
+        build()?
+    } else {
+        crate::macos_background::without_activation(build)?
+    };
+    #[cfg(not(target_os = "macos"))]
+    let window = build()?;
 
     #[cfg(target_os = "macos")]
     crate::macos::install(&window);
@@ -94,8 +118,10 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.set_shadow(true);
     }
 
-    let _ = window.set_focus();
-    Ok(())
+    if reveal {
+        let _ = window.set_focus();
+    }
+    Ok(window)
 }
 
 /// Desktop blur goes on after the first UI paint and only in dark mode.
@@ -552,6 +578,30 @@ pub fn confirm_quit(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_session_creation_overrides_main_windows_visible_and_focus_defaults() {
+        let mut config = tauri::utils::config::WindowConfig {
+            visible: true,
+            focus: true,
+            ..Default::default()
+        };
+        configure_session_window(&mut config, false);
+        assert!(!config.visible);
+        assert!(!config.focus);
+    }
+
+    #[test]
+    fn explicit_reveal_creates_a_visible_focused_session_window() {
+        let mut config = tauri::utils::config::WindowConfig {
+            visible: false,
+            focus: false,
+            ..Default::default()
+        };
+        configure_session_window(&mut config, true);
+        assert!(config.visible);
+        assert!(config.focus);
+    }
 
     fn polling(labels: &[&str]) -> Option<QuitRun> {
         let mut slot = None;

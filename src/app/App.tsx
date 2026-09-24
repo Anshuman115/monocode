@@ -6646,34 +6646,66 @@ export default function App({
   );
 
   const launchQuickSession = useCallback(
-    async (launch: QuickLaunch) => {
+    async (launch: QuickLaunch, deliveryId: string) => {
       // Rehydrate image previews in this webview; the floating panel sends paths.
       const attachments = await prepareAttachments(launch.attachments ?? []);
-      const session = applyQuickWorkspace(
-        newSession(launch.harness, launch.cwd, launch.model, launch.runtimeMode),
-        launch,
+      const existing = sessionsRef.current.find(
+        (session) => session.id === deliveryId,
       );
+      if (
+        existing?.quickLaunchAccepted ||
+        existing?.blocks.some((block) => block.role === "user")
+      )
+        return;
+      const session =
+        existing ??
+        applyQuickWorkspace(
+          newSession(
+            launch.harness,
+            launch.cwd,
+            launch.model,
+            launch.runtimeMode,
+          ),
+          launch,
+        );
+      session.id = deliveryId;
       if (launch.modelSettings) {
         session.modelSettings = mergeModelSettings(
           resolveModel(session.harness, session.model),
           launch.modelSettings,
         );
       }
-      const nextSessions = [...sessionsRef.current, session];
-      sessionsRef.current = nextSessions;
-      setSessions(nextSessions);
-      const tab = newTab(session.id);
-      appendTab(tab, launch.cwd);
-      if (launch.reveal) {
-        setActiveTabId(tab.id);
-        setComposerFocused(false);
-        setSearchViewOpen(false);
-        setInboxViewOpen(false);
-        setNotesViewOpen(false);
-        setAutomationsViewOpen(false);
-        setSidebarTab("sessions");
+      if (!existing) {
+        const nextSessions = [...sessionsRef.current, session];
+        sessionsRef.current = nextSessions;
+        setSessions(nextSessions);
+        const tab = newTab(session.id);
+        appendTab(tab, launch.cwd);
+        if (launch.reveal) {
+          setActiveTabId(tab.id);
+          setComposerFocused(false);
+          setSearchViewOpen(false);
+          setInboxViewOpen(false);
+          setNotesViewOpen(false);
+          setAutomationsViewOpen(false);
+          setSidebarTab("sessions");
+        }
       }
-      onSubmit(session.id, launch.prompt, attachments);
+      if (!onSubmit(session.id, launch.prompt, attachments)) {
+        throw new Error(
+          "The workspace could not accept the queued session yet.",
+        );
+      }
+      const markAccepted = (items: Session[]) =>
+        items.map((item) =>
+          item.id === deliveryId
+            ? { ...item, quickLaunchAccepted: true }
+            : item,
+        );
+      sessionsRef.current = markAccepted(sessionsRef.current);
+      // Compose with onSubmit's queued transcript updates; never overwrite them
+      // with the pre-submit snapshot held by the ref.
+      setSessions(markAccepted);
     },
     [appendTab, onSubmit],
   );

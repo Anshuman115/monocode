@@ -30,6 +30,9 @@ export function QuickWorkspaceControls({
 }) {
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState<QuickGitKind | null>(null);
+  const activeKind = useRef<QuickGitKind | null>(null);
+  const toggleIntent = useRef<QuickGitKind | null>(null);
+  const closedByTrigger = useRef<QuickGitKind | null>(null);
   const active = useRef<string | null>(null);
   const props = useRef({ value, onChange, onOpenChange, onClose, onError });
   props.current = { value, onChange, onOpenChange, onClose, onError };
@@ -40,6 +43,9 @@ export function QuickWorkspaceControls({
   const cancel = () => {
     const id = active.current;
     active.current = null;
+    activeKind.current = null;
+    toggleIntent.current = null;
+    closedByTrigger.current = null;
     setOpen(null);
     props.current.onOpenChange(false);
     if (id)
@@ -54,7 +60,9 @@ export function QuickWorkspaceControls({
     let stop: (() => void) | undefined;
     void listen<QuickGitResult>(QUICK_GIT_RESULT, ({ payload }) => {
       if (payload.id !== active.current) return;
+      closedByTrigger.current = payload.triggerKind ?? null;
       active.current = null;
+      activeKind.current = null;
       setOpen(null);
       props.current.onOpenChange(false);
       if (payload.choice && payload.choice.cwd === props.current.value.cwd)
@@ -75,6 +83,9 @@ export function QuickWorkspaceControls({
       stop?.();
       const id = active.current;
       active.current = null;
+      activeKind.current = null;
+      toggleIntent.current = null;
+      closedByTrigger.current = null;
       if (id)
         void invoke("quick_git_complete", {
           id,
@@ -87,8 +98,17 @@ export function QuickWorkspaceControls({
     if (!enabled) cancel();
   }, [enabled]);
 
+  const beginClick = (kind: QuickGitKind) => {
+    toggleIntent.current = activeKind.current === kind ? kind : null;
+  };
   const show = async (kind: QuickGitKind, button: HTMLButtonElement) => {
-    if (open === kind) {
+    const closing =
+      activeKind.current === kind ||
+      toggleIntent.current === kind ||
+      closedByTrigger.current === kind;
+    toggleIntent.current = null;
+    closedByTrigger.current = null;
+    if (closing) {
       cancel();
       return;
     }
@@ -107,6 +127,7 @@ export function QuickWorkspaceControls({
       },
     };
     active.current = id;
+    activeKind.current = kind;
     setOpen(kind);
     onOpenChange(true);
     try {
@@ -114,6 +135,7 @@ export function QuickWorkspaceControls({
     } catch (error) {
       if (active.current !== id) return;
       active.current = null;
+      activeKind.current = null;
       setOpen(null);
       props.current.onOpenChange(false);
       props.current.onError?.(String(error));
@@ -130,7 +152,10 @@ export function QuickWorkspaceControls({
         aria-label={`Workspace ${label}`}
         aria-haspopup="dialog"
         aria-expanded={open === "workspace"}
-        onMouseDown={(event) => event.preventDefault()}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          beginClick("workspace");
+        }}
         onClick={(event) => void show("workspace", event.currentTarget)}
         className="-ml-1.5 flex h-6 min-w-0 max-w-48 items-center gap-1.5 rounded-md px-1.5 text-[12px] text-content/55 hover:bg-content/8 hover:text-content aria-expanded:bg-content/8 aria-expanded:text-content disabled:opacity-40"
       >
@@ -153,7 +178,10 @@ export function QuickWorkspaceControls({
         loading={!settled}
         disabled={disabled}
         worktree={!!value.tree && !value.tree.isMain}
-        onMouseDown={(event) => event.preventDefault()}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          beginClick(value.mode === "worktree" ? "base" : "branch");
+        }}
         onClick={(event) =>
           void show(
             value.mode === "worktree" ? "base" : "branch",

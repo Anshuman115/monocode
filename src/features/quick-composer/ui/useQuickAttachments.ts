@@ -19,6 +19,14 @@ import {
 import type { Attachment } from "../../sessions/model/session";
 import { storeQuickAttachments } from "../model/quickAttachments";
 
+function releaseCaptures(files: Attachment[]) {
+  const paths = files.flatMap((file) => (file.path ? [file.path] : []));
+  if (paths.length)
+    void invoke("quick_composer_release_capture", { paths }).catch(
+      () => undefined,
+    );
+}
+
 export function useQuickAttachments(
   supported: boolean,
   onError: (message: string | null) => void,
@@ -38,6 +46,7 @@ export function useQuickAttachments(
     return () => {
       alive.current = false;
       filesRef.current.forEach(revokeAttachment);
+      releaseCaptures(filesRef.current);
     };
   }, []);
 
@@ -145,12 +154,16 @@ export function useQuickAttachments(
   };
   const remove = (id: string) => {
     const removed = filesRef.current.find((file) => file.id === id);
-    if (removed) revokeAttachment(removed);
+    if (removed) {
+      revokeAttachment(removed);
+      releaseCaptures([removed]);
+    }
     filesRef.current = filesRef.current.filter((file) => file.id !== id);
     setFiles(filesRef.current);
   };
   const clear = () => {
     filesRef.current.forEach(revokeAttachment);
+    releaseCaptures(filesRef.current);
     filesRef.current = [];
     setFiles([]);
   };
@@ -166,10 +179,24 @@ export function useQuickAttachments(
     onDragLeave,
     onDrop,
     chooseFiles: () => collect(pickAttachments),
-    takeScreenshot: () =>
-      collect(async () => {
-        const path = await invoke<string | null>("quick_composer_capture");
-        return path ? attachmentsFromPaths([path]) : [];
-      }),
+    takeScreenshot: async () => {
+      let captured: string | null = null;
+      try {
+        await collect(async () => {
+          captured = await invoke<string | null>("quick_composer_capture");
+          return captured ? attachmentsFromPaths([captured]) : [];
+        });
+      } finally {
+        // Inspection, capacity checks, and unmounting can reject a new capture.
+        if (
+          captured &&
+          !filesRef.current.some((file) => file.path === captured)
+        ) {
+          await invoke("quick_composer_release_capture", {
+            paths: [captured],
+          }).catch(() => undefined);
+        }
+      }
+    },
   };
 }
