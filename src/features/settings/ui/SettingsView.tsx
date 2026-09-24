@@ -231,6 +231,7 @@ import {
   loadLiveAgentsEnabled,
   loadModelControls,
   loadNotesEnabled,
+  loadQuickComposerEnabled,
   loadTabAnimationsEnabled,
   saveClaudeHooks,
   saveCloseToTray,
@@ -243,6 +244,7 @@ import {
   saveLiveAgentsEnabled,
   saveModelControls,
   saveNotesEnabled,
+  saveQuickComposerEnabled,
   saveTabAnimationsEnabled,
   searchSettings,
   settingsSectionDescription,
@@ -257,6 +259,7 @@ import {
   type SettingsSectionId,
 } from "../model/settings";
 import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../model/sounds";
+import { setQuickComposerShortcut } from "../../quick-composer/model/quickComposer";
 import {
   cachedNotificationPermission,
   loadNotificationsEnabled,
@@ -643,6 +646,12 @@ function GeneralPage({
     loadTabAnimationsEnabled,
   );
   const [closeToTray, setCloseToTray] = useState(loadCloseToTray);
+  const [quickComposerEnabled, setQuickComposerEnabled] = useState(
+    loadQuickComposerEnabled,
+  );
+  const [quickComposerError, setQuickComposerError] = useState<string | null>(
+    null,
+  );
 
   // The user may flip the switch in System Settings and come back: re-read
   // the OS state whenever the window regains focus while the toggle is on.
@@ -671,6 +680,17 @@ function GeneralPage({
   const onNotesEnabled = (next: boolean) => {
     saveNotesEnabled(next);
     setNotesEnabled(next);
+  };
+
+  const onQuickComposerEnabled = (next: boolean) => {
+    saveQuickComposerEnabled(next);
+    setQuickComposerEnabled(next);
+    setQuickComposerError(null);
+    void setQuickComposerShortcut(next).catch((error: unknown) => {
+      // Another app already owns the combination. Leave the switch where the
+      // user put it so the next launch tries again, but say why it is dead.
+      setQuickComposerError(String(error));
+    });
   };
 
   const onLiveAgentsEnabled = (next: boolean) => {
@@ -768,6 +788,24 @@ function GeneralPage({
         >
           <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
         </Row>
+        {IS_MAC && (
+          <Row
+            id="quick-composer"
+            label="Quick composer"
+            description="Press ⌘⇧Space in any app to float a prompt over it and start a session without switching to MonoCode. Return starts it in the background; ⌘Return starts it and brings the session forward."
+          >
+            {quickComposerError ? (
+              <span className="text-[12px] text-content/45">
+                {quickComposerError}
+              </span>
+            ) : null}
+            <Toggle
+              label="Quick composer"
+              on={quickComposerEnabled}
+              onChange={onQuickComposerEnabled}
+            />
+          </Row>
+        )}
         <Row
           id="working-agents"
           label="Working agents"

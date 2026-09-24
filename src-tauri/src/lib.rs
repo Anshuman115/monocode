@@ -23,6 +23,8 @@ mod notifications;
 mod pasteboard;
 mod project_logo;
 mod pty;
+#[cfg(target_os = "macos")]
+mod quick_composer;
 mod rate_limits;
 mod reminders;
 mod search;
@@ -201,7 +203,14 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_denylist(&[
+                    window::QUICK_COMPOSER_LABEL,
+                    window::QUICK_COMPOSER_GIT_LABEL,
+                ])
+                .build(),
+        )
         .manage(harness::HarnessHost::new())
         .manage(pty::PtyHost::new())
         .manage(window_transfer::WindowTransferState::new())
@@ -216,6 +225,7 @@ pub fn run() {
             tray::install(app.handle())?;
             #[cfg(target_os = "macos")]
             {
+                quick_composer::init(app.handle())?;
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_webview_window("main") {
                     macos::install(&window);
@@ -445,6 +455,28 @@ pub fn run() {
             window::quit_decision,
             window::quit_ready,
             window::set_window_glass_enabled,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_set_enabled,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_prepare,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_fit,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_submit,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_take,
+            #[cfg(target_os = "macos")]
+            quick_composer::quick_composer_capture,
+            #[cfg(target_os = "macos")]
+            quick_composer::git_popup::quick_git_open,
+            #[cfg(target_os = "macos")]
+            quick_composer::git_popup::quick_git_state,
+            #[cfg(target_os = "macos")]
+            quick_composer::git_popup::quick_git_fit,
+            #[cfg(target_os = "macos")]
+            quick_composer::git_popup::quick_git_complete,
+            #[cfg(target_os = "macos")]
+            quick_composer::git_popup::quick_composer_dismiss,
             window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
             chat_background::save_chat_background,
@@ -482,7 +514,9 @@ pub fn run() {
             ..
         } => {
             window::forget_quit_window(handle, &label);
-            let other_window = handle.webview_windows().keys().any(|name| name != &label);
+            let other_window = window::workspace_windows(handle)
+                .iter()
+                .any(|window| window.label() != label);
             control::window_closed(handle, &label);
             if !other_window {
                 reap_harness_children(handle);

@@ -1,3 +1,4 @@
+import { applyQuickWorkspace } from "../features/quick-composer/model/quickWorkspace";
 import { invoke } from "@tauri-apps/api/core";
 import {
   orchestrationCheckoutCwd,
@@ -439,6 +440,8 @@ import {
   type Automation,
   type AutomationRun,
 } from "../features/automations/model/automations";
+import { useQuickComposerLaunches } from "../features/quick-composer/hooks/useQuickComposerLaunches";
+import type { QuickLaunch } from "../features/quick-composer/model/quickComposer";
 import { claimInboxAutomationRuns } from "../features/automations/model/automationEvents";
 import {
   SECOND_OPINION_TITLE,
@@ -6641,6 +6644,40 @@ export default function App({
     },
     [appendTab, focusOpenSession, onSubmit],
   );
+
+  const launchQuickSession = useCallback(
+    async (launch: QuickLaunch) => {
+      // Rehydrate image previews in this webview; the floating panel sends paths.
+      const attachments = await prepareAttachments(launch.attachments ?? []);
+      const session = applyQuickWorkspace(
+        newSession(launch.harness, launch.cwd, launch.model, launch.runtimeMode),
+        launch,
+      );
+      if (launch.modelSettings) {
+        session.modelSettings = mergeModelSettings(
+          resolveModel(session.harness, session.model),
+          launch.modelSettings,
+        );
+      }
+      const nextSessions = [...sessionsRef.current, session];
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+      const tab = newTab(session.id);
+      appendTab(tab, launch.cwd);
+      if (launch.reveal) {
+        setActiveTabId(tab.id);
+        setComposerFocused(false);
+        setSearchViewOpen(false);
+        setInboxViewOpen(false);
+        setNotesViewOpen(false);
+        setAutomationsViewOpen(false);
+        setSidebarTab("sessions");
+      }
+      onSubmit(session.id, launch.prompt, attachments);
+    },
+    [appendTab, onSubmit],
+  );
+  useQuickComposerLaunches(launchQuickSession);
 
   const ensureAutomationRecovery = useCallback(() => {
     if (!automationRecoveryRef.current) {
