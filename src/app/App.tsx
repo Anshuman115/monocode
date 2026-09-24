@@ -5579,7 +5579,12 @@ export default function App({
           intent === "plan" ||
           intent === "orchestrate"
             ? "queue"
-            : (options?.followUpBehavior ?? loadFollowUpBehavior());
+            : // The agent has yielded and only background work is left, which
+              // may never end (a dev server). Queuing would park the message
+              // behind it, so hand it to the agent now.
+              current.backgroundTasks?.length
+              ? "steer"
+              : (options?.followUpBehavior ?? loadFollowUpBehavior());
         if (followUpBehavior === "queue") {
           setSessions((prev) =>
             prev.map((s) =>

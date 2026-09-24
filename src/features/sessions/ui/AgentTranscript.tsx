@@ -156,6 +156,8 @@ type Props = {
   model?: string;
   modelSettings?: Record<string, string>;
   pendingQuestion?: boolean;
+  /** Work the agent left running when it yielded; the turn waits on it. */
+  backgroundTasks?: string[];
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
@@ -196,6 +198,7 @@ function AgentTranscriptComponent({
   model,
   modelSettings,
   pendingQuestion = false,
+  backgroundTasks,
   onApproval,
   onAddToChat,
   onSaveNote,
@@ -690,6 +693,7 @@ function AgentTranscriptComponent({
                     ? "Waiting for answers"
                     : undefined
               }
+              background={backgroundTasks}
               modelName={turnModelName}
             />
           ) : durationMs != null ? (
@@ -976,22 +980,41 @@ function LiveFoldTitle({
   startedAt,
   paused,
   waitingLabel,
+  background,
   modelName,
 }: {
   startedAt?: number;
   paused: boolean;
   waitingLabel?: string;
+  background?: string[];
   modelName?: string;
 }) {
   const elapsedMs = useElapsedFrom(startedAt, paused);
+  // Yielding with a command still going is not the end of the turn. The clock
+  // keeps running and the line says what it is waiting on.
   const text = paused
     ? (waitingLabel ?? "Waiting for approval")
-    : formatWorkingDuration(elapsedMs, modelName);
-  return (
+    : background?.length
+      ? `${formatWorkingDuration(elapsedMs, modelName)} · ${backgroundLabel(background)}`
+      : formatWorkingDuration(elapsedMs, modelName);
+  const shimmer = (
     <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1}>
       {text}
     </Shimmer>
   );
+  return background?.length ? (
+    <span className="flex min-w-0" title={background.join("\n")}>
+      {shimmer}
+    </span>
+  ) : (
+    shimmer
+  );
+}
+
+function backgroundLabel(tasks: string[]): string {
+  return tasks.length === 1
+    ? "running in background"
+    : `${tasks.length} tasks running in background`;
 }
 
 /**

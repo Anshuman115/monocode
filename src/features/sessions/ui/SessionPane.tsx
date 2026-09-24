@@ -694,6 +694,7 @@ export const SessionPane = memo(function SessionPane({
                   model={session.model}
                   modelSettings={session.modelSettings}
                   pendingQuestion={!!session.pendingQuestion}
+                  backgroundTasks={session.backgroundTasks}
                   onApproval={session.worktreeRemoved ? undefined : approve}
                   onAddToChat={addSelectionToChat}
                   onSaveNote={notesEnabled ? saveNote : undefined}
