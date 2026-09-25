@@ -47,7 +47,7 @@ function makeSparkles(): Sparkle[] {
   }).sort(() => Math.random() - 0.5);
 }
 
-/** A one-shot burst of rising sparkles inside a freshly sent /mono bubble. */
+/** A one-shot burst of rising sparkles inside a freshly sent /operator bubble. */
 export function MonocodeSparkles({
   blockId,
   startedAt,

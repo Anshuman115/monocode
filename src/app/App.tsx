@@ -479,9 +479,9 @@ import {
 } from "../features/workspace/model/tabVisitHistory";
 import { preparePrompt } from "../features/sessions/model/promptPreparation";
 import {
-  consumeMonocodeCommand,
-  monocodeEnabledInThread,
-} from "../features/sessions/model/monocodeCommand";
+  consumeOperatorCommand,
+  operatorEnabledInThread,
+} from "../features/sessions/model/operatorCommand";
 import {
   warmNativeSkills,
   isNativeCommandPrompt,
@@ -5741,9 +5741,9 @@ export default function App({
         return false;
       }
       const submittedText = intent === "build" ? "Build approved plan" : text;
-      const monocodeCommand = consumeMonocodeCommand(submittedText);
+      const operatorCommand = consumeOperatorCommand(submittedText);
       if (
-        monocodeCommand.matched &&
+        operatorCommand.matched &&
         (intent !== "default" ||
           current.orchestrationLeadId ||
           current.inboxAsk ||
@@ -5751,19 +5751,19 @@ export default function App({
       ) {
         enqueueHarnessEvent(sessionId, {
           type: "status",
-          text: "Use /mono from a regular session turn, outside an orchestration run.",
+          text: "Use /operator from a regular session turn, outside an orchestration run.",
         });
         flushHarnessEvents();
         return false;
       }
-      const monocodeAccess =
-        monocodeCommand.matched || monocodeEnabledInThread(current.blocks);
-      const promptText = monocodeCommand.matched
-        ? monocodeCommand.text.trim() ||
+      const operatorAccess =
+        operatorCommand.matched || operatorEnabledInThread(current.blocks);
+      const promptText = operatorCommand.matched
+        ? operatorCommand.text.trim() ||
           "Explain what you can do in MonoCode with the app CLI."
         : submittedText;
       const rawCommand =
-        !monocodeCommand.matched &&
+        !operatorCommand.matched &&
         isNativeCommandPrompt(submittedText, current.harness);
       const ciContext = options?.ciRepair?.prompt ?? options?.ciContext;
       const harnessText =
@@ -5779,13 +5779,13 @@ export default function App({
 
       if (current.busy && !pendingSwitch) {
         if (
-          monocodeCommand.matched &&
+          operatorCommand.matched &&
           options?.queuedMessageId &&
           options.followUpBehavior === "steer"
         ) {
           enqueueHarnessEvent(sessionId, {
             type: "status",
-            text: "/mono starts a new turn after the current turn finishes.",
+            text: "/operator starts a new turn after the current turn finishes.",
           });
           flushHarnessEvents();
           return false;
@@ -5794,7 +5794,7 @@ export default function App({
           current.worktreePreparing ||
           intent === "plan" ||
           intent === "orchestrate" ||
-          monocodeCommand.matched
+          operatorCommand.matched
             ? "queue"
             : // The agent has yielded and only background work is left, which
               // may never end (a dev server). Queuing would park the message
@@ -5990,7 +5990,7 @@ export default function App({
         !current.noteCard &&
         placeholderTitle
           ? titleFromPrompt(
-              monocodeCommand.matched ? promptText : submittedText,
+              operatorCommand.matched ? promptText : submittedText,
               current.harness,
               attachments,
             )
@@ -6000,7 +6000,7 @@ export default function App({
         options?.secondOpinion ??
         (handoffCard ? handoffTurnCard(handoffCard) : undefined);
       const visibleText =
-        monocodeCommand.matched
+        operatorCommand.matched
           ? promptText
           : card?.kind === "handoff"
             ? submittedText
@@ -6010,7 +6010,7 @@ export default function App({
       const cards = {
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
         ...(ciContext ? { ciContext } : {}),
-        ...(monocodeCommand.matched ? { monocode: true } : {}),
+        ...(operatorCommand.matched ? { monocode: true } : {}),
         ...(options?.appRequestId ? { appRequestId: options.appRequestId } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
@@ -6524,12 +6524,12 @@ export default function App({
               providerAccountId,
               runtimeMode: current.runtimeMode,
               intent: intent === "orchestrate" ? "plan" : intent,
-              // A /mono user turn enables app access for this thread;
+              // A /operator user turn enables app access for this thread;
               // orchestration leads retain their separate control access.
               controlsAgents:
-                monocodeAccess ||
+                operatorAccess ||
                 orchestrator.run(sessionId)?.status === "active",
-              appAccess: monocodeAccess,
+              appAccess: operatorAccess,
               text,
               attachments: turnAttachments,
               ...(editedResend ? { onAccepted: acceptEditedResend } : {}),
@@ -6549,9 +6549,9 @@ export default function App({
                 : turnPrompt,
             ),
           );
-          if (monocodeCommand.matched) {
+          if (operatorCommand.matched) {
             const cli = `${shellPath(await invoke<string>("app_cli_path"))} app`;
-            sendText += `\n\n<monocode_app>\nThe user's MonoCode command enables app access in this thread, including later turns without the command. You can start session tabs, read and continue other project sessions, save unsent drafts, organize session folders, and read saved notes through its local CLI. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
+            sendText += `\n\n<monocode_app>\nThe user's Operator command enables app access in this thread, including later turns without the command. You can start session tabs, read and continue other project sessions, save unsent drafts, organize session folders, and read saved notes through its local CLI. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
           }
           await sendTurn(sendText);
           acceptEditedResend();

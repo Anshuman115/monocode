@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
-const APP_TURN_INACTIVE: &str = "MonoCode app access is inactive. Use /mono once in this thread to enable it, then call the CLI during an active agent turn. Retrying this request now will not enable access.";
+const APP_TURN_INACTIVE: &str = "MonoCode app access is inactive. Use /operator once in this thread to enable it, then call the CLI during an active agent turn. Retrying this request now will not enable access.";
 
 #[derive(Clone)]
 struct Grant {

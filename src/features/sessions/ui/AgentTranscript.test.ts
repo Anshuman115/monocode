@@ -25,13 +25,13 @@ function render(
 }
 
 describe("AgentTranscript collapsed work", () => {
-  it("shows a /mono request without the command in its amber bubble", () => {
+  it("shows a /operator request without the command in its amber bubble", () => {
     const markup = render([
       { id: "user", role: "user", text: "list my notes", monocode: true },
     ]);
     expect(markup).toContain('data-monocode="true"');
     expect(markup).toContain("list my notes");
-    expect(markup).not.toContain("/mono");
+    expect(markup).not.toContain("/operator");
 
     const legacy = render([
       { id: "old", role: "user", text: "/monocode list my notes" },

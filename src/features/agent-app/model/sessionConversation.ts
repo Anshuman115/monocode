@@ -1,5 +1,5 @@
 import type { Block, Session } from "../../sessions/model/session";
-import { monocodeUserPrompt } from "../../sessions/model/monocodeCommand";
+import { operatorUserPrompt } from "../../sessions/model/operatorCommand";
 
 type Exchange = { user: Block; assistants: Block[] };
 
@@ -58,7 +58,7 @@ export function sessionConversationPage(
     ),
     turns: selected.map(({ user, assistants }) => ({
       turnId: user.id,
-      user: capped(monocodeUserPrompt(user), maxChars),
+      user: capped(operatorUserPrompt(user), maxChars),
       assistant: assistants.length
         ? capped(assistants[assistants.length - 1].text, maxChars)
         : null,

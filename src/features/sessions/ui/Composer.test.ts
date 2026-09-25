@@ -261,7 +261,7 @@ describe("Composer question focus", () => {
     expect(textarea.selectionEnd).toBe(initialDraft.length);
   });
 
-  it("offers /mono in the slash picker and submits it as a local command", async () => {
+  it("offers /operator in the slash picker and submits it as a local command", async () => {
     const onSubmit = vi.fn(() => true);
     await act(async () =>
       root.render(
@@ -271,7 +271,7 @@ describe("Composer question focus", () => {
           model: "claude-sonnet",
           runtimeMode: "supervised",
           executionCwd: "/repo",
-          initialDraft: "/mono",
+          initialDraft: "/operator",
           hideProjectPicker: true,
           hideBranchPicker: true,
           onFocus: vi.fn(),
@@ -288,23 +288,25 @@ describe("Composer question focus", () => {
     );
     const command = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="option"]'),
-    ).find((button) => button.textContent?.includes("/mono"));
+    ).find((button) => button.textContent?.includes("/operator"));
     expect(command).toBeDefined();
     await act(async () => command!.click());
-    expect(textarea.value).toBe("/mono ");
+    expect(textarea.value).toBe("/operator ");
     await act(async () => {
       textarea.value += "list my notes";
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () =>
-      container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click(),
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Send"]')!
+        .click(),
     );
-    expect(onSubmit).toHaveBeenCalledWith("/mono list my notes", [], {
+    expect(onSubmit).toHaveBeenCalledWith("/operator list my notes", [], {
       intent: "default",
     });
   });
 
-  it("offers Operator above Orchestrator and sends the /mono command", async () => {
+  it("offers Operator above Orchestrator and sends the /operator command", async () => {
     const onSubmit = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
     await act(async () =>
       root.render(
@@ -337,16 +339,16 @@ describe("Composer question focus", () => {
         "[data-composer-plus] button",
       ),
     );
-    const mono = options.find((button) =>
+    const operator = options.find((button) =>
       button.textContent?.includes("Operator"),
     )!;
-    expect(mono).toBeDefined();
-    expect(options.indexOf(mono)).toBeLessThan(
+    expect(operator).toBeDefined();
+    expect(options.indexOf(operator)).toBeLessThan(
       options.findIndex((button) =>
         button.textContent?.includes("Orchestrator"),
       ),
     );
-    await act(async () => mono.click());
+    await act(async () => operator.click());
     const textarea = container.querySelector("textarea")!;
     expect(textarea.value).toBe("List my notes");
     expect(
@@ -357,7 +359,7 @@ describe("Composer question focus", () => {
       '[aria-label="Send"]',
     )!;
     await act(async () => send.click());
-    expect(onSubmit).toHaveBeenLastCalledWith("/mono List my notes", [], {
+    expect(onSubmit).toHaveBeenLastCalledWith("/operator List my notes", [], {
       intent: "default",
     });
     expect(textarea.value).toBe("List my notes");
@@ -366,12 +368,12 @@ describe("Composer question focus", () => {
     ).not.toBeNull();
 
     await act(async () => {
-      textarea.value = "/mono List my notes";
+      textarea.value = "/operator List my notes";
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
       send.click();
     });
     expect(onSubmit).toHaveBeenCalledTimes(2);
-    expect(onSubmit).toHaveBeenLastCalledWith("/mono List my notes", [], {
+    expect(onSubmit).toHaveBeenLastCalledWith("/operator List my notes", [], {
       intent: "default",
     });
     expect(textarea.value).toBe("");

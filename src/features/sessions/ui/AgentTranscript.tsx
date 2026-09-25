@@ -127,9 +127,9 @@ import {
   type MonoCodeToolCall,
 } from "../model/monocodeToolCall";
 import {
-  isMonocodeUserTurn,
-  monocodeUserPrompt,
-} from "../model/monocodeCommand";
+  isOperatorUserTurn,
+  operatorUserPrompt,
+} from "../model/operatorCommand";
 import {
   clearTranscriptHighlights,
   paintTranscriptHighlights,
@@ -1850,11 +1850,11 @@ function UserMessageBlock({
   const textRef = useRef<HTMLElement>(null);
   const card = block.secondOpinion;
   const note = block.noteCard;
-  const monocode = isMonocodeUserTurn(block);
+  const monocode = isOperatorUserTurn(block);
   const text =
     card && card.kind !== "handoff"
       ? ""
-      : visibleUserPrompt(monocode ? monocodeUserPrompt(block) : block.text);
+      : visibleUserPrompt(monocode ? operatorUserPrompt(block) : block.text);
   const messageLink = text ? parseUserMessageLink(text) : null;
   const displayText = messageLink
     ? `${messageLink.beforeText}${messageLink.afterText}`

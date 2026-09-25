@@ -5,7 +5,7 @@ import type {
   HarnessId,
   Session,
 } from "./session";
-import { isMonocodeUserTurn, monocodeUserPrompt } from "./monocodeCommand";
+import { isOperatorUserTurn, operatorUserPrompt } from "./operatorCommand";
 
 /** Harnesses that can rewind provider state before resending an edited prompt. */
 export function harnessSupportsEditLastTurn(harness: HarnessId): boolean {
@@ -160,8 +160,8 @@ export function lastTurnRecall(session: Session): LastTurnRecall | null {
   const block = lastUserTurnBlock(session.blocks);
   if (!block?.text.trim() && !block?.attachments?.length) return null;
   return {
-    text: isMonocodeUserTurn(block)
-      ? `/mono ${monocodeUserPrompt(block)}`
+    text: isOperatorUserTurn(block)
+      ? `/operator ${operatorUserPrompt(block)}`
       : block.text,
     attachments: block.attachments ?? [],
   };

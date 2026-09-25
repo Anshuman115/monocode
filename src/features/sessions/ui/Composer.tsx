@@ -146,9 +146,9 @@ import { Popover } from "../../../shared/ui/Popover";
 import { UsageLimitNotice } from "./UsageLimitNotice";
 import { consumePlanCommand, PLAN_COMMAND } from "../model/plan";
 import {
-  consumeMonocodeCommand,
-  MONOCODE_COMMAND,
-} from "../model/monocodeCommand";
+  consumeOperatorCommand,
+  OPERATOR_COMMAND,
+} from "../model/operatorCommand";
 import {
   BTW_COMMAND,
   consumeBtwCommand,
@@ -581,7 +581,7 @@ export function Composer({
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
-  const [monoSelected, setMonoSelected] = useState(false);
+  const [operatorSelected, setOperatorSelected] = useState(false);
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   const [draftSelected, setDraftSelected] = useState(false);
   const [slash, setSlash] = useState<SlashToken | null>(null);
@@ -642,13 +642,13 @@ export function Composer({
   const slashItems = useMemo(
     () => [
       SESSION_FOLDER_COMMAND,
-      MONOCODE_COMMAND,
+      OPERATOR_COMMAND,
       PLAN_COMMAND,
       COMPACT_COMMAND,
       ...(supportsBtwHarness(harness) ? [BTW_COMMAND] : []),
       ...skills.filter(
         (skill) =>
-          skill.name !== MONOCODE_COMMAND.name &&
+          ![OPERATOR_COMMAND.name, "mono", "monocode"].includes(skill.name) &&
           (skill.kind === "native" ||
             (skill.name !== PLAN_COMMAND.name &&
               skill.name !== COMPACT_COMMAND.name &&
@@ -1006,7 +1006,7 @@ export function Composer({
       setCreatingSkill(false);
       if (planCommand) {
         setPlanSelected(true);
-        setMonoSelected(false);
+        setOperatorSelected(false);
         setOrchestrationSelected(false);
       }
       el.focus();
@@ -1372,8 +1372,8 @@ export function Composer({
       ? command.text
       : composeInboxMessage(inboxCard, command.text);
     const submittedText =
-      monoSelected && !consumeMonocodeCommand(text).matched
-        ? `/mono ${text}`
+      operatorSelected && !consumeOperatorCommand(text).matched
+        ? `/operator ${text}`
         : text;
     const files = attachments;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
@@ -1424,7 +1424,7 @@ export function Composer({
     setResendEdited(false);
     onEditingLastTurnChange?.(false);
     setPlanSelected(false);
-    setMonoSelected(false);
+    setOperatorSelected(false);
     setOrchestrationSelected(false);
     setSessionFolderSelected(false);
     setSessionFolderOpen(false);
@@ -2003,7 +2003,7 @@ export function Composer({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setPlanSelected((selected) => !selected);
-                      setMonoSelected(false);
+                      setOperatorSelected(false);
                       setOrchestrationSelected(false);
                       setDraftSelected(false);
                       setPlusOpen(false);
@@ -2024,10 +2024,10 @@ export function Composer({
                   </button>
                   <button
                     type="button"
-                    aria-pressed={monoSelected}
+                    aria-pressed={operatorSelected}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
-                      setMonoSelected((selected) => !selected);
+                      setOperatorSelected((selected) => !selected);
                       setPlanSelected(false);
                       setOrchestrationSelected(false);
                       setDraftSelected(false);
@@ -2043,7 +2043,7 @@ export function Composer({
                         Give this thread access to MonoCode
                       </span>
                     </span>
-                    {monoSelected ? (
+                    {operatorSelected ? (
                       <Check className="mt-0.5 size-3.5 shrink-0 text-sky-300/80" />
                     ) : null}
                   </button>
@@ -2055,7 +2055,7 @@ export function Composer({
                       onClick={() => {
                         setOrchestrationSelected((selected) => !selected);
                         setPlanSelected(false);
-                        setMonoSelected(false);
+                        setOperatorSelected(false);
                         setDraftSelected(false);
                         setPlusOpen(false);
                         ref.current?.focus();
@@ -2087,7 +2087,7 @@ export function Composer({
                       onClick={() => {
                         setDraftSelected((selected) => !selected);
                         setPlanSelected(false);
-                        setMonoSelected(false);
+                        setOperatorSelected(false);
                         setOrchestrationSelected(false);
                         setPlusOpen(false);
                         ref.current?.focus();
@@ -2109,14 +2109,14 @@ export function Composer({
                 </Popover>
               ) : null}
             </div>
-            {!compact && monoSelected ? (
+            {!compact && operatorSelected ? (
               <button
                 type="button"
                 title="Turn off Operator"
                 aria-label="Turn off Operator"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
-                  setMonoSelected(false);
+                  setOperatorSelected(false);
                   ref.current?.focus();
                 }}
                 className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-sky-500/15 px-1.5 text-[11px] font-medium text-sky-700 hover:bg-sky-500/20 dark:bg-sky-400/10 dark:text-sky-200/90 dark:hover:bg-sky-400/15"

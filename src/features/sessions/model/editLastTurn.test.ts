@@ -96,12 +96,12 @@ describe("editLastTurn", () => {
     });
   });
 
-  it("restores /mono when editing an activation turn", () => {
+  it("restores /operator when editing an activation turn", () => {
     const session = chat([
       { id: "u1", role: "user", text: "list notes", monocode: true },
       { id: "a1", role: "assistant", text: "Here they are." },
     ]);
-    expect(lastTurnRecall(session)?.text).toBe("/mono list notes");
+    expect(lastTurnRecall(session)?.text).toBe("/operator list notes");
   });
 
   it("allows edit on idle pi sessions without queued follow-ups", () => {

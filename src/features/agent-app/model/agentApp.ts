@@ -22,7 +22,7 @@ import {
 } from "../../sessions/model/sessionFolders";
 import type { Note } from "../../notes";
 import type { QuickLaunch } from "../../quick-composer/model/quickComposer";
-import { consumeMonocodeCommand } from "../../sessions/model/monocodeCommand";
+import { consumeOperatorCommand } from "../../sessions/model/operatorCommand";
 import { sessionConversationPage } from "./sessionConversation";
 
 export type AppSessionListing = {
@@ -97,8 +97,8 @@ function requiredString(value: unknown, name: string, max = 30_000): string {
 
 function agentPrompt(value: unknown): string {
   const prompt = requiredString(value, "prompt", 240_000);
-  if (consumeMonocodeCommand(prompt).matched)
-    throw new Error("App calls cannot enable /mono in another session");
+  if (consumeOperatorCommand(prompt).matched)
+    throw new Error("App calls cannot enable /operator in another session");
   return prompt;
 }
 

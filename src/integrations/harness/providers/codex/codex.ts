@@ -397,7 +397,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   }
   if (existing) {
     // Codex may retain the thread's sandbox network policy across turns.
-    // Switch it when this session gains /mono access or loses agent
+    // Switch it when this session gains /operator access or loses agent
     // control, so its local CLI socket matches the current policy.
     if (
       existing.cwd !== input.cwd ||

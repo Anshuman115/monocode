@@ -94,7 +94,7 @@ const APP_ACTIONS: [&str; 10] = [
     "notes.list",
     "notes.read",
 ];
-const APP_USAGE: &str = r#"MonoCode app access — use in a thread enabled by /mono.
+const APP_USAGE: &str = r#"MonoCode app access — use in a thread enabled by /operator.
 
 Usage: {exe} app ACTION [--json JSON | --input FILE|-] [--request-id ID]
 

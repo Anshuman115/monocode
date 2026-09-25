@@ -98,7 +98,7 @@ describe("persisting a subagent's trail", () => {
 });
 
 describe("sanitizeSessionForPersist", () => {
-  it("keeps the stripped /mono turn marker for later turns", () => {
+  it("keeps the stripped /operator turn marker for later turns", () => {
     const submitted = appendUser(newSession("codex", "/repo"), "list notes", [], {
       monocode: true,
     });
