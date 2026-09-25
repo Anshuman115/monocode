@@ -9635,6 +9635,10 @@ export default function App({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The Quick Composer recorder owns the next key combination, including
+      // bindings that the workspace would normally handle in capture phase.
+      if (document.querySelector('[data-shortcut-recorder-active="true"]'))
+        return;
       // Browser-standard UI zoom. Runs before tabCommand and always applies —
       // even in inputs and the terminal — so Ctrl/Cmd + - 0 behave like a browser.
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.isComposing) {

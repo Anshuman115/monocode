@@ -250,7 +250,7 @@ import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import {
   filterKeybindings,
-  KEYBINDINGS,
+  currentKeybindings,
   loadClaudeHooks,
   loadCloseToTray,
   loadCollapsedProjectRailMode,
@@ -264,6 +264,7 @@ import {
   loadModelControls,
   loadNotesEnabled,
   loadQuickComposerEnabled,
+  loadQuickComposerShortcut,
   loadTabAnimationsEnabled,
   saveClaudeHooks,
   saveCloseToTray,
@@ -278,6 +279,7 @@ import {
   saveModelControls,
   saveNotesEnabled,
   saveQuickComposerEnabled,
+  saveQuickComposerShortcut,
   saveTabAnimationsEnabled,
   searchSettings,
   settingsSectionDescription,
@@ -293,6 +295,12 @@ import {
 } from "../model/settings";
 import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../model/sounds";
 import { setQuickComposerShortcut } from "../../quick-composer/model/quickComposer";
+import {
+  QUICK_COMPOSER_DEFAULT_SHORTCUT,
+  quickComposerShortcutLabel,
+  quickComposerShortcutPreview,
+  shortcutFromKeyEvent,
+} from "../../quick-composer/model/quickComposerShortcut";
 import {
   cachedNotificationPermission,
   loadNotificationsEnabled,
@@ -827,7 +835,7 @@ function GeneralPage({
           <Row
             id="quick-composer"
             label="Quick composer"
-            description="Press ⌘⇧Space in any app to float a prompt over it and start a session without switching to MonoCode. Return starts it in the background; ⌘Return starts it and brings the session forward."
+            description={`Press ${quickComposerShortcutLabel(loadQuickComposerShortcut())} in any app to float a prompt over it and start a session without switching to MonoCode. Change the shortcut in Keybindings. Return starts it in the background; ⌘Return starts it and brings the session forward.`}
           >
             {quickComposerError ? (
               <span className="text-[12px] text-content/45">
@@ -2332,14 +2340,173 @@ function ChatBackgroundCard({
   );
 }
 
+type ShortcutModifier = "metaKey" | "ctrlKey" | "altKey" | "shiftKey";
+
+function shortcutModifier(event: KeyboardEvent): ShortcutModifier | null {
+  if (event.key === "Meta" || event.code.startsWith("Meta")) return "metaKey";
+  if (event.key === "Control" || event.code.startsWith("Control"))
+    return "ctrlKey";
+  if (event.key === "Alt" || event.code.startsWith("Alt")) return "altKey";
+  if (event.key === "Shift" || event.code.startsWith("Shift"))
+    return "shiftKey";
+  return null;
+}
+
+function QuickComposerShortcutEditor({
+  shortcut,
+  onChange,
+}: {
+  shortcut: string;
+  onChange: (shortcut: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState("");
+  const held = useRef({
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+  });
+
+  const beginRecording = () => {
+    held.current = {
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    setPreview("");
+    setError(null);
+    setRecording(true);
+  };
+
+  const apply = useCallback(
+    async (next: string) => {
+      setRecording(false);
+      setBusy(true);
+      setError(null);
+      try {
+        if (loadQuickComposerEnabled())
+          await setQuickComposerShortcut(true, next);
+        saveQuickComposerShortcut(next);
+        onChange(next);
+      } catch (reason) {
+        setError(String(reason));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onChange],
+  );
+
+  useEffect(() => {
+    if (!recording) return;
+    // Capture even when WebKit leaves focus elsewhere after a mouse click.
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.code === "Escape") {
+        setRecording(false);
+        setError(null);
+        return;
+      }
+      const modifier = shortcutModifier(event);
+      if (modifier) held.current[modifier] = true;
+      const modifiers = {
+        metaKey: event.metaKey || held.current.metaKey,
+        ctrlKey: event.ctrlKey || held.current.ctrlKey,
+        altKey: event.altKey || held.current.altKey,
+        shiftKey: event.shiftKey || held.current.shiftKey,
+      };
+      setPreview(
+        quickComposerShortcutPreview(
+          modifiers,
+          modifier ? undefined : event.code,
+          event.key,
+        ),
+      );
+      if (modifier) return;
+      const next = shortcutFromKeyEvent({ ...modifiers, code: event.code });
+      if (next) void apply(next);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      const modifier = shortcutModifier(event);
+      if (!modifier) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      held.current[modifier] = false;
+      const modifiers = {
+        metaKey: event.metaKey || held.current.metaKey,
+        ctrlKey: event.ctrlKey || held.current.ctrlKey,
+        altKey: event.altKey || held.current.altKey,
+        shiftKey: event.shiftKey || held.current.shiftKey,
+      };
+      modifiers[modifier] = false;
+      setPreview(quickComposerShortcutPreview(modifiers));
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
+  }, [apply, recording]);
+
+  return (
+    <div className="w-40 shrink-0">
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          readOnly
+          aria-label="Change quick composer shortcut"
+          data-shortcut-recorder-active={recording ? "true" : undefined}
+          disabled={busy}
+          value={
+            recording || busy
+              ? preview || "Press keys…"
+              : quickComposerShortcutLabel(shortcut)
+          }
+          onFocus={beginRecording}
+          onClick={beginRecording}
+          onBlur={() => setRecording(false)}
+          className="h-6 w-24 shrink-0 rounded-md border border-content/15 bg-transparent px-1.5 py-0 font-mono text-[11px] leading-none text-content/80 outline-none hover:bg-content/10 focus:border-accent disabled:opacity-50"
+        />
+        {shortcut !== QUICK_COMPOSER_DEFAULT_SHORTCUT ? (
+          <button
+            type="button"
+            aria-label="Reset quick composer shortcut"
+            disabled={busy}
+            onClick={() => void apply(QUICK_COMPOSER_DEFAULT_SHORTCUT)}
+            className="rounded-md px-1 py-1 text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-50"
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      {recording ? (
+        <p className="mt-1 text-[11px] text-content/45" aria-live="polite">
+          ⌘ or ⌃ + one key · Esc to cancel
+        </p>
+      ) : null}
+      {error ? <p className="mt-1 text-[11px] text-red-500">{error}</p> : null}
+    </div>
+  );
+}
+
 function KeybindingsPage() {
   const [query, setQuery] = useState("");
-  const rows = useMemo(() => filterKeybindings(KEYBINDINGS, query), [query]);
+  const [quickShortcut, setQuickShortcut] = useState(loadQuickComposerShortcut);
+  const rows = useMemo(
+    () => filterKeybindings(currentKeybindings(), query),
+    [query, quickShortcut],
+  );
 
   return (
     <Group
       title="Shortcuts"
-      description="Bindings come from the app menu and the workspace key handler; they aren’t customizable yet."
+      description="Bindings come from the app menu and the workspace key handler. Click the Quick Composer binding to change its global shortcut."
       action={
         <div className="flex items-center gap-3">
           <span className="shrink-0 text-[12px] text-content/40 tabular-nums">
@@ -2372,13 +2539,20 @@ function KeybindingsPage() {
       ) : (
         rows.map((row) => (
           <div
-            key={`${row.command}-${row.keys}`}
+            key={row.command}
             className="flex items-center border-b border-content/5 px-4 py-2 text-[12px] last:border-b-0"
           >
             <span className="min-w-0 flex-1 truncate">{row.command}</span>
-            <span className="w-40 shrink-0 font-mono text-[12px] text-content/80">
-              {row.keys}
-            </span>
+            {row.command === "App: Quick Composer" ? (
+              <QuickComposerShortcutEditor
+                shortcut={quickShortcut}
+                onChange={setQuickShortcut}
+              />
+            ) : (
+              <span className="w-40 shrink-0 font-mono text-[12px] text-content/80">
+                {row.keys}
+              </span>
+            )}
             <span className="w-28 shrink-0 font-mono text-[11px] text-content/40">
               {row.when}
             </span>
