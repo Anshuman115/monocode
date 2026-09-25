@@ -300,7 +300,7 @@ export function BtwPopover({
         title="Ask a BTW question"
         ref={triggerRef}
         onClick={openNewFromTrigger}
-        className="shrink-0 rounded-md p-1 text-content/40 transition-colors hover:bg-content/8 hover:text-content/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ml-0.5"
+        className="shrink-0 rounded-md p-1 text-content/40 transition-colors hover:bg-content/8 hover:text-content/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
       >
         <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
       </button>
