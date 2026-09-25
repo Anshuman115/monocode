@@ -320,6 +320,18 @@ pub fn harness_resolve_claude() -> Result<CursorBinary, String> {
         })
 }
 
+#[tauri::command(async)]
+pub fn harness_resolve_command_code() -> Result<CursorBinary, String> {
+    resolve_command_code()
+        .map(|path| CursorBinary {
+            path: path.to_string_lossy().into_owned(),
+        })
+        .ok_or_else(|| {
+            "Command Code CLI not found. Install it with `npm i -g command-code`, then retry."
+                .into()
+        })
+}
+
 /// Resolve the Pi coding agent CLI (`pi`).
 #[tauri::command(async)]
 pub fn harness_resolve_pi() -> Result<CursorBinary, String> {
@@ -875,6 +887,7 @@ fn is_resolved_harness_binary(command: &str) -> bool {
         resolve_codex(),
         resolve_opencode(),
         resolve_claude(),
+        resolve_command_code(),
         resolve_pi(),
         resolve_omp(),
         resolve_fx(),
@@ -1521,6 +1534,42 @@ fn resolve_claude() -> Option<PathBuf> {
     candidates.push(PathBuf::from("/snap/bin/claude"));
     if let Some(from_shell) = which_via_login_shell("claude") {
         candidates.push(from_shell);
+    }
+
+    first_binary(candidates)
+}
+
+fn resolve_command_code() -> Option<PathBuf> {
+    let home = dirs_home().map(PathBuf::from);
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Some(home) = &home {
+        for name in ["command-code", "cmdc"] {
+            candidates.push(home.join(".local/bin").join(name));
+            candidates.push(home.join(".npm-global/bin").join(name));
+            candidates.push(home.join(".bun/bin").join(name));
+            candidates.push(home.join(".cargo/bin").join(name));
+            candidates.push(home.join("n/bin").join(name));
+        }
+        #[cfg(windows)]
+        candidates.push(home.join("AppData/Roaming/npm/command-code"));
+        #[cfg(windows)]
+        candidates.push(home.join("AppData/Roaming/npm/cmdc"));
+    }
+    #[cfg(target_os = "macos")]
+    candidates.push(PathBuf::from("/opt/homebrew/bin/command-code"));
+    candidates.push(PathBuf::from("/usr/local/bin/command-code"));
+    candidates.push(PathBuf::from("/usr/bin/command-code"));
+    candidates.push(PathBuf::from("/snap/bin/command-code"));
+    if !cfg!(windows) {
+        if let Some(from_shell) = which_via_login_shell("cmd") {
+            candidates.push(from_shell);
+        }
+    }
+    for name in ["command-code", "cmdc"] {
+        if let Some(from_shell) = which_via_login_shell(name) {
+            candidates.push(from_shell);
+        }
     }
 
     first_binary(candidates)

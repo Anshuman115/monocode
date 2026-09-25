@@ -185,6 +185,18 @@ describe("harness registry", () => {
     expect(pi).toHaveBeenCalledOnce();
   });
 
+  it("can refresh a live catalog when the caller requests fresh models", async () => {
+    const pi = vi.fn(async () => undefined);
+    registerHarness(stub("pi", { refreshCatalog: pi }));
+    setHarnessModels("pi", [
+      { id: "pi:old", harness: "pi", name: "Old", nativeId: "old" },
+    ]);
+
+    await refreshHarnessCatalogs(["pi"], { force: true });
+
+    expect(pi).toHaveBeenCalledOnce();
+  });
+
   it("skips catalog refresh when no harness is in use", async () => {
     const pi = vi.fn(async () => undefined);
     registerHarness(stub("pi", { refreshCatalog: pi }));

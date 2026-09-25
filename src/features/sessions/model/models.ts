@@ -198,10 +198,18 @@ export const MODELS: AgentModel[] = [
     name: "Gemini 3.8 Flash (High)",
     nativeId: "gemini-3.8-flash-high",
   },
+  {
+    id: "command-code:deepseek/deepseek-v4.1-flash",
+    harness: "command-code",
+    name: "DeepSeek V4.1 Flash",
+    nativeId: "deepseek/deepseek-v4.1-flash",
+    contextWindow: 1_000_000,
+  },
 ];
 
 export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
   claude: "claude:sonnet-5",
+  "command-code": "command-code:deepseek/deepseek-v4.1-flash",
   codex: "",
   cursor: "cursor:composer-2.5",
   grok: "grok:grok-4.6",
@@ -240,6 +248,7 @@ const HARNESS_ORDER: HarnessId[] = [
   "fx",
   "hermes",
   "antigravity",
+  "command-code",
 ];
 
 const EMPTY_MODELS: AgentModel[] = [];
@@ -844,6 +853,15 @@ function pickDefaultId(harness: HarnessId, models: AgentModel[]): string {
   }
   if (harness === "codex") {
     return models[0]?.id ?? "";
+  }
+  if (harness === "command-code") {
+    return (
+      models.find((model) => model.nativeId === "deepseek/deepseek-v4.1-flash")
+        ?.id ??
+      models.find((model) => model.id === DEFAULT_MODEL_ID[harness])?.id ??
+      models[0]?.id ??
+      DEFAULT_MODEL_ID[harness]
+    );
   }
   if (harness === "grok") {
     return (
