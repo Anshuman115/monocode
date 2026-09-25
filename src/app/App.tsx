@@ -95,11 +95,14 @@ import { useInboxActivity } from "../features/inbox/hooks/useInboxUnseen";
 import {
   loadProjectRailOpen,
   loadSessionSidebarOpen,
-  loadSidebarTabOrder,
   saveProjectRailOpen,
   saveSessionSidebarOpen,
   type SidebarTabId,
 } from "../features/settings/model/appearance";
+import {
+  loadProjectSidebarTab,
+  saveProjectSidebarTab,
+} from "../features/settings/model/projectSidebarTab";
 import { HAS_NATIVE_GLASS, IS_MAC } from "../platform/tauri/platform";
 import {
   applyUiScale,
@@ -894,9 +897,6 @@ export default function App({
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
-  const [sidebarTab, setSidebarTab] = useState<SidebarTabId>(
-    () => loadSidebarTabOrder()[0] ?? "sessions",
-  );
   const [filesSearchOpen, setFilesSearchOpen] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [searchViewOpen, setSearchViewOpen] = useState(false);
@@ -1361,6 +1361,25 @@ export default function App({
     activeFile?.projectCwd ?? activeFile?.cwd ?? active?.cwd ?? projectCwd;
   const sidebarCwdRef = useRef(sidebarCwd);
   sidebarCwdRef.current = sidebarCwd;
+  const [sidebarTabSelection, setSidebarTabSelection] = useState<{
+    project: string;
+    tab: SidebarTabId;
+  }>(() => ({
+    project: pathKey(sidebarCwd),
+    tab: loadProjectSidebarTab(sidebarCwd),
+  }));
+  const sidebarTab =
+    sidebarTabSelection.project === pathKey(sidebarCwd)
+      ? sidebarTabSelection.tab
+      : loadProjectSidebarTab(sidebarCwd);
+  const setSidebarTab = useCallback((tab: SidebarTabId, project?: string) => {
+    const cwd = project ?? sidebarCwdRef.current;
+    saveProjectSidebarTab(cwd, tab);
+    setSidebarTabSelection({
+      project: pathKey(cwd),
+      tab: tab === "inbox" ? "sessions" : tab,
+    });
+  }, []);
   const sidebarCwdKey =
     sidebarCwd && sidebarCwd !== "~" ? normalizeProjectPath(sidebarCwd) : null;
   const historyFailed =
@@ -2109,9 +2128,9 @@ export default function App({
         setInboxViewOpen(false);
         setNotesViewOpen(false);
         setAutomationsViewOpen(false);
-        setSidebarTab("sessions");
         const cwd =
           item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
+        setSidebarTab("sessions", cwd);
         const ref =
           item.provider === "linear" || item.provider === "jira"
             ? item.identifier?.trim() || `#${item.number}`
@@ -2148,7 +2167,6 @@ export default function App({
       setInboxViewOpen(false);
       setNotesViewOpen(false);
       setAutomationsViewOpen(false);
-      setSidebarTab("sessions");
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
           ? card.sourceCwd
@@ -2156,6 +2174,7 @@ export default function App({
         active?.cwd ||
         sessionDefaults?.cwd ||
         projectCwd;
+      setSidebarTab("sessions", cwd);
       const title = card.title.trim();
       const session = {
         ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
@@ -3311,7 +3330,7 @@ export default function App({
             );
           }),
         );
-        setSidebarTab("changes");
+        setSidebarTab("changes", diffProjectCwd);
         setComposerFocused(false);
       })();
     },
@@ -3869,7 +3888,7 @@ export default function App({
       setAutomationsViewOpen(false);
       setSettingsOpen(false);
       setFilePickerOpen(false);
-      setSidebarTab("sessions");
+      setSidebarTab("sessions", session.cwd);
       setProjectCwd(session.cwd);
       setRecents(rememberProject(session.cwd));
       await onSelectHistorySession(sessionId);
@@ -5000,7 +5019,14 @@ export default function App({
       const remaining = options.purgeData
         ? forgetProject(normalized)
         : archiveProject(normalized);
-      if (options.purgeData) forgetProjectLocation(normalized);
+      if (options.purgeData) {
+        forgetProjectLocation(normalized);
+        setSidebarTabSelection((current) =>
+          sameProjectPath(current.project, normalized)
+            ? { project: "~", tab: loadProjectSidebarTab("~") }
+            : current,
+        );
+      }
       setRecents(remaining);
 
       const tabs = tabsRef.current;
@@ -5189,6 +5215,11 @@ export default function App({
       projectTerminalsRef.current = nextDocks;
       setProjectTerminals(nextDocks);
       rebaseProjectData(from, to);
+      setSidebarTabSelection((current) =>
+        sameProjectPath(current.project, from)
+          ? { ...current, project: pathKey(to) }
+          : current,
+      );
       setRecents(replaceProjectPath(from, to));
       onFileMoved(from, to);
       notifyDirsChanged();
@@ -6812,7 +6843,7 @@ export default function App({
           setInboxViewOpen(false);
           setNotesViewOpen(false);
           setAutomationsViewOpen(false);
-          setSidebarTab("sessions");
+          setSidebarTab("sessions", session.cwd);
         }
 
         await updateAutomationRun(run.id, "running", {
@@ -6868,14 +6899,14 @@ export default function App({
         appendTab,
         setProjectCwd,
         setRecents,
-        revealTab: (id) => {
+        revealTab: (id, cwd) => {
           setActiveTabId(id);
           setComposerFocused(false);
           setSearchViewOpen(false);
           setInboxViewOpen(false);
           setNotesViewOpen(false);
           setAutomationsViewOpen(false);
-          setSidebarTab("sessions");
+          setSidebarTab("sessions", cwd);
         },
         submit: submitSession,
         saveDraft: (id, prompt, attachments, requestId) =>
@@ -9099,10 +9130,13 @@ export default function App({
   const onOpenInboxSession = useCallback(
     (sessionId: string) => {
       setInboxViewOpen(false);
-      setSidebarTab("sessions");
+      const cwd =
+        sessionsRef.current.find((session) => session.id === sessionId)?.cwd ??
+        history.find((session) => session.id === sessionId)?.cwd;
+      setSidebarTab("sessions", cwd);
       void onSelectHistorySession(sessionId);
     },
-    [onSelectHistorySession],
+    [history, onSelectHistorySession],
   );
 
   const onRepairChecks = useCallback(
@@ -9153,7 +9187,7 @@ export default function App({
       setInboxViewOpen(false);
       setNotesViewOpen(false);
       setSearchViewOpen(false);
-      setSidebarTab("sessions");
+      setSidebarTab("sessions", cwd);
       await onSelectHistorySession(session.id);
     },
     [
@@ -9202,7 +9236,7 @@ export default function App({
       setNotesViewOpen(false);
       setSettingsOpen(false);
       setFilePickerOpen(false);
-      setSidebarTab("sessions");
+      setSidebarTab("sessions", session.cwd);
       setProjectCwd(session.cwd);
       setRecents(rememberProject(session.cwd));
       await onSelectHistorySession(sessionId);

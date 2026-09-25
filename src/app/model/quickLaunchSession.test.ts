@@ -87,7 +87,7 @@ function setup(reveal = false) {
     setRecents: vi.fn((recents: typeof state.recents) => {
       state.recents = recents;
     }),
-    revealTab: vi.fn((id: string) => {
+    revealTab: vi.fn((id: string, cwd: string) => {
       // Assert the title bar and recents already point at the revealed project.
       expect(
         filterTabsForProject(state.tabs, state.sessions, state.projectCwd).some(
@@ -95,6 +95,7 @@ function setup(reveal = false) {
         ),
       ).toBe(true);
       expect(state.recents[0].path).toBe(request.cwd);
+      expect(cwd).toBe(request.cwd);
       state.activeTabId = id;
     }),
     submit,

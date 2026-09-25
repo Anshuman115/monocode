@@ -30,7 +30,7 @@ export async function acceptQuickLaunch(
     appendTab: (tab: WorkspaceTab, cwd: string) => void;
     setProjectCwd: (cwd: string) => void;
     setRecents: (recents: RecentProject[]) => void;
-    revealTab: (id: string) => void;
+    revealTab: (id: string, cwd: string) => void;
     submit: (
       sessionId: string,
       text: string,
@@ -83,7 +83,7 @@ export async function acceptQuickLaunch(
       // The title bar filters tabs by this project. Select it before the tab.
       workspace.setProjectCwd(launch.cwd);
       workspace.setRecents(rememberProject(launch.cwd));
-      workspace.revealTab(tab.id);
+      workspace.revealTab(tab.id, launch.cwd);
     }
   }
   if (launch.draft) {
