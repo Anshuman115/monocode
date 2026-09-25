@@ -76,6 +76,7 @@ import type {
   HarnessId,
   MessageQueueStatus,
   QueuedMessage,
+  UsageLimit,
   RuntimeMode,
   WorkspaceMode,
   ComposerTurnOptions,
@@ -142,6 +143,7 @@ import {
 import { resolveTabGroupLogo } from "../../workspace/model/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "../../../shared/ui/Popover";
+import { UsageLimitNotice } from "./UsageLimitNotice";
 import { consumePlanCommand, PLAN_COMMAND } from "../model/plan";
 import {
   consumeMonocodeCommand,
@@ -204,6 +206,7 @@ type Props = {
   lastTurnRecall?: LastTurnRecall | null;
   queuedMessages?: QueuedMessage[];
   queueStatus?: MessageQueueStatus;
+  usageLimit?: UsageLimit;
   hotkeys?: boolean;
   onFocus: () => void;
   onCwdChange: (cwd: string) => void;
@@ -242,6 +245,9 @@ type Props = {
   onQueuedMessageEditingChange?: (messageId?: string) => void;
   onSteerQueuedMessage?: (messageId: string) => void;
   onResumeQueue?: () => void;
+  onUsageLimitResume?: () => void;
+  onUsageLimitResumeAtReset?: (enabled: boolean) => void;
+  onUsageLimitDismiss?: () => void;
   onOpenFile?: (path: string) => void;
   onDraftChange?: (text: string) => void;
   onRecallLastTurnReady?: (recall: () => void) => void;
@@ -483,6 +489,7 @@ export function Composer({
   lastTurnRecall = null,
   queuedMessages = [],
   queueStatus,
+  usageLimit,
   onFocus,
   onCwdChange,
   onBranchChange,
@@ -516,6 +523,9 @@ export function Composer({
   onQueuedMessageEditingChange,
   onSteerQueuedMessage,
   onResumeQueue,
+  onUsageLimitResume,
+  onUsageLimitResumeAtReset,
+  onUsageLimitDismiss,
   onOpenFile,
   onDraftChange,
   onRecallLastTurnReady,
@@ -1632,6 +1642,14 @@ export function Composer({
         />
       ) : null}
       {children}
+      {usageLimit ? (
+        <UsageLimitNotice
+          limit={usageLimit}
+          onResume={onUsageLimitResume}
+          onResumeAtReset={onUsageLimitResumeAtReset}
+          onDismiss={onUsageLimitDismiss}
+        />
+      ) : null}
       <MessageQueue
         messages={queuedMessages}
         status={queueStatus}

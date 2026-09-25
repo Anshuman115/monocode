@@ -33,6 +33,7 @@ import {
   isSubagentMessage,
   isTerminalAgentTaskStatus,
   isTodoTool,
+  isUsageLimitResult,
   normalizeClaudeCliEffort,
   parseBackgroundTasks,
   parseControlCancelId,
@@ -59,6 +60,7 @@ import {
   toolTitle,
   tryParseJsonRecord,
   turnStatusFromResult,
+  usageLimitFromRateLimitEvent,
   type ClaudeAgentTaskNotification,
   type ClaudeCliSettings,
   type ClaudeControlRequest,
@@ -149,6 +151,8 @@ type Live = {
   /** Finished-subagent notes held until Claude picks the thread back up. */
   taskNotes: string[];
   turnResultSeen: boolean;
+  /** Latest `rate_limit_event` refused requests; reported when the turn ends. */
+  usageLimit: { resetsAt?: number } | null;
   cancelled: boolean;
   muteUpdates: boolean;
   turns: Promise<void>;
@@ -434,6 +438,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     backgroundKey: "",
     taskNotes: [],
     turnResultSeen: false,
+    usageLimit: null,
     cancelled: false,
     muteUpdates: false,
     turns: Promise.resolve(),
@@ -651,6 +656,10 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   }
   if (type === "result") {
     handleResult(live, rec);
+    return;
+  }
+  if (type === "rate_limit_event") {
+    live.usageLimit = usageLimitFromRateLimitEvent(rec);
     return;
   }
   if (type === "system") {
@@ -872,6 +881,15 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   const result = turnStatusFromResult(rec);
   if (result.status === "failed" && result.error && !live.cancelled) {
     live.onEvent({ type: "session.error", message: result.error });
+  }
+  // A refused window can still fall back to another model, so only a turn
+  // that ended in error was stopped by it.
+  const turnErrored = rec.is_error === true || result.status === "failed";
+  const usageLimit =
+    live.usageLimit ?? (isUsageLimitResult(rec) ? {} : null);
+  live.usageLimit = null;
+  if (usageLimit && turnErrored && !live.cancelled) {
+    live.onEvent({ type: "usage.limited", ...usageLimit });
   }
   live.turnResultSeen = true;
   maybeFinishTurn(live);

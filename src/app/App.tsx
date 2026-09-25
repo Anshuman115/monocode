@@ -403,6 +403,7 @@ import {
   type PlanStatus,
   type SecondOpinionMeta,
   type Session,
+  type UsageLimit,
   type WorkspaceMode,
 } from "../features/sessions/model/session";
 
@@ -411,6 +412,15 @@ import {
   dequeueQueuedMessage,
   queuedMessageForSubmit,
 } from "../features/sessions/model/messageQueue";
+import {
+  USAGE_LIMIT_RESUME_GRACE_MS,
+  usageLimitResumeDue,
+} from "../features/sessions/model/usageLimit";
+import {
+  fetchClaudeRateLimits,
+  fetchCodexRateLimits,
+} from "../features/providers/model/rateLimitsFetch";
+import { exhaustedWindowResetAt } from "../features/providers/model/rateLimits";
 import { dropContextWindow } from "../features/sessions/model/contextUsage";
 import {
   discardDraftSessionRecord,
@@ -1022,6 +1032,8 @@ export default function App({
   >(new Map());
   const linkedWorkItemActivityFetches = useRef(new Map<string, number>());
   const queueDispatchingRef = useRef(new Set<string>());
+  const usageResumingRef = useRef(new Set<string>());
+  const usageResetLookups = useRef(new WeakSet<UsageLimit>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const dirtyFilesRef = useRef(dirtyFiles);
@@ -6029,6 +6041,7 @@ export default function App({
             let next: Session = {
               ...selected,
               providerAccountId,
+              usageLimit: undefined,
               worktreePreparing: createDraftWorktree
                 ? true
                 : selected.worktreePreparing,
@@ -7231,6 +7244,118 @@ export default function App({
     },
     [onSubmit],
   );
+
+  const onUsageLimitDismiss = useCallback((sessionId: string) => {
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === sessionId && session.usageLimit
+          ? { ...session, usageLimit: undefined }
+          : session,
+      ),
+    );
+  }, []);
+
+  const onUsageLimitResumeAtReset = useCallback(
+    (sessionId: string, enabled: boolean) => {
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId && session.usageLimit
+            ? {
+                ...session,
+                usageLimit: { ...session.usageLimit, resumeAtReset: enabled },
+              }
+            : session,
+        ),
+      );
+    },
+    [],
+  );
+
+  const onUsageLimitResume = useCallback(
+    (sessionId: string) => {
+      const session = sessionsRef.current.find(
+        (entry) => entry.id === sessionId,
+      );
+      if (!session?.usageLimit || session.busy) return;
+      onUsageLimitDismiss(sessionId);
+      onSubmit(sessionId, CONTINUE_PROMPT);
+    },
+    [onSubmit, onUsageLimitDismiss],
+  );
+
+  const [usageLimitTick, setUsageLimitTick] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    const timers: number[] = [];
+    const scheduled = new Set<string>();
+    let nextCheck = Number.POSITIVE_INFINITY;
+    for (const session of sessions) {
+      const limit = session.usageLimit;
+      if (!limit?.resumeAtReset || limit.resetsAt == null) continue;
+      if (!usageLimitResumeDue(session, now)) {
+        nextCheck = Math.min(
+          nextCheck,
+          limit.resetsAt + USAGE_LIMIT_RESUME_GRACE_MS - now,
+        );
+        continue;
+      }
+      if (usageResumingRef.current.has(session.id)) continue;
+      usageResumingRef.current.add(session.id);
+      scheduled.add(session.id);
+      timers.push(
+        window.setTimeout(() => {
+          usageResumingRef.current.delete(session.id);
+          const latest = sessionsRef.current.find(
+            (entry) => entry.id === session.id,
+          );
+          if (latest && usageLimitResumeDue(latest, Date.now())) {
+            onUsageLimitResume(session.id);
+          }
+        }, 0),
+      );
+    }
+    if (Number.isFinite(nextCheck)) {
+      // Re-check every minute at most: timers drift while the machine sleeps.
+      timers.push(
+        window.setTimeout(
+          () => setUsageLimitTick((tick) => tick + 1),
+          Math.max(1_000, Math.min(nextCheck, 60_000)),
+        ),
+      );
+    }
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      for (const id of scheduled) usageResumingRef.current.delete(id);
+    };
+  }, [onUsageLimitResume, sessions, usageLimitTick]);
+
+  // The stream does not always say when the limit resets; ask the provider.
+  useEffect(() => {
+    for (const session of sessions) {
+      const limit = session.usageLimit;
+      if (!limit || limit.resetsAt != null) continue;
+      if (usageResetLookups.current.has(limit)) continue;
+      const fetchLimits =
+        session.harness === "claude"
+          ? fetchClaudeRateLimits
+          : session.harness === "codex"
+            ? fetchCodexRateLimits
+            : undefined;
+      if (!fetchLimits) continue;
+      usageResetLookups.current.add(limit);
+      void fetchLimits(session.providerAccountId).then((limits) => {
+        const resetsAt = exhaustedWindowResetAt(limits);
+        if (resetsAt == null) return;
+        setSessions((prev) =>
+          prev.map((entry) =>
+            entry.id === session.id && entry.usageLimit === limit
+              ? { ...entry, usageLimit: { ...limit, resetsAt } }
+              : entry,
+          ),
+        );
+      });
+    }
+  }, [sessions]);
 
   const openSessionBeside = useCallback(
     (
@@ -9865,6 +9990,9 @@ export default function App({
     onQueuedMessageEditingChange,
     onSteerQueuedMessage,
     onResumeQueue,
+    onUsageLimitResume,
+    onUsageLimitResumeAtReset,
+    onUsageLimitDismiss,
     onInboxCardDismiss,
     onLinkedWorkItemUpdateCardDismiss,
     onNoteCardDismiss,

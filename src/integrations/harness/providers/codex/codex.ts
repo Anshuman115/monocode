@@ -1,5 +1,9 @@
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
+import {
+  exhaustedWindowResetAt,
+  parseCodexRateLimits,
+} from "../../../../features/providers/model/rateLimits";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import { questionPromptTitle, type UserQuestionReply } from "../../../../features/sessions/model/userQuestion";
 import {
@@ -93,6 +97,10 @@ type Live = {
   pendingSubagent: Map<string, Array<{ method: string; params: unknown }>>;
   /** Agent rows still running, by call id, with the name to settle them under. */
   openAgentRows: Map<string, string>;
+  /** Latest rate-limit windows by limit id, merged from sparse updates. */
+  rateLimits: Map<string, Record<string, unknown>>;
+  /** The active turn failed on a spent usage limit. */
+  usageLimited: boolean;
 };
 
 type Resume = {
@@ -566,6 +574,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       subagentThreads: new Map(),
       pendingSubagent: new Map(),
       openAgentRows: new Map(),
+      rateLimits: new Map(),
+      usageLimited: false,
     };
     liveRef.current = live;
     liveByThread.set(input.sessionId, live);
@@ -739,12 +749,42 @@ function handleNotification(live: Live, method: string, params: unknown): void {
       emitSubagentSteps(live, owner, pending.method, pending.params);
   }
   settleSubagentRows(live, rec);
+  if (mapped.rateLimits) noteRateLimits(live, mapped.rateLimits);
+  if (mapped.usageLimited) live.usageLimited = true;
   if (mapped.activeTurnId !== undefined) {
     live.activeTurnId = mapped.activeTurnId;
   }
   if (mapped.turnCompleted) {
+    // Report the limit before the turn settles so queued follow-ups hold.
+    if (live.usageLimited && !live.cancelled) {
+      const resetsAt = usageLimitResetAt(live);
+      live.onEvent({
+        type: "usage.limited",
+        ...(resetsAt != null ? { resetsAt } : {}),
+      });
+    }
+    live.usageLimited = false;
     finishActiveTurn(live);
   }
+}
+
+/** Rate-limit updates are sparse: a missing window keeps its last reading. */
+function noteRateLimits(live: Live, update: Record<string, unknown>): void {
+  const id = stringField(update, "limitId") ?? "";
+  const current = live.rateLimits.get(id) ?? {};
+  live.rateLimits.set(id, {
+    primary: update.primary ?? current.primary,
+    secondary: update.secondary ?? current.secondary,
+  });
+}
+
+function usageLimitResetAt(live: Live): number | null {
+  let latest: number | null = null;
+  for (const windows of live.rateLimits.values()) {
+    const resetsAt = exhaustedWindowResetAt(parseCodexRateLimits(windows));
+    if (resetsAt != null) latest = Math.max(latest ?? 0, resetsAt);
+  }
+  return latest;
 }
 
 /**

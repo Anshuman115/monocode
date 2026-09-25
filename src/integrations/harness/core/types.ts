@@ -22,6 +22,8 @@ export type HarnessEvent =
       modelSettings?: Record<string, string>;
     }
   | { type: "status"; text: string }
+  /** The provider refused the turn until its usage window resets (epoch ms). */
+  | { type: "usage.limited"; resetsAt?: number }
   /**
    * The agent has yielded but the turn is not over: work it started is still
    * running and will wake it again. Empty once it is back at work.

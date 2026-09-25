@@ -155,6 +155,11 @@ export function applyHarnessEvent(
       };
     case "status":
       return appendStatus(session, event.text);
+    case "usage.limited":
+      return {
+        ...session,
+        usageLimit: event.resetsAt != null ? { resetsAt: event.resetsAt } : {},
+      };
     case "interjection":
       // A visible boundary the user must not miss, so unlike status it never
       // deduplicates and never reads as turn lifecycle.
