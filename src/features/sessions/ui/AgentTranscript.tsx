@@ -61,10 +61,7 @@ import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
 import { resolveModel } from "../model/models";
-import {
-  btwOpenTargetTurnId,
-  btwSurfaceHarness,
-} from "../model/btw";
+import { btwOpenTargetTurnId, btwSurfaceHarness } from "../model/btw";
 import { harnessForTurn } from "../model/secondOpinion";
 import { Shimmer } from "../../../shared/ui/Shimmer";
 import {
@@ -1089,7 +1086,7 @@ function TurnResponseViewComponent({
       .some((item) => item.type === "block" && isProseBlock(item.block));
 
   if (blocks.length === 0 && live) {
-    return <InitialThinking live />;
+    return <InitialThinking live embedded />;
   }
   if (blocks.length === 0) return null;
 
@@ -1103,6 +1100,7 @@ function TurnResponseViewComponent({
               blocks={item.blocks}
               cwd={cwd}
               live={live}
+              embedded
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
             />
@@ -1114,6 +1112,7 @@ function TurnResponseViewComponent({
               <InitialThinking
                 key={`thinking-${item.blocks[0].id}`}
                 live={live}
+                embedded
               />
             );
           }
@@ -1141,6 +1140,7 @@ function TurnResponseViewComponent({
               block={item.block}
               layout={transcriptLayout}
               stickyIndex={0}
+              embedded
               cwd={cwd}
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
@@ -1162,9 +1162,17 @@ export const AgentTranscript = memo(
 );
 
 /** Placeholder for private reasoning before the first assistant text arrives. */
-function InitialThinking({ live }: { live: boolean }) {
+function InitialThinking({
+  live,
+  embedded = false,
+}: {
+  live: boolean;
+  embedded?: boolean;
+}) {
   return (
-    <div className="min-w-0 px-4 pt-3 pb-1 font-sans text-sm text-content/50">
+    <div
+      className={`min-w-0 pt-3 pb-1 font-sans text-sm text-content/50 ${embedded ? "" : "px-4"}`}
+    >
       {live ? <Shimmer duration={1.6}>Thinking…</Shimmer> : "Thinking…"}
     </div>
   );
@@ -1287,18 +1295,54 @@ function TurnDuration({
   onOpenDiff?: (path: string) => void;
 }) {
   const label = formatWorkingDuration(elapsedMs, modelName, true);
+  const hasBtw = !!(btwHarness && onBtwSubmit && onBtwRetry);
   const dot = (
     <span
       aria-hidden
       className="size-[3px] shrink-0 rounded-full bg-content/25"
     />
   );
+  const metricsBadge = (
+    <TurnMetricsBadge metrics={metrics} elapsedMs={elapsedMs} />
+  );
+  const labelDetails = labelHidden ? null : (
+    <span
+      className={`flex min-w-0 items-center gap-2.5 ${hasBtw ? "ml-1.5" : ""}`}
+    >
+      {dot}
+      <span className="flex min-w-0 items-center gap-1.5">
+        {harness ? (
+          <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
+        ) : null}
+        <span className="min-w-0 truncate" title={label}>
+          {label}
+        </span>
+      </span>
+    </span>
+  );
+  const timeDetails =
+    completedAt != null ? (
+      <span
+        className={`${hasBtw ? "ml-1.5" : "ml-auto"} flex shrink-0 items-center gap-2.5`}
+      >
+        {dot}
+        <span className="shrink-0 text-content/35">
+          {formatClockTime(completedAt)}
+        </span>
+      </span>
+    ) : null;
   return (
     <div
       aria-label={label}
       className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden px-4 pt-1 pb-3 font-sans text-sm text-content/40"
     >
-      <span className="flex shrink-0 items-center gap-1">
+      <span
+        className={
+          hasBtw
+            ? "flex w-full min-w-0 items-center gap-1"
+            : "flex shrink-0 items-center gap-1"
+        }
+      >
         {output ? (
           <>
             <CopyTurnButton text={output} />
@@ -1315,50 +1359,33 @@ function TurnDuration({
         {fromHarness && onSecondOpinion ? (
           <SecondOpinionButton from={fromHarness} onPick={onSecondOpinion} />
         ) : null}
-        <TurnMetricsBadge metrics={metrics} elapsedMs={elapsedMs} />
+        {btwHarness && onBtwSubmit && onBtwRetry ? (
+          <BtwPopover
+            harness={btwHarness}
+            cwd={cwd}
+            model={model}
+            modelSettings={modelSettings}
+            threads={btwThreads}
+            visible={visible}
+            onSubmit={onBtwSubmit}
+            onRetry={onBtwRetry}
+            onDelete={onBtwDelete}
+            onModelChange={onBtwModelChange}
+            openRequest={btwOpenRequest}
+            onOpenRequestHandled={onBtwOpenRequestHandled}
+            onOpenFile={onOpenFile}
+            onOpenDiff={onOpenDiff}
+          >
+            {metricsBadge}
+            {labelDetails}
+            {timeDetails}
+          </BtwPopover>
+        ) : (
+          metricsBadge
+        )}
       </span>
-
-      {btwHarness && onBtwSubmit && onBtwRetry ? (
-        <BtwPopover
-          harness={btwHarness}
-          cwd={cwd}
-          model={model}
-          modelSettings={modelSettings}
-          threads={btwThreads}
-          visible={visible}
-          onSubmit={onBtwSubmit}
-          onRetry={onBtwRetry}
-          onDelete={onBtwDelete}
-          onModelChange={onBtwModelChange}
-          openRequest={btwOpenRequest}
-          onOpenRequestHandled={onBtwOpenRequestHandled}
-          onOpenFile={onOpenFile}
-          onOpenDiff={onOpenDiff}
-        />
-      ) : null}
-
-      {labelHidden ? null : (
-        <>
-          {dot}
-          <span className="flex min-w-0 items-center gap-1.5">
-            {harness ? (
-              <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
-            ) : null}
-            <span className="min-w-0 truncate" title={label}>
-              {label}
-            </span>
-          </span>
-        </>
-      )}
-
-      {completedAt != null ? (
-        <span className="ml-auto flex shrink-0 items-center gap-2.5">
-          {dot}
-          <span className="shrink-0 text-content/35">
-            {formatClockTime(completedAt)}
-          </span>
-        </span>
-      ) : null}
+      {hasBtw ? null : labelDetails}
+      {hasBtw ? null : timeDetails}
     </div>
   );
 }
@@ -1625,6 +1652,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   layout,
   stickyIndex,
   underLine = false,
+  embedded = false,
   cwd,
   onApproval,
   onSaveNote,
@@ -1646,6 +1674,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
   stickyIndex: number;
   /** True when something already sits directly above this in the turn. */
   underLine?: boolean;
+  /** True when the parent surface already provides the horizontal gutter. */
+  embedded?: boolean;
   cwd?: string;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
@@ -1683,6 +1713,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
       <ToolCall
         block={block}
         cwd={cwd}
+        embedded={embedded}
         onApproval={onApproval}
         onOpenFile={onOpenFile}
         onOpenDiff={onOpenDiff}
@@ -1697,7 +1728,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   if (block.role === "tasks") {
     if (!block.taskList?.items.length) return null;
     return (
-      <div className="px-4 py-1">
+      <div className={embedded ? "py-1" : "px-4 py-1"}>
         <TaskListPreview
           items={block.taskList.items}
           explanation={block.taskList.explanation}
@@ -1711,13 +1742,13 @@ const TranscriptBlock = memo(function TranscriptBlock({
     const legacyTasks = legacyTaskListFromText(block.text);
     if (legacyTasks) {
       return (
-        <div className="px-4 py-1">
+        <div className={embedded ? "py-1" : "px-4 py-1"}>
           <TaskListPreview items={legacyTasks} />
         </div>
       );
     }
     return (
-      <div className="px-4 py-1">
+      <div className={embedded ? "py-1" : "px-4 py-1"}>
         <PlanPreview
           text={block.text}
           streaming={block.streaming}
@@ -1740,6 +1771,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
       <ToolCall
         block={block}
         cwd={cwd}
+        embedded={embedded}
         onApproval={onApproval}
         onOpenFile={onOpenFile}
         onOpenDiff={onOpenDiff}
@@ -1756,7 +1788,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
       return <InterjectionDivider block={block} />;
     }
     return (
-      <div className="px-4 py-2 text-content/50">
+      <div className={`${embedded ? "" : "px-4"} py-2 text-content/50`}>
         <pre className="min-w-0 whitespace-pre-wrap break-words">
           {block.text}
         </pre>
@@ -1769,7 +1801,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   return (
     <div
       data-selectable-agent-response={block.streaming ? undefined : block.id}
-      className={`min-w-0 px-4 pb-1 text-content ${underLine ? "pt-1" : "pt-3"}`}
+      className={`min-w-0 pb-1 text-content ${embedded ? "" : "px-4"} ${underLine ? "pt-1" : "pt-3"}`}
     >
       <AgentMarkdown
         text={block.text}
@@ -1884,9 +1916,7 @@ function UserMessageBlock({
             block.draft
               ? "border border-dashed border-content/30 bg-content/4"
               : "bg-content/10"
-          } ${
-            editing ? "edit-last-turn-bubble" : ""
-          } ${
+          } ${editing ? "edit-last-turn-bubble" : ""} ${
             chat
               ? `w-fit max-w-xl ${singleLine ? "rounded-full" : "rounded-xl"}`
               : "rounded-lg border border-content/10"
@@ -2568,17 +2598,19 @@ function SubagentStack({
   blocks,
   cwd,
   live = false,
+  embedded = false,
   onOpenFile,
   onOpenDiff,
 }: {
   blocks: Block[];
   cwd?: string;
   live?: boolean;
+  embedded?: boolean;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
   return (
-    <div className="flex min-w-0 flex-col px-4">
+    <div className={`flex min-w-0 flex-col ${embedded ? "" : "px-4"}`}>
       {blocks.map((block) => (
         <SubagentRow
           key={block.id}

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import {
   MessageSquarePlus,
@@ -34,6 +35,7 @@ export type BtwOpenRequest = {
 };
 
 type Props = {
+  children?: ReactNode;
   harness: HarnessId;
   threads?: BtwThread[];
   visible?: boolean;
@@ -91,6 +93,7 @@ function messageMeta(role: BtwMessage["role"], harness: HarnessId) {
 }
 
 export function BtwPopover({
+  children,
   harness,
   threads = [],
   visible = true,
@@ -297,12 +300,13 @@ export function BtwPopover({
         title="Ask a BTW question"
         ref={triggerRef}
         onClick={openNewFromTrigger}
-        className="shrink-0 rounded-md p-1.5 text-content/35 transition-colors hover:bg-content/8 hover:text-content/80 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+        className="shrink-0 rounded-md p-1 text-content/40 transition-colors hover:bg-content/8 hover:text-content/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ml-0.5"
       >
         <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
       </button>
+      {children}
       <span className="min-w-0 flex-1 overflow-x-auto scrollbar-none">
-        <span className="inline-flex w-max max-w-none items-center gap-1.5">
+        <span className="inline-flex w-max max-w-none items-center gap-1.5 pl-1.5">
           {threads.map((thread) => (
             <button
               type="button"
@@ -310,7 +314,7 @@ export function BtwPopover({
               aria-label={`${statusLabel(thread)}: ${shortQuestion(thread)}`}
               title={shortQuestion(thread)}
               onClick={(event) => openExisting(event, thread.id)}
-              className="btw-thread-chip inline-flex min-h-6 max-w-[17rem] items-center gap-1.5 rounded-md px-2 text-left text-xs text-content/55 transition-colors hover:bg-content/8 hover:text-content/90 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+              className="btw-thread-chip inline-flex min-h-5 max-w-[17rem] items-center gap-1.5 rounded-md px-2 text-left text-xs text-content/55 transition-colors hover:bg-content/8 hover:text-content/90 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
             >
               <span
                 className={`size-1.5 shrink-0 rounded-full ${statusClass(thread.status)}`}
@@ -328,7 +332,7 @@ export function BtwPopover({
           align="start"
           gap={10}
           padding={12}
-          width={420}
+          width={380}
           maxHeight={680}
           data-btw-popover
           role="dialog"
