@@ -36,12 +36,11 @@ import { ToolDiffPreview } from "./ToolDiffPreview";
 import { PlanPreview } from "./PlanPreview";
 import { OrchestrationPreview } from "../../orchestration/ui/OrchestrationPreview";
 import { TaskListPreview } from "./TaskListPreview";
-import {
-  HandoffButton,
-  SecondOpinionButton,
-} from "./SecondOpinionButton";
+import { HandoffButton, SecondOpinionButton } from "./SecondOpinionButton";
 import { SecondOpinionCard } from "./SecondOpinionCard";
 import { NoteMiniCard } from "../../notes/ui";
+import { BtwPopover, type BtwOpenRequest } from "./BtwPopover";
+
 import { TerminalSpinner } from "./TerminalSpinner";
 import { Popover } from "../../../shared/ui/Popover";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
@@ -62,6 +61,10 @@ import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
 import { resolveModel } from "../model/models";
+import {
+  btwOpenTargetTurnId,
+  btwSurfaceHarness,
+} from "../model/btw";
 import { harnessForTurn } from "../model/secondOpinion";
 import { Shimmer } from "../../../shared/ui/Shimmer";
 import {
@@ -169,9 +172,28 @@ type Props = {
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
   onSecondOpinion?: (target: ModelTarget, turn: Block[]) => void;
   onHandoff?: (target: ModelTarget, turn: Block[]) => void;
+  onBtwSubmit?: (
+    threadId: string,
+    messageId: string,
+    text: string,
+    turn: Block[],
+    model?: string,
+    modelSettings?: Record<string, string>,
+  ) => void;
+  onBtwRetry?: (threadId: string, turn: Block[]) => void;
+  onBtwDelete?: (threadId: string, turn: Block[]) => void;
+  onBtwModelChange?: (
+    threadId: string,
+    model: string,
+    modelSettings: Record<string, string>,
+    turn: Block[],
+  ) => void;
+  btwOpenRequest?: BtwOpenRequest | null;
+  onBtwOpenRequestHandled?: (requestId: number) => void;
   onEditLastTurn?: () => void;
   editingLastTurn?: boolean;
   onJumpToBottomChange?: (show: boolean) => void;
+
   onJumpToBottomReady?: (jump: () => void) => void;
   /** Passes a function that renders the turn that holds a block. The render completes before the function returns. */
   onRevealReady?: (reveal: (blockId: string) => boolean) => void;
@@ -210,6 +232,12 @@ function AgentTranscriptComponent({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onBtwSubmit,
+  onBtwRetry,
+  onBtwDelete,
+  onBtwModelChange,
+  btwOpenRequest,
+  onBtwOpenRequestHandled,
   onEditLastTurn,
   editingLastTurn = false,
   onJumpToBottomChange,
@@ -217,6 +245,7 @@ function AgentTranscriptComponent({
   onRevealReady,
   onNavigateReady,
   latestTurnAccessory,
+
   visible = true,
   parked = false,
   onScrollerChange,
@@ -449,6 +478,14 @@ function AgentTranscriptComponent({
   }, [scrollerEl, setShowJump, visible]);
 
   const turns = groupTurns(blocks, managed);
+  const btwOpenTurnId =
+    btwOpenRequest && harness
+      ? btwOpenTargetTurnId(turns, blocks, harness, managed)
+      : undefined;
+  useEffect(() => {
+    if (!btwOpenRequest || btwOpenTurnId) return;
+    onBtwOpenRequestHandled?.(btwOpenRequest.id);
+  }, [btwOpenRequest, btwOpenTurnId, onBtwOpenRequestHandled]);
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
@@ -666,6 +703,10 @@ function AgentTranscriptComponent({
           const turnHarness = harness
             ? (turnModel?.harness ?? harnessForTurn(blocks, turn, harness))
             : undefined;
+          const btwHarness =
+            harness != null
+              ? btwSurfaceHarness(blocks, turn, harness, userBlock?.btwThreads)
+              : undefined;
           // Work the turn has already answered for folds away behind one line,
           // leaving the prompt and the answer to it.
           const turnId = turn[0].id;
@@ -925,6 +966,7 @@ function AgentTranscriptComponent({
                     startedAt != null ? startedAt + durationMs : undefined
                   }
                   copyText={turnCopyText(turn)}
+                  cwd={cwd}
                   onSaveNote={onSaveNote}
                   harness={turnHarness}
                   fromHarness={turnHarness}
@@ -936,6 +978,57 @@ function AgentTranscriptComponent({
                   onHandoff={
                     onHandoff ? (target) => onHandoff(target, turn) : undefined
                   }
+                  model={turnModel?.id ?? model}
+                  modelSettings={modelSettings}
+                  btwThreads={userBlock?.btwThreads}
+                  visible={visible}
+                  btwHarness={btwHarness}
+                  onBtwSubmit={
+                    btwHarness && onBtwSubmit
+                      ? (
+                          threadId,
+                          messageId,
+                          text,
+                          nextModel,
+                          nextModelSettings,
+                        ) =>
+                          onBtwSubmit(
+                            threadId,
+                            messageId,
+                            text,
+                            turn,
+                            nextModel,
+                            nextModelSettings,
+                          )
+                      : undefined
+                  }
+                  onBtwRetry={
+                    btwHarness && onBtwRetry
+                      ? (threadId) => onBtwRetry(threadId, turn)
+                      : undefined
+                  }
+                  onBtwDelete={
+                    btwHarness && onBtwDelete
+                      ? (threadId) => onBtwDelete(threadId, turn)
+                      : undefined
+                  }
+                  onBtwModelChange={
+                    btwHarness && onBtwModelChange
+                      ? (threadId, nextModel, nextModelSettings) =>
+                          onBtwModelChange(
+                            threadId,
+                            nextModel,
+                            nextModelSettings,
+                            turn,
+                          )
+                      : undefined
+                  }
+                  btwOpenRequest={
+                    btwOpenTurnId === turnId ? btwOpenRequest : undefined
+                  }
+                  onBtwOpenRequestHandled={onBtwOpenRequestHandled}
+                  onOpenFile={onOpenFile}
+                  onOpenDiff={onOpenDiff}
                 />
               ) : null}
             </div>
@@ -953,6 +1046,114 @@ function AgentTranscriptComponent({
     </div>
   );
 }
+
+export type TurnResponseViewProps = {
+  blocks: Block[];
+  live?: boolean;
+  cwd?: string;
+  userMessageId: string;
+  onOpenFile?: (path: string) => void;
+  onOpenDiff?: (path: string) => void;
+};
+
+/** Compact harness activity view reused by BTW side conversations. */
+function TurnResponseViewComponent({
+  blocks,
+  live = false,
+  cwd,
+  userMessageId,
+  onOpenFile,
+  onOpenDiff,
+}: TurnResponseViewProps) {
+  const transcriptLayout = useTranscriptLayout();
+  const turn = useMemo(
+    () => [{ id: userMessageId, role: "user" as const, text: "" }, ...blocks],
+    [blocks, userMessageId],
+  );
+  const settled = !live;
+  const items = useMemo(
+    () =>
+      groupTurnItems(
+        turn.filter((block) => !block.orchestration),
+        { settled },
+      ),
+    [turn, settled],
+  );
+  const initialThinkingAt = initialThinkingIndex(items);
+  const foldedAt = lastActivityIndex(items);
+  const workStillRunning = activityStillRunning(turn);
+  const answering =
+    foldedAt >= 0 &&
+    items
+      .slice(foldedAt + 1)
+      .some((item) => item.type === "block" && isProseBlock(item.block));
+
+  if (blocks.length === 0 && live) {
+    return <InitialThinking live />;
+  }
+  if (blocks.length === 0) return null;
+
+  return (
+    <div className="btw-turn-response min-w-0 font-mono text-[13px] leading-5">
+      {items.map((item, itemIndex) => {
+        if (item.type === "subagents") {
+          return (
+            <SubagentStack
+              key={item.blocks[0].id}
+              blocks={item.blocks}
+              cwd={cwd}
+              live={live}
+              onOpenFile={onOpenFile}
+              onOpenDiff={onOpenDiff}
+            />
+          );
+        }
+        if (item.type === "activity") {
+          if (itemIndex === initialThinkingAt) {
+            return (
+              <InitialThinking
+                key={`thinking-${item.blocks[0].id}`}
+                live={live}
+              />
+            );
+          }
+          return (
+            <ActivityPhases
+              key={item.blocks[0].id}
+              blocks={item.blocks}
+              cwd={cwd}
+              done={
+                !live ||
+                itemIndex < foldedAt ||
+                (answering && !workStillRunning)
+              }
+              padded={false}
+              onOpenFile={onOpenFile}
+              onOpenDiff={onOpenDiff}
+            />
+          );
+        }
+        if (item.type === "block") {
+          if (item.block.role === "user") return null;
+          return (
+            <TranscriptBlock
+              key={item.block.id}
+              block={item.block}
+              layout={transcriptLayout}
+              stickyIndex={0}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+              onOpenDiff={onOpenDiff}
+            />
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+export const TurnResponseView = memo(TurnResponseViewComponent);
 
 // Keep hidden panes' local state, and catch up with current props on activation.
 export const AgentTranscript = memo(
@@ -1026,6 +1227,8 @@ function TurnDuration({
   metrics,
   labelHidden = false,
   modelName,
+  model,
+  modelSettings,
   harness,
   completedAt,
   copyText: output,
@@ -1033,12 +1236,26 @@ function TurnDuration({
   fromHarness,
   onSecondOpinion,
   onHandoff,
+  btwHarness,
+  btwThreads,
+  visible,
+  cwd,
+  onBtwSubmit,
+  onBtwRetry,
+  onBtwDelete,
+  onBtwModelChange,
+  btwOpenRequest,
+  onBtwOpenRequestHandled,
+  onOpenFile,
+  onOpenDiff,
 }: {
   elapsedMs: number | null;
   metrics?: TurnMetrics;
   /** True when the fold line above already keeps the time for this turn. */
   labelHidden?: boolean;
   modelName?: string;
+  model?: string;
+  modelSettings?: Record<string, string>;
   harness?: HarnessId;
   completedAt?: number;
   copyText?: string;
@@ -1046,6 +1263,28 @@ function TurnDuration({
   fromHarness?: HarnessId;
   onSecondOpinion?: (target: ModelTarget) => void;
   onHandoff?: (target: ModelTarget) => void;
+  btwHarness?: HarnessId;
+  btwThreads?: Block["btwThreads"];
+  visible?: boolean;
+  cwd?: string;
+  onBtwSubmit?: (
+    threadId: string,
+    messageId: string,
+    text: string,
+    model?: string,
+    modelSettings?: Record<string, string>,
+  ) => void;
+  onBtwRetry?: (threadId: string) => void;
+  onBtwDelete?: (threadId: string) => void;
+  onBtwModelChange?: (
+    threadId: string,
+    model: string,
+    modelSettings: Record<string, string>,
+  ) => void;
+  btwOpenRequest?: BtwOpenRequest | null;
+  onBtwOpenRequestHandled?: (requestId: number) => void;
+  onOpenFile?: (path: string) => void;
+  onOpenDiff?: (path: string) => void;
 }) {
   const label = formatWorkingDuration(elapsedMs, modelName, true);
   const dot = (
@@ -1057,7 +1296,7 @@ function TurnDuration({
   return (
     <div
       aria-label={label}
-      className="flex min-w-0 items-center gap-2.5 px-4 pt-1 pb-3 font-sans text-sm text-content/40"
+      className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden px-4 pt-1 pb-3 font-sans text-sm text-content/40"
     >
       <span className="flex shrink-0 items-center gap-1">
         {output ? (
@@ -1079,6 +1318,25 @@ function TurnDuration({
         <TurnMetricsBadge metrics={metrics} elapsedMs={elapsedMs} />
       </span>
 
+      {btwHarness && onBtwSubmit && onBtwRetry ? (
+        <BtwPopover
+          harness={btwHarness}
+          cwd={cwd}
+          model={model}
+          modelSettings={modelSettings}
+          threads={btwThreads}
+          visible={visible}
+          onSubmit={onBtwSubmit}
+          onRetry={onBtwRetry}
+          onDelete={onBtwDelete}
+          onModelChange={onBtwModelChange}
+          openRequest={btwOpenRequest}
+          onOpenRequestHandled={onBtwOpenRequestHandled}
+          onOpenFile={onOpenFile}
+          onOpenDiff={onOpenDiff}
+        />
+      ) : null}
+
       {labelHidden ? null : (
         <>
           {dot}
@@ -1094,12 +1352,12 @@ function TurnDuration({
       )}
 
       {completedAt != null ? (
-        <>
+        <span className="ml-auto flex shrink-0 items-center gap-2.5">
           {dot}
           <span className="shrink-0 text-content/35">
             {formatClockTime(completedAt)}
           </span>
-        </>
+        </span>
       ) : null}
     </div>
   );
