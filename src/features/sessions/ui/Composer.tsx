@@ -4,6 +4,7 @@ import {
   Check,
   CircleDashed,
   CornerDownRight,
+  CursorMagicSelection,
   FilePlus,
   ListEnd,
   Pause,
@@ -142,6 +143,10 @@ import { resolveTabGroupLogo } from "../../workspace/model/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "../../../shared/ui/Popover";
 import { consumePlanCommand, PLAN_COMMAND } from "../model/plan";
+import {
+  consumeMonocodeCommand,
+  MONOCODE_COMMAND,
+} from "../model/monocodeCommand";
 import {
   BTW_COMMAND,
   consumeBtwCommand,
@@ -566,6 +571,7 @@ export function Composer({
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
+  const [monoSelected, setMonoSelected] = useState(false);
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   const [draftSelected, setDraftSelected] = useState(false);
   const [slash, setSlash] = useState<SlashToken | null>(null);
@@ -626,16 +632,18 @@ export function Composer({
   const slashItems = useMemo(
     () => [
       SESSION_FOLDER_COMMAND,
+      MONOCODE_COMMAND,
       PLAN_COMMAND,
       COMPACT_COMMAND,
       ...(supportsBtwHarness(harness) ? [BTW_COMMAND] : []),
       ...skills.filter(
         (skill) =>
-          skill.kind === "native" ||
-          (skill.name !== PLAN_COMMAND.name &&
-            skill.name !== COMPACT_COMMAND.name &&
-            skill.name !== SESSION_FOLDER_COMMAND.name &&
-            skill.name !== BTW_COMMAND.name),
+          skill.name !== MONOCODE_COMMAND.name &&
+          (skill.kind === "native" ||
+            (skill.name !== PLAN_COMMAND.name &&
+              skill.name !== COMPACT_COMMAND.name &&
+              skill.name !== SESSION_FOLDER_COMMAND.name &&
+              skill.name !== BTW_COMMAND.name)),
       ),
     ],
     [harness, skills],
@@ -988,6 +996,7 @@ export function Composer({
       setCreatingSkill(false);
       if (planCommand) {
         setPlanSelected(true);
+        setMonoSelected(false);
         setOrchestrationSelected(false);
       }
       el.focus();
@@ -1352,6 +1361,10 @@ export function Composer({
     const text = isNativeCommandPrompt(command.text, harness)
       ? command.text
       : composeInboxMessage(inboxCard, command.text);
+    const submittedText =
+      monoSelected && !consumeMonocodeCommand(text).matched
+        ? `/mono ${text}`
+        : text;
     const files = attachments;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
     // Clear the parent draft before onSubmit. The app can synchronously remount
@@ -1363,7 +1376,7 @@ export function Composer({
       borrowedAttachmentIdsRef.current,
     );
     onDraftChange?.("");
-    const accepted = onSubmit(text, files, {
+    const accepted = onSubmit(submittedText, files, {
       intent:
         planSelected || command.planning
           ? "plan"
@@ -1401,6 +1414,7 @@ export function Composer({
     setResendEdited(false);
     onEditingLastTurnChange?.(false);
     setPlanSelected(false);
+    setMonoSelected(false);
     setOrchestrationSelected(false);
     setSessionFolderSelected(false);
     setSessionFolderOpen(false);
@@ -1971,6 +1985,7 @@ export function Composer({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setPlanSelected((selected) => !selected);
+                      setMonoSelected(false);
                       setOrchestrationSelected(false);
                       setDraftSelected(false);
                       setPlusOpen(false);
@@ -1989,6 +2004,31 @@ export function Composer({
                       <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
                     ) : null}
                   </button>
+                  <button
+                    type="button"
+                    aria-pressed={monoSelected}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setMonoSelected((selected) => !selected);
+                      setPlanSelected(false);
+                      setOrchestrationSelected(false);
+                      setDraftSelected(false);
+                      setPlusOpen(false);
+                      ref.current?.focus();
+                    }}
+                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                  >
+                    <CursorMagicSelection className="mt-0.5 size-4 shrink-0 text-sky-300/80" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px]">Operator</span>
+                      <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                        Give this thread access to MonoCode
+                      </span>
+                    </span>
+                    {monoSelected ? (
+                      <Check className="mt-0.5 size-3.5 shrink-0 text-sky-300/80" />
+                    ) : null}
+                  </button>
                   {!hideTopBar && (
                     <button
                       type="button"
@@ -1997,6 +2037,7 @@ export function Composer({
                       onClick={() => {
                         setOrchestrationSelected((selected) => !selected);
                         setPlanSelected(false);
+                        setMonoSelected(false);
                         setDraftSelected(false);
                         setPlusOpen(false);
                         ref.current?.focus();
@@ -2028,6 +2069,7 @@ export function Composer({
                       onClick={() => {
                         setDraftSelected((selected) => !selected);
                         setPlanSelected(false);
+                        setMonoSelected(false);
                         setOrchestrationSelected(false);
                         setPlusOpen(false);
                         ref.current?.focus();
@@ -2049,6 +2091,23 @@ export function Composer({
                 </Popover>
               ) : null}
             </div>
+            {!compact && monoSelected ? (
+              <button
+                type="button"
+                title="Turn off Operator"
+                aria-label="Turn off Operator"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setMonoSelected(false);
+                  ref.current?.focus();
+                }}
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-sky-500/15 px-1.5 text-[11px] font-medium text-sky-700 hover:bg-sky-500/20 dark:bg-sky-400/10 dark:text-sky-200/90 dark:hover:bg-sky-400/15"
+              >
+                <CursorMagicSelection className="size-3.5" />
+                Operator
+                <X className="size-3" />
+              </button>
+            ) : null}
             {!compact && orchestrationSelected && (
               <button
                 type="button"
