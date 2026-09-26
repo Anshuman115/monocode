@@ -549,7 +549,7 @@ pub(crate) fn provider_account_dir(
     Ok(Some(dir))
 }
 
-fn provider_account_path(
+pub(crate) fn provider_account_path(
     app: &AppHandle,
     provider: &str,
     account_id: &str,
