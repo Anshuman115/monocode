@@ -1,20 +1,38 @@
 import { homeDir } from "../../../../platform/tauri/fs";
 import {
+  setHarnessCatalogLoading,
   setHarnessModels,
   type AgentModel,
+  type ModelSetting,
 } from "../../../../features/sessions/model/models";
 import { execChild, resolveCommandCodeBinary } from "../../core/child";
 import {
   compareCommandCodeVersions,
   MINIMUM_COMMAND_CODE_VERSION,
   modelNameFromCatalogId,
+  parseCommandCodeStatus,
   parseCommandCodeVersion,
+  type CommandCodeStatus,
 } from "./commandCodeProtocol";
 
 let inflight: Promise<void> | null = null;
 
+const EFFORT: ModelSetting = {
+  id: "effort",
+  label: "Reasoning",
+  kind: "select",
+  value: "default",
+  options: [
+    { value: "default", label: "Default" },
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+  ],
+};
+
 export function refreshCommandCodeCatalog(): Promise<void> {
   if (inflight) return inflight;
+  setHarnessCatalogLoading("command-code", true);
   inflight = discoverCommandCodeModels()
     .then((models) => {
       if (models.length > 0) setHarnessModels("command-code", models);
@@ -27,6 +45,7 @@ export function refreshCommandCodeCatalog(): Promise<void> {
     })
     .finally(() => {
       inflight = null;
+      setHarnessCatalogLoading("command-code", false);
     });
   return inflight;
 }
@@ -35,7 +54,7 @@ export async function discoverCommandCodeModels(): Promise<AgentModel[]> {
   const { path } = await resolveCommandCodeBinary();
   const cwd = await homeDir();
   const version = parseCommandCodeVersion(
-    await execChild(path, ["--version"], cwd),
+    await execChild(path, ["--no-auto-update", "--version"], cwd, "command-code"),
   );
   if (!version) throw new Error("Unable to determine Command Code version");
   if (compareCommandCodeVersions(version, MINIMUM_COMMAND_CODE_VERSION) < 0) {
@@ -43,12 +62,36 @@ export async function discoverCommandCodeModels(): Promise<AgentModel[]> {
       `Command Code v${version} is too old. MonoCode requires v${MINIMUM_COMMAND_CODE_VERSION} or newer.`,
     );
   }
-  return parseCommandCodeModelList(
-    await execChild(path, ["--list-models"], cwd),
+  const listed = parseCommandCodeModelList(
+    await execChild(path, ["--no-auto-update", "--list-models"], cwd, "command-code"),
+  );
+  const status = await execChild(
+    path,
+    ["--no-auto-update", "status", "--json"],
+    cwd,
+    "command-code",
+  )
+    .then(parseCommandCodeStatus)
+    .catch(() => null);
+  return withProviderContextWindow(listed, status);
+}
+
+export function withProviderContextWindow(
+  models: AgentModel[],
+  status: CommandCodeStatus | null,
+): AgentModel[] {
+  const nativeId = status?.model;
+  const contextWindow = status?.contextWindow;
+  if (!nativeId || !contextWindow) return models;
+  return models.map((model) =>
+    model.nativeId === nativeId ? { ...model, contextWindow } : model,
   );
 }
 
 export function parseCommandCodeModelList(output: string): AgentModel[] {
+  const declaredCount = Number(
+    /^\s*Available models\s+[·•]\s+(\d+)\s+models\s*$/im.exec(output)?.[1],
+  );
   const models: AgentModel[] = [];
   const seen = new Set<string>();
   for (const line of output.split("\n")) {
@@ -71,10 +114,13 @@ export function parseCommandCodeModelList(output: string): AgentModel[] {
       harness: "command-code",
       nativeId,
       name: modelNameFromCatalogId(nativeId),
-      ...(nativeId.includes("deepseek") || nativeId.includes("qwen")
-        ? { contextWindow: 1_000_000 }
-        : {}),
+      settings: [EFFORT],
     });
+  }
+  if (declaredCount > 0 && models.length < declaredCount) {
+    throw new Error(
+      `Incomplete Command Code model catalog: expected at least ${declaredCount} models, received ${models.length}`,
+    );
   }
   return models;
 }
@@ -82,6 +128,6 @@ export function parseCommandCodeModelList(output: string): AgentModel[] {
 function redactError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message
-    .replace(/(?:token|key|password|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/\b(token|key|password|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]")
     .slice(0, 240);
 }

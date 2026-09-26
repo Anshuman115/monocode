@@ -6,11 +6,13 @@ import type {
 } from "../../../../features/sessions/model/session";
 import { extractToolPreview } from "../../core/preview";
 import {
+  closeChildStdin,
   killChild,
   resolveCommandCodeBinary,
   spawnChild,
   unwatchChild,
   watchChild,
+  writeChild,
 } from "../../core/child";
 import type {
   ApprovalDecision,
@@ -44,6 +46,9 @@ type Live = {
   messageCompleted: boolean;
   reasoningOpen: boolean;
   sawResult: boolean;
+  errorEmitted: boolean;
+  finish?: (error?: Error) => void;
+  abortTurn?: (error: Error) => void;
   turnNumber: number;
 };
 
@@ -67,6 +72,7 @@ export async function sendCommandCodeTurn(input: SendTurnInput): Promise<void> {
     messageCompleted: false,
     reasoningOpen: false,
     sawResult: false,
+    errorEmitted: false,
     turnNumber: 0,
   };
   liveByThread.set(input.sessionId, live);
@@ -78,17 +84,17 @@ export async function sendCommandCodeTurn(input: SendTurnInput): Promise<void> {
       );
     }
     const { path } = await resolveCommandCodeBinary();
-    if (cancelledThreads.delete(input.sessionId)) return;
+    if (cancelledThreads.delete(input.sessionId) || live.cancelled) return;
     const prompt = promptWithAttachments(input.text, input.attachments);
+    const chosenEffort = input.modelSettings?.effort;
     const args = buildCommandCodeArgs({
-      text: prompt,
       model: nativeModelId(input.model),
-      effort: input.modelSettings?.effort,
+      effort: chosenEffort === "default" ? undefined : chosenEffort,
       runtimeMode: input.runtimeMode,
       intent: input.intent,
       resume: resume?.providerSessionId,
     });
-    await runProcess(input, live, path, args);
+    await runProcess(input, live, path, args, prompt);
   } finally {
     if (liveByThread.get(input.sessionId) === live)
       liveByThread.delete(input.sessionId);
@@ -104,6 +110,7 @@ export async function cancelCommandCodeTurn(sessionId: string): Promise<void> {
   live.cancelled = true;
   live.muted = true;
   await killChild(sessionId).catch(() => undefined);
+  live.finish?.();
 }
 
 export async function stopCommandCodeSession(sessionId: string): Promise<void> {
@@ -113,8 +120,8 @@ export async function stopCommandCodeSession(sessionId: string): Promise<void> {
     live.cancelled = true;
     live.muted = true;
   }
-  unwatchChild(sessionId);
   await killChild(sessionId).catch(() => undefined);
+  live?.finish?.();
 }
 
 export async function forgetCommandCodeSession(
@@ -153,6 +160,7 @@ async function runProcess(
   live: Live,
   path: string,
   args: string[],
+  prompt: string,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -166,11 +174,21 @@ async function runProcess(
       if (startupTimer) clearTimeout(startupTimer);
       if (turnTimer) clearTimeout(turnTimer);
       unwatchChild(input.sessionId);
+      if (live.finish === finish) live.finish = undefined;
+      if (live.abortTurn === abortTurn) live.abortTurn = undefined;
+      if (error) emitSessionError(input, live, error.message);
       if (error && !live.cancelled) reject(error);
       else resolve();
     };
+    live.finish = finish;
+    const abortTurn = (error: Error) => {
+      live.muted = true;
+      void killChild(input.sessionId).catch(() => undefined).finally(() => finish(error));
+    };
+    live.abortTurn = abortTurn;
 
     const onLine = (line: string) => {
+      if (live.muted) return;
       const parsed = parseCommandCodeLine(line);
       if (!parsed) return;
       if (parsed.kind === "event") {
@@ -188,6 +206,9 @@ async function runProcess(
       input.sessionId,
       onLine,
       (code) => {
+        if (!live.muted) {
+          input.onEvent({ type: "session.ended", code });
+        }
         if (live.cancelled) {
           finish();
           return;
@@ -208,23 +229,25 @@ async function runProcess(
     startupTimer = setTimeout(() => {
       if (sawStartup || settled) return;
       live.muted = true;
-      void killChild(input.sessionId).finally(() =>
+      void killChild(input.sessionId).catch(() => undefined).finally(() =>
         finish(new Error("Command Code did not start its JSON stream in time")),
       );
     }, STARTUP_TIMEOUT_MS);
     turnTimer = setTimeout(() => {
       if (settled) return;
       live.muted = true;
-      void killChild(input.sessionId).finally(() =>
+      void killChild(input.sessionId).catch(() => undefined).finally(() =>
         finish(new Error("Command Code turn timed out")),
       );
     }, TURN_TIMEOUT_MS);
 
-    void spawnChild(input.sessionId, path, args, input.cwd).catch(
-      (error: unknown) => {
+    void spawnChild(input.sessionId, path, args, input.cwd, undefined, "command-code")
+      .then(() => writeChild(input.sessionId, prompt))
+      .then(() => closeChildStdin(input.sessionId))
+      .catch((error: unknown) => {
+        void killChild(input.sessionId).catch(() => undefined);
         finish(new Error(redactCommandCodeDiagnostic(String(error))));
-      },
-    );
+      });
   });
 }
 
@@ -307,14 +330,46 @@ function handleEvent(
         input,
         event,
         "in_progress",
-        toolResultText(event.partial),
+        commandCodeToolResultText(event.partial),
       );
       break;
     case "tool_completed":
-      emitToolUpdated(input, event, "completed", toolResultText(event.result));
+      emitToolUpdated(
+        input,
+        event,
+        "completed",
+        commandCodeToolResultText(event.result),
+      );
       break;
-    case "tool_hook_blocked":
-      emitToolUpdated(input, event, "failed", stringField(event, "hookOutput"));
+    case "tool_errored":
+      emitToolUpdated(
+        input,
+        event,
+        "failed",
+        commandCodeToolResultText(event.error ?? event.result),
+      );
+      break;
+    case "tool_hook_blocked": {
+      const detail = redactCommandCodeDiagnostic(
+        stringField(event, "hookOutput") ?? "",
+      );
+      emitToolUpdated(input, event, "failed", detail);
+      live.abortTurn?.(
+        new Error(
+          input.runtimeMode === "full-access" || !detail
+            ? detail || "Command Code blocked this tool call."
+            : `${detail}\n\nCommand Code cannot approve tool calls in ${input.runtimeMode} mode. Switch this session to Full access and retry.`,
+        ),
+      );
+      break;
+    }
+    case "tool_denied":
+      emitToolUpdated(
+        input,
+        event,
+        "failed",
+        commandCodeToolResultText(event.reason ?? event.error ?? event.result),
+      );
       break;
     case "model_request_end":
       emitUsage(input, asRecord(event.usage));
@@ -326,10 +381,7 @@ function handleEvent(
         emitFinalTextIfNeeded(input, live, stringField(result, "finalText"));
         const stopReason = stringField(result, "stopReason");
         if (stopReason === "error") {
-          input.onEvent({
-            type: "session.error",
-            message: commandCodeFailureText(result),
-          });
+          emitSessionError(input, live, commandCodeFailureText(result));
         }
       }
       break;
@@ -347,11 +399,40 @@ function handleResult(
   emitUsage(input, asRecord(result.usage));
   emitFinalTextIfNeeded(input, live, stringField(result, "finalText"));
   if (result.subtype !== "success") {
-    input.onEvent({
-      type: "session.error",
-      message: commandCodeFailureText(result),
-    });
+    const message = commandCodeFailureText(result);
+    if (/no session .*found to resume/i.test(message)) {
+      resumeByThread.delete(input.sessionId);
+      emitSessionError(
+        input,
+        live,
+        `${message} The next message will start a new conversation.`,
+      );
+      return;
+    }
+    emitSessionError(input, live, message);
   }
+}
+
+function emitSessionError(
+  input: SendTurnInput,
+  live: Live,
+  message: string,
+): void {
+  if (live.errorEmitted || live.cancelled) return;
+  live.errorEmitted = true;
+  input.onEvent({ type: "session.error", message });
+}
+
+function commandCodeToolResultText(value: unknown): string {
+  const direct = toolResultText(value);
+  if (direct) return direct;
+  const record = asRecord(value);
+  return (
+    toolResultText(record?.content) ||
+    stringField(record, "error") ||
+    stringField(record, "message") ||
+    ""
+  );
 }
 
 function emitFinalTextIfNeeded(

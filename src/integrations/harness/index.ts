@@ -175,7 +175,6 @@ export {
 } from "./core/availability";
 export {
   getHarness,
-  getHarnessCapabilities,
   requireHarness,
   isLiveHarness,
   sendHarnessTurn,

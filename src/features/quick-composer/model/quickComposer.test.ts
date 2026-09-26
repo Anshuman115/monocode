@@ -1,12 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { RUNTIME_MODES } from "../../sessions/model/session";
-import type { AgentModel } from "../../sessions/model/models";
 import {
+  isHarnessCatalogLoading,
+  resetHarnessModelOverlays,
+  setHarnessCatalogLoading,
+  type AgentModel,
+} from "../../sessions/model/models";
+import {
+  applyQuickCatalog,
   filterQuickModels,
   filterQuickProjects,
+  liveQuickCatalog,
   orderQuickProjects,
   parseQuickLaunch,
 } from "./quickComposer";
+
+afterEach(() => resetHarnessModelOverlays());
 
 describe("parseQuickLaunch", () => {
   it("accepts a complete launch", () => {
@@ -157,5 +166,18 @@ describe("filterQuickModels", () => {
     expect(filterQuickModels(models, "opencode").map((m) => m.id)).toEqual([
       "opencode/kimi",
     ]);
+  });
+});
+
+describe("quick catalog state", () => {
+  it("transfers catalog loading state between workspace and quick-composer windows", () => {
+    setHarnessCatalogLoading("command-code", true);
+    const catalog = liveQuickCatalog();
+    expect(catalog.loadingHarnesses).toContain("command-code");
+
+    resetHarnessModelOverlays();
+    expect(isHarnessCatalogLoading("command-code")).toBe(false);
+    expect(applyQuickCatalog(catalog)).not.toBeNull();
+    expect(isHarnessCatalogLoading("command-code")).toBe(true);
   });
 });

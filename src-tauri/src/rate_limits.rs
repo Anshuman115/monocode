@@ -72,6 +72,9 @@ fn fetch_command_code_usage_sync() -> Result<CommandCodeUsageFetch, String> {
 
     let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build();
     let whoami = command_code_get(&agent, "/alpha/whoami?limits=1", &api_key)?;
+    if !(200..300).contains(&whoami.0) {
+        return Ok(command_code_usage_error(whoami.0));
+    }
     let org_id = command_code_org_id(&whoami.1);
     let org_query = org_id
         .as_deref()
@@ -90,46 +93,33 @@ fn fetch_command_code_usage_sync() -> Result<CommandCodeUsageFetch, String> {
         return Ok(command_code_usage_error(credits.0));
     }
 
-    let subscription = command_code_get(
-        &agent,
-        &format!("/alpha/billing/subscriptions{org_query}"),
-        &api_key,
-    )
-    .ok();
-    let current_period_start = subscription
-        .as_ref()
-        .and_then(|(_, body)| serde_json::from_str::<Value>(body).ok())
-        .and_then(|value| value.pointer("/data/currentPeriodStart").cloned())
-        .and_then(|value| value.as_str().map(str::to_owned));
-    let summary_query = match (org_query.as_str(), current_period_start.as_deref()) {
-        (query, Some(since)) if !since.is_empty() => {
-            let encoded_since = since.replace(':', "%3A").replace('+', "%2B");
-            if query.is_empty() {
-                format!("?since={encoded_since}")
-            } else {
-                format!("{query}&since={encoded_since}")
-            }
-        }
-        (query, _) => query.to_owned(),
-    };
-    let summary = command_code_get(
-        &agent,
-        &format!("/alpha/usage/summary{summary_query}"),
-        &api_key,
-    )
-    .ok();
-
-    let body = serde_json::json!({
-        "credits": serde_json::from_str::<Value>(&credits.1).unwrap_or(Value::Null),
-        "subscription": subscription.and_then(|(_, body)| serde_json::from_str::<Value>(&body).ok()),
-        "summary": summary.and_then(|(_, body)| serde_json::from_str::<Value>(&body).ok()),
-    });
+    let body = command_code_usage_body(&credits.1);
     Ok(command_code_usage_result(
         "ok",
         Some(credits.0),
-        Some(body.to_string()),
+        Some(body),
         None,
     ))
+}
+
+fn command_code_usage_body(response: &str) -> String {
+    let parsed = serde_json::from_str::<Value>(response).unwrap_or(Value::Null);
+    let windows = parsed.pointer("/credits/windowLimits");
+    let window = |name: &str| {
+        let value = windows.and_then(|limits| limits.get(name));
+        serde_json::json!({
+            "used": value.and_then(|entry| entry.get("used")),
+            "cap": value.and_then(|entry| entry.get("cap")),
+            "resetAt": value.and_then(|entry| entry.get("resetAt")),
+        })
+    };
+    serde_json::json!({
+        "credits": {"windowLimits": {
+            "fiveHour": window("fiveHour"),
+            "weekly": window("weekly"),
+        }}
+    })
+    .to_string()
 }
 
 fn command_code_get(
@@ -899,6 +889,25 @@ fn run_with_timeout(cmd: &mut std::process::Command, timeout: Duration) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_code_usage_body_exposes_only_display_windows() {
+        let raw = r#"{"credits":{"windowLimits":{"fiveHour":{"used":2,"cap":10,"resetAt":"2026-09-26T00:00:00Z","private":"hidden"},"weekly":{"used":4,"cap":20,"resetAt":"2026-09-29T00:00:00Z"}},"account":"private"},"subscription":{"email":"private"}}"#;
+        let body: Value = serde_json::from_str(&command_code_usage_body(raw)).unwrap();
+        assert_eq!(
+            body.pointer("/credits/windowLimits/fiveHour/used"),
+            Some(&Value::from(2))
+        );
+        assert_eq!(
+            body.pointer("/credits/windowLimits/weekly/cap"),
+            Some(&Value::from(20))
+        );
+        assert!(body
+            .pointer("/credits/windowLimits/fiveHour/private")
+            .is_none());
+        assert!(body.pointer("/credits/account").is_none());
+        assert!(body.pointer("/subscription").is_none());
+    }
 
     #[test]
     fn extract_access_token_from_claude_credentials() {
