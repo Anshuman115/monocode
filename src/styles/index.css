@@ -2027,8 +2027,8 @@ header[data-tauri-drag-region] button {
  * A streamed word fading in as the paced reveal lets it out (wordFade.tsx).
  * Opacity only: a word that moved would jostle the line it is set on. The
  * fade plays as a word's span is added, and words already on screen keep
- * theirs; only while the reply is coming in, so a finished one hidden and
- * shown again never replays.
+ * theirs while the reply is coming in. The spans come off once the fade
+ * ends, so a finished reply hidden and shown again never replays.
  */
 @keyframes word-fade-in {
   from {
