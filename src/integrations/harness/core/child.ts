@@ -320,6 +320,7 @@ async function resolveHarnessBinary(
     fx: "harness_resolve_fx",
     hermes: "harness_resolve_hermes",
     antigravity: "harness_resolve_antigravity",
+    "command-code": "harness_resolve_command_code",
   };
   return invoke(command[provider]);
 }
@@ -346,6 +347,12 @@ export function resolveClaudeBinary(
   binaryPath?: string | null,
 ): Promise<{ path: string }> {
   return resolveHarnessBinary("claude", binaryPath);
+}
+
+export function resolveCommandCodeBinary(
+  binaryPath?: string | null,
+): Promise<{ path: string }> {
+  return resolveHarnessBinary("command-code", binaryPath);
 }
 
 export function resolvePiBinary(

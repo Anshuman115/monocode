@@ -70,13 +70,12 @@ export function useQuickComposerLaunches(
         void probeHarnessAvailability()
           .then(async () => {
             if (disposed) return;
-            void emit(QUICK_COMPOSER_CATALOG_EVENT, liveQuickCatalog());
             // Only probe the provider the user opened, like the workspace picker.
             if (isHarnessId(event.payload)) {
-              await refreshHarnessCatalogs([event.payload]);
-              if (!disposed)
-                void emit(QUICK_COMPOSER_CATALOG_EVENT, liveQuickCatalog());
+              await refreshHarnessCatalogs([event.payload], { force: true });
             }
+            if (!disposed)
+              void emit(QUICK_COMPOSER_CATALOG_EVENT, liveQuickCatalog());
           })
           .catch(() => undefined);
       }),

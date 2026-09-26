@@ -11,6 +11,7 @@ import {
   isRateLimitSnapshotStale,
   mapUsageWindow,
   parseClaudeOAuthUsage,
+  parseCommandCodeUsage,
   parseCodexRateLimits,
   parseOpencodeGoUsage,
   parseResetTimestamp,
@@ -254,6 +255,29 @@ describe("parseCodexRateLimits", () => {
   });
 });
 
+describe("parseCommandCodeUsage", () => {
+  it("maps five-hour and weekly dollar windows", () => {
+    const limits = parseCommandCodeUsage(
+      JSON.stringify({
+        credits: {
+          windowLimits: {
+            fiveHour: { used: 7, cap: 14, resetAt: 1_790_290_842_332 },
+            weekly: { used: 13.5, cap: 35, resetAt: 1_790_682_101_227 },
+          },
+        },
+      }),
+    );
+
+    expect(limits.provider).toBe("command-code");
+    expect(limits.status).toBe("ok");
+    expect(limits.session?.usedPercent).toBe(50);
+    expect(limits.session?.windowMinutes).toBe(300);
+    expect(limits.session?.resetsAt).toBe(1_790_290_842_332);
+    expect(limits.weekly?.usedPercent).toBeCloseTo(38.5714);
+    expect(limits.weekly?.windowMinutes).toBe(10_080);
+  });
+});
+
 describe("parseOpencodeGoUsage", () => {
   it("maps rolling/weekly/monthly windows with reset times", () => {
     const limits = parseOpencodeGoUsage({
@@ -264,7 +288,11 @@ describe("parseOpencodeGoUsage", () => {
           resetsAt: "2026-09-16T16:27:38.287Z",
         },
         weekly: { status: "ok", percent: 30, resetsAt: "2026-09-23T00:00:00Z" },
-        monthly: { status: "ok", percent: 12, resetsAt: "2026-10-16T00:00:00Z" },
+        monthly: {
+          status: "ok",
+          percent: 12,
+          resetsAt: "2026-10-16T00:00:00Z",
+        },
       },
     });
     expect(limits.provider).toBe("opencode");
