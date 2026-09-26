@@ -91,7 +91,8 @@ fn antigravity_args() -> Vec<String> {
 
 struct LiveChild {
     cwd: PathBuf,
-    stdin: Mutex<ChildStdin>,
+    /// `None` once stdin has been closed to signal end of input.
+    stdin: Mutex<Option<ChildStdin>>,
     pid: u32,
     account: Option<HarnessAccount>,
 }
@@ -474,7 +475,7 @@ pub fn harness_spawn(
 
     let live = Arc::new(LiveChild {
         cwd: workdir.clone(),
-        stdin: Mutex::new(stdin),
+        stdin: Mutex::new(Some(stdin)),
         pid,
         account,
     });
@@ -673,7 +674,10 @@ pub async fn harness_write(
         .get(&session_id)
         .ok_or_else(|| "Harness process is not running".to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        let mut stdin = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+        let stdin = guard
+            .as_mut()
+            .ok_or_else(|| "Harness stdin is already closed".to_string())?;
         stdin
             .write_all(line.as_bytes())
             .and_then(|_| stdin.write_all(b"\n"))
@@ -682,6 +686,21 @@ pub async fn harness_write(
     })
     .await
     .map_err(|e| format!("Harness write task failed: {e}"))?
+}
+
+/// Close a child's stdin. `command-code --print` reads its prompt from stdin, so
+/// EOF — not a newline — is what starts the turn; a child that never sees it
+/// waits until the turn times out.
+#[tauri::command(async)]
+pub fn harness_close_stdin(host: State<'_, HarnessHost>, session_id: String) -> Result<(), String> {
+    let live = host
+        .get(&session_id)
+        .ok_or_else(|| "Harness process is not running".to_string())?;
+    let mut guard = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .take()
+        .map(|_| ())
+        .ok_or_else(|| "Harness stdin is already closed".to_string())
 }
 
 /// `async` dispatch keeps kill executable while a sibling `harness_write` is
@@ -864,7 +883,11 @@ fn assert_loopback(url: &str) -> Result<(), String> {
 
 const EXEC_ALLOWED_ARGS: &[&[&str]] = &[
     &["--version"],
+    &["--no-auto-update", "--version"],
+    &["--no-auto-update", "--help"],
+    &["--no-auto-update", "status", "--json"],
     &["--list-models"],
+    &["--no-auto-update", "--list-models"],
     &["models", "--verbose"],
     &["models", "--json"],
     &["models"],
@@ -1544,7 +1567,7 @@ fn resolve_command_code() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Some(home) = &home {
-        for name in ["command-code", "cmdc"] {
+        for name in command_code_binary_names() {
             candidates.push(home.join(".local/bin").join(name));
             candidates.push(home.join(".npm-global/bin").join(name));
             candidates.push(home.join(".bun/bin").join(name));
@@ -1556,23 +1579,30 @@ fn resolve_command_code() -> Option<PathBuf> {
         #[cfg(windows)]
         candidates.push(home.join("AppData/Roaming/npm/cmdc"));
     }
-    #[cfg(target_os = "macos")]
-    candidates.push(PathBuf::from("/opt/homebrew/bin/command-code"));
-    candidates.push(PathBuf::from("/usr/local/bin/command-code"));
-    candidates.push(PathBuf::from("/usr/bin/command-code"));
-    candidates.push(PathBuf::from("/snap/bin/command-code"));
-    if !cfg!(windows) {
-        if let Some(from_shell) = which_via_login_shell("cmd") {
-            candidates.push(from_shell);
-        }
-    }
-    for name in ["command-code", "cmdc"] {
+    for name in command_code_binary_names() {
+        #[cfg(target_os = "macos")]
+        candidates.push(PathBuf::from("/opt/homebrew/bin").join(name));
+        candidates.push(PathBuf::from("/usr/local/bin").join(name));
+        candidates.push(PathBuf::from("/usr/bin").join(name));
+        candidates.push(PathBuf::from("/snap/bin").join(name));
         if let Some(from_shell) = which_via_login_shell(name) {
             candidates.push(from_shell);
         }
     }
 
     first_binary(candidates)
+}
+
+/// The names the CLI installs (all three are the same entry point). `cmd` is
+/// deliberately absent on Windows: `existing_binary` tries `.exe` before `.cmd`,
+/// so the bare name would resolve `cmd.exe` instead of the package's `cmd.cmd`.
+fn command_code_binary_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["command-code", "cmdc"]
+    } else {
+        // The generic `cmd` goes last so the specific names win.
+        &["command-code", "cmdc", "cmd"]
+    }
 }
 
 fn resolve_pi() -> Option<PathBuf> {
@@ -2363,7 +2393,7 @@ mod tests {
         (
             Arc::new(LiveChild {
                 cwd: PathBuf::from("/test"),
-                stdin: Mutex::new(stdin),
+                stdin: Mutex::new(Some(stdin)),
                 pid,
                 account: None,
             }),
@@ -2466,7 +2496,8 @@ mod tests {
             .insert("wedged".to_string(), live.clone());
         let writer = thread::spawn(move || {
             let payload = vec![b'x'; 8 * 1024 * 1024];
-            let mut stdin = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+            let stdin = guard.as_mut().expect("open test child stdin");
             let _ = stdin.write_all(&payload);
         });
         thread::sleep(Duration::from_millis(200));
@@ -2524,7 +2555,7 @@ mod tests {
         (
             Arc::new(LiveChild {
                 cwd: PathBuf::from("/test"),
-                stdin: Mutex::new(stdin),
+                stdin: Mutex::new(Some(stdin)),
                 pid,
                 account: None,
             }),
@@ -2893,7 +2924,18 @@ mod exec_allowlist_tests {
     #[test]
     fn allows_known_catalog_args() {
         assert!(exec_args_allowed(&args(&["--version"])));
+        assert!(exec_args_allowed(&args(&["--no-auto-update", "--version"])));
+        assert!(exec_args_allowed(&args(&["--no-auto-update", "--help"])));
+        assert!(exec_args_allowed(&args(&[
+            "--no-auto-update",
+            "status",
+            "--json",
+        ])));
         assert!(exec_args_allowed(&args(&["--list-models"])));
+        assert!(exec_args_allowed(&args(&[
+            "--no-auto-update",
+            "--list-models"
+        ])));
         assert!(exec_args_allowed(&args(&["models", "--verbose"])));
         assert!(exec_args_allowed(&args(&["models", "--json"])));
         assert!(exec_args_allowed(&args(&["models"])));
@@ -2908,6 +2950,15 @@ mod exec_allowlist_tests {
         assert!(!exec_args_allowed(&args(&["--version", "--json"])));
         assert!(!exec_args_allowed(&args(&["-c", "id"])));
         assert!(!exec_args_allowed(&args(&["agent", "list", "--json"])));
+    }
+
+    #[test]
+    fn command_code_resolution_prefers_specific_aliases() {
+        let names = command_code_binary_names();
+        assert_eq!(names[0], "command-code");
+        assert!(names.contains(&"cmdc"));
+        // `cmd` is only safe to search where cmd.exe cannot shadow the shim.
+        assert_eq!(names.contains(&"cmd"), !cfg!(windows));
     }
 }
 

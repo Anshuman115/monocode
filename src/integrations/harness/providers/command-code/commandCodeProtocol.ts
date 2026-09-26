@@ -3,7 +3,12 @@ import type {
   TurnIntent,
 } from "../../../../features/sessions/model/session";
 
-export const MINIMUM_COMMAND_CODE_VERSION = "1.0.0";
+/**
+ * Oldest Command Code release this transport is verified against. The `--help`
+ * probe in `commandCodeAvailability` remains the authoritative gate; raise this
+ * only after verifying a newer release, never below a version actually tested.
+ */
+export const MINIMUM_COMMAND_CODE_VERSION = "1.66.0";
 
 export type CommandCodeEvent = Record<string, unknown> & { type: string };
 
@@ -50,6 +55,43 @@ export function parseCommandCodeVersion(output: string): string | null {
   return output.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/)?.[0] ?? null;
 }
 
+export function hasCommandCodeJsonHeadlessSupport(output: string): boolean {
+  const outputFormatLine = output
+    .split(/\r?\n/)
+    .find((line) => line.includes("--output-format"));
+  return Boolean(
+    output.includes("--print") && outputFormatLine?.match(/\bjson\b/i),
+  );
+}
+
+export type CommandCodeStatus = {
+  authenticated: boolean;
+  /** Native id of the account's active model, when the CLI reports one. */
+  model?: string;
+  /** Context window the CLI reports for that model, in tokens. */
+  contextWindow?: number;
+};
+
+export function parseCommandCodeStatus(
+  output: string,
+): CommandCodeStatus | null {
+  try {
+    const status = asRecord(JSON.parse(output));
+    if (typeof status?.authenticated !== "boolean") return null;
+    const model = stringField(status, "model");
+    const contextWindow = status.context_window;
+    return {
+      authenticated: status.authenticated,
+      ...(model ? { model } : {}),
+      ...(typeof contextWindow === "number" && contextWindow > 0
+        ? { contextWindow }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function compareCommandCodeVersions(
   left: string,
   right: string,
@@ -85,8 +127,12 @@ export function commandCodePermissionArgs(
   }
 }
 
+/**
+ * Flags only. The prompt travels over stdin: argv is visible to every process on
+ * the machine and a long prompt with attachments can exceed the OS argument
+ * limit, which fails the spawn instead of the turn.
+ */
 export function buildCommandCodeArgs(input: {
-  text: string;
   model?: string;
   effort?: string;
   runtimeMode: RuntimeMode;
@@ -106,7 +152,6 @@ export function buildCommandCodeArgs(input: {
   if (input.effort) args.push("--effort", input.effort);
   args.push("--print");
   if (input.resume) args.push("--resume", input.resume);
-  args.push(input.text);
   return args;
 }
 
@@ -153,7 +198,7 @@ export function toolKind(toolName: string): string {
 export function redactCommandCodeDiagnostic(value: string): string {
   return value
     .replace(
-      /(?:api[_-]?key|token|password|secret)\s*[:=]\s*\S+/gi,
+      /(api[_-]?key|token|password|secret)\s*[:=]\s*\S+/gi,
       "$1=[redacted]",
     )
     .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted]")
@@ -169,6 +214,25 @@ export function modelNameFromCatalogId(nativeId: string): string {
   return leaf
     .split(/[-_]/g)
     .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .map(formatModelNamePart)
     .join(" ");
+}
+
+const MODEL_NAME_CASE: Record<string, string> = {
+  deepseek: "DeepSeek",
+  glm: "GLM",
+  gpt: "GPT",
+  mimo: "MiMo",
+  qwen: "Qwen",
+};
+
+function formatModelNamePart(part: string): string {
+  const lower = part.toLowerCase();
+  const exact = MODEL_NAME_CASE[lower];
+  if (exact) return exact;
+  const prefix = Object.keys(MODEL_NAME_CASE).find((key) =>
+    lower.startsWith(key),
+  );
+  if (prefix) return MODEL_NAME_CASE[prefix] + part.slice(prefix.length);
+  return part[0]?.toUpperCase() + part.slice(1);
 }

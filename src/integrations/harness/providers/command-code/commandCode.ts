@@ -6,11 +6,13 @@ import type {
 } from "../../../../features/sessions/model/session";
 import { extractToolPreview } from "../../core/preview";
 import {
+  closeChildStdin,
   killChild,
   resolveCommandCodeBinary,
   spawnChild,
   unwatchChild,
   watchChild,
+  writeChild,
 } from "../../core/child";
 import type {
   ApprovalDecision,
@@ -44,6 +46,8 @@ type Live = {
   messageCompleted: boolean;
   reasoningOpen: boolean;
   sawResult: boolean;
+  errorEmitted: boolean;
+  finish?: (error?: Error) => void;
   turnNumber: number;
 };
 
@@ -67,6 +71,7 @@ export async function sendCommandCodeTurn(input: SendTurnInput): Promise<void> {
     messageCompleted: false,
     reasoningOpen: false,
     sawResult: false,
+    errorEmitted: false,
     turnNumber: 0,
   };
   liveByThread.set(input.sessionId, live);
@@ -78,17 +83,16 @@ export async function sendCommandCodeTurn(input: SendTurnInput): Promise<void> {
       );
     }
     const { path } = await resolveCommandCodeBinary();
-    if (cancelledThreads.delete(input.sessionId)) return;
+    if (cancelledThreads.delete(input.sessionId) || live.cancelled) return;
     const prompt = promptWithAttachments(input.text, input.attachments);
     const args = buildCommandCodeArgs({
-      text: prompt,
       model: nativeModelId(input.model),
       effort: input.modelSettings?.effort,
       runtimeMode: input.runtimeMode,
       intent: input.intent,
       resume: resume?.providerSessionId,
     });
-    await runProcess(input, live, path, args);
+    await runProcess(input, live, path, args, prompt);
   } finally {
     if (liveByThread.get(input.sessionId) === live)
       liveByThread.delete(input.sessionId);
@@ -104,6 +108,7 @@ export async function cancelCommandCodeTurn(sessionId: string): Promise<void> {
   live.cancelled = true;
   live.muted = true;
   await killChild(sessionId).catch(() => undefined);
+  live.finish?.();
 }
 
 export async function stopCommandCodeSession(sessionId: string): Promise<void> {
@@ -113,8 +118,8 @@ export async function stopCommandCodeSession(sessionId: string): Promise<void> {
     live.cancelled = true;
     live.muted = true;
   }
-  unwatchChild(sessionId);
   await killChild(sessionId).catch(() => undefined);
+  live?.finish?.();
 }
 
 export async function forgetCommandCodeSession(
@@ -153,6 +158,7 @@ async function runProcess(
   live: Live,
   path: string,
   args: string[],
+  prompt: string,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -166,11 +172,15 @@ async function runProcess(
       if (startupTimer) clearTimeout(startupTimer);
       if (turnTimer) clearTimeout(turnTimer);
       unwatchChild(input.sessionId);
+      if (live.finish === finish) live.finish = undefined;
+      if (error) emitSessionError(input, live, error.message);
       if (error && !live.cancelled) reject(error);
       else resolve();
     };
+    live.finish = finish;
 
     const onLine = (line: string) => {
+      if (live.muted) return;
       const parsed = parseCommandCodeLine(line);
       if (!parsed) return;
       if (parsed.kind === "event") {
@@ -188,6 +198,9 @@ async function runProcess(
       input.sessionId,
       onLine,
       (code) => {
+        if (!live.muted) {
+          input.onEvent({ type: "session.ended", code });
+        }
         if (live.cancelled) {
           finish();
           return;
@@ -220,11 +233,14 @@ async function runProcess(
       );
     }, TURN_TIMEOUT_MS);
 
-    void spawnChild(input.sessionId, path, args, input.cwd).catch(
-      (error: unknown) => {
+    void spawnChild(input.sessionId, path, args, input.cwd)
+      .then(() => writeChild(input.sessionId, prompt))
+      // Closing stdin is what marks the prompt complete for `--print`.
+      .then(() => closeChildStdin(input.sessionId))
+      .catch((error: unknown) => {
+        void killChild(input.sessionId).catch(() => undefined);
         finish(new Error(redactCommandCodeDiagnostic(String(error))));
-      },
-    );
+      });
   });
 }
 
@@ -307,14 +323,35 @@ function handleEvent(
         input,
         event,
         "in_progress",
-        toolResultText(event.partial),
+        commandCodeToolResultText(event.partial),
       );
       break;
     case "tool_completed":
-      emitToolUpdated(input, event, "completed", toolResultText(event.result));
+      emitToolUpdated(
+        input,
+        event,
+        "completed",
+        commandCodeToolResultText(event.result),
+      );
+      break;
+    case "tool_errored":
+      emitToolUpdated(
+        input,
+        event,
+        "failed",
+        commandCodeToolResultText(event.error ?? event.result),
+      );
       break;
     case "tool_hook_blocked":
       emitToolUpdated(input, event, "failed", stringField(event, "hookOutput"));
+      break;
+    case "tool_denied":
+      emitToolUpdated(
+        input,
+        event,
+        "failed",
+        commandCodeToolResultText(event.reason ?? event.error ?? event.result),
+      );
       break;
     case "model_request_end":
       emitUsage(input, asRecord(event.usage));
@@ -326,14 +363,19 @@ function handleEvent(
         emitFinalTextIfNeeded(input, live, stringField(result, "finalText"));
         const stopReason = stringField(result, "stopReason");
         if (stopReason === "error") {
-          input.onEvent({
-            type: "session.error",
-            message: commandCodeFailureText(result),
-          });
+          emitSessionError(input, live, commandCodeFailureText(result));
         }
       }
       break;
     }
+    // Emitted by the CLI run loop but deliberately not surfaced: turn_end (its
+    // text and usage are already reported), message_update and model_trace (the
+    // deltas and the result frame are authoritative), interaction_requested/
+    // resolved and permission_mode_changed (headless has no approval channel),
+    // compaction_start/done/outcome, subagent_start/stop/progress,
+    // continuation_recovery, session_shutdown, session_titled,
+    // config_setting_changed, skill_loaded. run_error is left to the result
+    // frame, which is authoritative for a failed run.
     default:
       break;
   }
@@ -347,11 +389,30 @@ function handleResult(
   emitUsage(input, asRecord(result.usage));
   emitFinalTextIfNeeded(input, live, stringField(result, "finalText"));
   if (result.subtype !== "success") {
-    input.onEvent({
-      type: "session.error",
-      message: commandCodeFailureText(result),
-    });
+    emitSessionError(input, live, commandCodeFailureText(result));
   }
+}
+
+function emitSessionError(
+  input: SendTurnInput,
+  live: Live,
+  message: string,
+): void {
+  if (live.errorEmitted || live.cancelled) return;
+  live.errorEmitted = true;
+  input.onEvent({ type: "session.error", message });
+}
+
+function commandCodeToolResultText(value: unknown): string {
+  const direct = toolResultText(value);
+  if (direct) return direct;
+  const record = asRecord(value);
+  return (
+    toolResultText(record?.content) ||
+    stringField(record, "error") ||
+    stringField(record, "message") ||
+    ""
+  );
 }
 
 function emitFinalTextIfNeeded(
