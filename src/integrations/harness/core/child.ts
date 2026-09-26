@@ -273,7 +273,6 @@ export function writeChild(sessionId: string, line: string): Promise<void> {
   return invoke("harness_write", { sessionId, line });
 }
 
-/** End the child's input: `--print` reads its prompt from stdin until EOF. */
 export function closeChildStdin(sessionId: string): Promise<void> {
   return invoke("harness_close_stdin", { sessionId });
 }

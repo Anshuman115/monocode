@@ -48,7 +48,6 @@ export function QuickPermissions({
   onChange: (mode: RuntimeMode) => void;
   onClose: () => void;
   embedded?: boolean;
-  /** The quick session's provider, so the hints match what it can do. */
   harness?: HarnessId;
 }) {
   const root = useRef<HTMLDivElement>(null);

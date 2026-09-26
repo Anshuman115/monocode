@@ -48,7 +48,6 @@ type Live = {
   sawResult: boolean;
   errorEmitted: boolean;
   finish?: (error?: Error) => void;
-  /** Ends the turn early when the CLI reports a tool it will never run. */
   abortTurn?: (error: Error) => void;
   turnNumber: number;
 };
@@ -181,8 +180,6 @@ async function runProcess(
       else resolve();
     };
     live.finish = finish;
-    // Headless `--print` cannot answer an approval prompt, and the CLI retries a
-    // blocked tool call until the turn cap, so the first blocked call ends it.
     const abortTurn = (error: Error) => {
       live.muted = true;
       void killChild(input.sessionId).catch(() => undefined).finally(() => finish(error));
@@ -245,7 +242,6 @@ async function runProcess(
 
     void spawnChild(input.sessionId, path, args, input.cwd, undefined, "command-code")
       .then(() => writeChild(input.sessionId, prompt))
-      // Closing stdin is what marks the prompt complete for `--print`.
       .then(() => closeChildStdin(input.sessionId))
       .catch((error: unknown) => {
         void killChild(input.sessionId).catch(() => undefined);
@@ -357,9 +353,6 @@ function handleEvent(
         stringField(event, "hookOutput") ?? "",
       );
       emitToolUpdated(input, event, "failed", detail);
-      // The CLI names the tool it refused and why, and hooks can block even
-      // under --yolo, so this event is authoritative in every mode. The CLI
-      // retries the call until the turn cap, so the turn ends here instead.
       live.abortTurn?.(
         new Error(
           input.runtimeMode === "full-access" || !detail
@@ -392,14 +385,6 @@ function handleEvent(
       }
       break;
     }
-    // Emitted by the CLI run loop but deliberately not surfaced: turn_end (its
-    // text and usage are already reported), message_update and model_trace (the
-    // deltas and the result frame are authoritative), interaction_requested/
-    // resolved and permission_mode_changed (headless has no approval channel),
-    // compaction_start/done/outcome, subagent_start/stop/progress,
-    // continuation_recovery, session_shutdown, session_titled,
-    // config_setting_changed, skill_loaded. run_error is left to the result
-    // frame, which is authoritative for a failed run.
     default:
       break;
   }
@@ -414,9 +399,6 @@ function handleResult(
   emitFinalTextIfNeeded(input, live, stringField(result, "finalText"));
   if (result.subtype !== "success") {
     const message = commandCodeFailureText(result);
-    // A resume id whose native session is gone would fail every later turn, so
-    // drop it. The failed prompt is never resent — that would duplicate its side
-    // effects; the next user message starts a fresh conversation instead.
     if (/no session .*found to resume/i.test(message)) {
       resumeByThread.delete(input.sessionId);
       emitSessionError(

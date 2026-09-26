@@ -3,11 +3,6 @@ import type {
   TurnIntent,
 } from "../../../../features/sessions/model/session";
 
-/**
- * Oldest Command Code release this transport is verified against. The `--help`
- * probe in `commandCodeAvailability` remains the authoritative gate; raise this
- * only after verifying a newer release, never below a version actually tested.
- */
 export const MINIMUM_COMMAND_CODE_VERSION = "1.66.0";
 
 export type CommandCodeEvent = Record<string, unknown> & { type: string };
@@ -66,9 +61,7 @@ export function hasCommandCodeJsonHeadlessSupport(output: string): boolean {
 
 export type CommandCodeStatus = {
   authenticated: boolean;
-  /** Native id of the account's active model, when the CLI reports one. */
   model?: string;
-  /** Context window the CLI reports for that model, in tokens. */
   contextWindow?: number;
 };
 
@@ -116,20 +109,9 @@ export function commandCodePermissionArgs(
   intent?: TurnIntent,
 ): string[] {
   if (intent === "plan") return ["--plan"];
-  // `full-access` is the only mode whose mutating tools can run unattended:
-  // headless `--print` has no approval channel, and `--accept-edits` was
-  // measured to still refuse writes. Reads run in every mode, so the rest are
-  // read-only, and the blocked-tool handler tells the user to switch instead of
-  // granting `--yolo` behind a mode that promises approval ("auto" promises an
-  // AI reviewer).
   return runtimeMode === "full-access" ? ["--yolo"] : [];
 }
 
-/**
- * Flags only. The prompt travels over stdin: argv is visible to every process on
- * the machine and a long prompt with attachments can exceed the OS argument
- * limit, which fails the spawn instead of the turn.
- */
 export function buildCommandCodeArgs(input: {
   model?: string;
   effort?: string;

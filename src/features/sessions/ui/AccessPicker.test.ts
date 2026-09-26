@@ -18,7 +18,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** The trigger's title carries the hint for the selected mode. */
 function triggerTitleFor(harness: HarnessId): string {
   container = document.createElement("div");
   document.body.append(container);

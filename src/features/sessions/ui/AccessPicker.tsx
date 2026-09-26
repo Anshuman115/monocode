@@ -25,7 +25,6 @@ type Props = {
   onChange: (mode: RuntimeMode) => void;
   onClose?: () => void;
   busy?: boolean;
-  /** The session's provider, so the hints describe what it can actually do. */
   harness?: HarnessId;
 };
 

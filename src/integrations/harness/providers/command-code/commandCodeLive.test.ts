@@ -99,8 +99,6 @@ describe("Command Code structured transport", () => {
       "high",
       "--print",
     ]);
-    // The provider tag is what the Rust gate resolves the binary with; without
-    // it every spawn and exec is refused before it runs.
     expect(transport.spawnChild).toHaveBeenCalledWith(
       "mono-thread",
       "/fake/command-code",
@@ -109,7 +107,6 @@ describe("Command Code structured transport", () => {
       undefined,
       "command-code",
     );
-    // The prompt goes over stdin: argv is world-readable and size-capped.
     expect(transport.written).toEqual(["Read README.md"]);
     expect(transport.closeChildStdin).toHaveBeenCalledWith("mono-thread");
     emit({
@@ -171,6 +168,7 @@ describe("Command Code structured transport", () => {
     expect(
       events.filter((event) => event.type === "session.error"),
     ).toHaveLength(0);
+    expect(transport.killChild).not.toHaveBeenCalled();
   });
 
   it("sends attachment paths over stdin, never in argv", async () => {

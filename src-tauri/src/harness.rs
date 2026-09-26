@@ -734,10 +734,6 @@ pub async fn harness_write(
     .await
     .map_err(|e| format!("Harness write task failed: {e}"))?
 }
-
-/// Close a child's stdin. `command-code --print` reads its prompt from stdin, so
-/// EOF — not a newline — is what starts the turn; a child that never sees it
-/// waits until the turn times out.
 #[tauri::command(async)]
 pub fn harness_close_stdin(host: State<'_, HarnessHost>, session_id: String) -> Result<(), String> {
     let live = host
@@ -1869,15 +1865,10 @@ fn resolve_command_code() -> Option<PathBuf> {
 
     first_binary(candidates)
 }
-
-/// The names the CLI installs (all three are the same entry point). `cmd` is
-/// deliberately absent on Windows: `existing_binary` tries `.exe` before `.cmd`,
-/// so the bare name would resolve `cmd.exe` instead of the package's `cmd.cmd`.
 fn command_code_binary_names() -> &'static [&'static str] {
     if cfg!(windows) {
         &["command-code", "cmdc"]
     } else {
-        // The generic `cmd` goes last so the specific names win.
         &["command-code", "cmdc", "cmd"]
     }
 }
@@ -3080,10 +3071,6 @@ mod tests {
 
         std::fs::remove_dir_all(dir).unwrap();
     }
-
-    /// The provider-tag gate refuses every exec without a provider, so a provider
-    /// that is missing from the resolver registry (or that forgets the tag) makes
-    /// an installed CLI look missing. Pinned here for command-code.
     #[test]
     #[cfg(unix)]
     fn command_code_overrides_pass_the_provider_gate() {

@@ -51,7 +51,6 @@ export async function discoverCommandCodeModels(): Promise<AgentModel[]> {
   const listed = parseCommandCodeModelList(
     await execChild(path, ["--no-auto-update", "--list-models"], cwd, "command-code"),
   );
-  // The list has no window column; `status` reports one for the active model.
   const status = await execChild(
     path,
     ["--no-auto-update", "status", "--json"],
@@ -63,10 +62,6 @@ export async function discoverCommandCodeModels(): Promise<AgentModel[]> {
   return withProviderContextWindow(listed, status);
 }
 
-/**
- * The CLI reports a context window for the account's active model only, so it is
- * applied to that model and left unset everywhere else rather than inferred.
- */
 export function withProviderContextWindow(
   models: AgentModel[],
   status: CommandCodeStatus | null,
