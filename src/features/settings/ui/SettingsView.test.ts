@@ -750,6 +750,152 @@ describe("settings search", () => {
     expect(onSelectSection).not.toHaveBeenCalled();
   });
 
+  it("records a custom keybinding from the key cell", async () => {
+    await render("keybindings");
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Change App: Search shortcut"]',
+    )!;
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyM",
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    expect(localStorage.getItem("monocode.keybindingOverrides")).toBe(
+      '{"App: Search":{"shortcut":"Control+Shift+KeyM"}}',
+    );
+    expect(input.value).toBe("Ctrl+Shift+M");
+  });
+
+  it("lets Tab leave the recorder and keeps Cmd+Delete recordable", async () => {
+    await render("keybindings");
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Change App: Search shortcut"]',
+    )!;
+
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "Tab",
+          key: "Tab",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(container.textContent).not.toContain("Del disables");
+
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "Delete",
+          key: "Delete",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(localStorage.getItem("monocode.keybindingOverrides")).toBe(
+      '{"App: Search":{"shortcut":"Command+Delete"}}',
+    );
+  });
+
+  it("surfaces a storage failure instead of silently dropping the change", async () => {
+    await render("keybindings");
+    (
+      localStorage as unknown as {
+        setItem: (key: string, value: string) => void;
+      }
+    ).setItem = () => {
+      throw new Error("quota exceeded");
+    };
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Change App: Search shortcut"]',
+    )!;
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyY",
+          key: "y",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain("Could not save shortcuts");
+  });
+
+  it("records an Alt shortcut on a keybinding row", async () => {
+    await render("keybindings");
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Change App: Search shortcut"]',
+    )!;
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyM",
+          key: "m",
+          altKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    expect(localStorage.getItem("monocode.keybindingOverrides")).toBe(
+      '{"App: Search":{"shortcut":"Option+KeyM"}}',
+    );
+    expect(input.value).toBe("Alt+M");
+  });
+
+  it("disables and restores an individual keybinding", async () => {
+    await render("keybindings");
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Change App: Search shortcut"]',
+    )!;
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "Backspace",
+          key: "Backspace",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    expect(localStorage.getItem("monocode.keybindingOverrides")).toBe(
+      '{"App: Search":{"disabled":true}}',
+    );
+    expect(input.value).toBe("Disabled");
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Reset App: Search shortcut"]',
+        )!
+        .click(),
+    );
+    expect(localStorage.getItem("monocode.keybindingOverrides")).toBeNull();
+  });
+
   it("reveals a setting on the current page", async () => {
     await render("general");
     await type("sounds");
@@ -810,8 +956,8 @@ describe("providers scope inheritance", () => {
     // Global precedence: the project toggle cannot turn a globally hidden
     // provider back on, so it is locked and explained.
     expect(cursorToggle.hasAttribute("disabled")).toBe(true);
-    expect(
-      cursorToggle.closest(".settings-row")?.textContent,
-    ).toContain("Hidden globally");
+    expect(cursorToggle.closest(".settings-row")?.textContent).toContain(
+      "Hidden globally",
+    );
   });
 });
