@@ -67,17 +67,19 @@ export function useQuickComposerLaunches(
     void Promise.all([
       subscribe(QUICK_COMPOSER_LAUNCH_EVENT, () => void take()),
       subscribe(QUICK_COMPOSER_CATALOG_REQUEST_EVENT, (event) => {
+        const refresh = isHarnessId(event.payload)
+          ? refreshHarnessCatalogs([event.payload], { force: true })
+          : Promise.resolve();
         void probeHarnessAvailability()
+          .catch(() => undefined)
           .then(async () => {
             if (disposed) return;
             // Only probe the provider the user opened, like the workspace picker.
-            if (isHarnessId(event.payload)) {
-              await refreshHarnessCatalogs([event.payload], { force: true });
-            }
+            void emit(QUICK_COMPOSER_CATALOG_EVENT, liveQuickCatalog());
+            await refresh.catch(() => undefined);
             if (!disposed)
               void emit(QUICK_COMPOSER_CATALOG_EVENT, liveQuickCatalog());
-          })
-          .catch(() => undefined);
+          });
       }),
     ])
       .then(() => take())

@@ -203,7 +203,6 @@ export const MODELS: AgentModel[] = [
     harness: "command-code",
     name: "DeepSeek V4.1 Flash",
     nativeId: "deepseek/deepseek-v4.1-flash",
-    contextWindow: 1_000_000,
   },
 ];
 
@@ -255,6 +254,7 @@ const EMPTY_MODELS: AgentModel[] = [];
 
 let overlays: Partial<Record<HarnessId, AgentModel[]>> = {};
 let overlayDefaults: Partial<Record<HarnessId, string>> = {};
+let loadingCatalogs = new Set<HarnessId>();
 let catalogVersion = 0;
 const listeners = new Set<() => void>();
 
@@ -292,10 +292,27 @@ export function hasLiveCatalog(harness: HarnessId): boolean {
   return overlays[harness] != null;
 }
 
+export function isHarnessCatalogLoading(harness: HarnessId): boolean {
+  return loadingCatalogs.has(harness);
+}
+
+export function setHarnessCatalogLoading(
+  harness: HarnessId,
+  loading: boolean,
+): void {
+  if (loadingCatalogs.has(harness) === loading) return;
+  const next = new Set(loadingCatalogs);
+  if (loading) next.add(harness);
+  else next.delete(harness);
+  loadingCatalogs = next;
+  emit();
+}
+
 /** Test seam. */
 export function resetHarnessModelOverlays() {
   overlays = {};
   overlayDefaults = {};
+  loadingCatalogs = new Set();
   emit();
 }
 
@@ -323,6 +340,13 @@ function baseModelsFor(harness: HarnessId): AgentModel[] {
 
 export function modelsFor(harness: HarnessId): AgentModel[] {
   return overlays[harness] ?? baseModelsFor(harness);
+}
+
+export function modelsForPicker(harness: HarnessId): AgentModel[] {
+  if (isHarnessCatalogLoading(harness) && !hasLiveCatalog(harness)) {
+    return EMPTY_MODELS;
+  }
+  return modelsFor(harness);
 }
 
 export function allModels(): AgentModel[] {

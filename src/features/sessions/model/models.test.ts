@@ -6,6 +6,7 @@ import {
   defaultSessionChoice,
   firstEnabledHarness,
   hasLiveCatalog,
+  isHarnessCatalogLoading,
   isPickerProviderVisible,
   loadDefaultModels,
   loadHiddenPickerProviders,
@@ -17,6 +18,7 @@ import {
   modelPickerTabs,
   preferredModelId,
   preferredModelSettings,
+  modelsForPicker,
   resetHarnessModelOverlays,
   resolveModel,
   saveDefaultModel,
@@ -25,6 +27,7 @@ import {
   savePickerProviderVisible,
   saveRecentModelChoice,
   setHarnessModels,
+  setHarnessCatalogLoading,
   showProviderInModelPicker,
   stepModelPickerTab,
   type AgentModel,
@@ -393,6 +396,34 @@ describe("live catalog overlays", () => {
     ]);
     expect(hasLiveCatalog("pi")).toBe(true);
     expect(hasLiveCatalog("omp")).toBe(false);
+  });
+
+  it("hides a fallback during initial discovery and retains a live catalog during refresh", () => {
+    expect(modelsForPicker("command-code")).toHaveLength(1);
+
+    setHarnessCatalogLoading("command-code", true);
+    expect(isHarnessCatalogLoading("command-code")).toBe(true);
+    expect(modelsForPicker("command-code")).toEqual([]);
+
+    const live = [
+      {
+        id: "command-code:deepseek/deepseek-v4.1-flash",
+        harness: "command-code" as const,
+        name: "DeepSeek V4.1 Flash",
+        nativeId: "deepseek/deepseek-v4.1-flash",
+      },
+      {
+        id: "command-code:claude-sonnet-5",
+        harness: "command-code" as const,
+        name: "Claude Sonnet 5",
+        nativeId: "claude-sonnet-5",
+      },
+    ];
+    setHarnessModels("command-code", live);
+    expect(modelsForPicker("command-code")).toEqual(live);
+
+    setHarnessCatalogLoading("command-code", false);
+    expect(isHarnessCatalogLoading("command-code")).toBe(false);
   });
 
   it("keeps a Claude alias on the same model family across relaunch", () => {

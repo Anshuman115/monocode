@@ -14,8 +14,10 @@ import {
 import {
   defaultSessionChoice,
   hasLiveCatalog,
+  isHarnessCatalogLoading,
   modelsFor,
   resolveModel,
+  setHarnessCatalogLoading,
   setHarnessModels,
   type AgentModel,
 } from "../../sessions/model/models";
@@ -46,6 +48,7 @@ const LAST_PROJECT_KEY = "monocode.quickComposerProject";
 export type QuickCatalog = {
   models: Partial<Record<HarnessId, AgentModel[]>>;
   availableHarnesses: HarnessId[];
+  loadingHarnesses: HarnessId[];
 };
 
 export type QuickChoice = { harness: HarnessId; model: string };
@@ -162,6 +165,7 @@ export function liveQuickCatalog(): QuickCatalog {
   return {
     models: catalog,
     availableHarnesses: HARNESSES.filter(isHarnessAvailable),
+    loadingHarnesses: HARNESSES.filter(isHarnessCatalogLoading),
   };
 }
 
@@ -171,7 +175,8 @@ export function applyQuickCatalog(value: unknown): HarnessId[] | null {
   if (
     !raw.models ||
     typeof raw.models !== "object" ||
-    !Array.isArray(raw.availableHarnesses)
+    !Array.isArray(raw.availableHarnesses) ||
+    !Array.isArray(raw.loadingHarnesses)
   )
     return null;
   for (const [harness, models] of Object.entries(raw.models)) {
@@ -185,6 +190,10 @@ export function applyQuickCatalog(value: unknown): HarnessId[] | null {
         (model as AgentModel).harness === harness,
     );
     setHarnessModels(harness, valid);
+  }
+  const loading = new Set(raw.loadingHarnesses.filter(isHarnessId));
+  for (const harness of HARNESSES) {
+    setHarnessCatalogLoading(harness, loading.has(harness));
   }
   return raw.availableHarnesses.filter(isHarnessId);
 }

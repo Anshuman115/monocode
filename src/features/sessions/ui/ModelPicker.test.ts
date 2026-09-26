@@ -166,9 +166,10 @@ describe("model picker", () => {
     const modelFlyout = container.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Models"]',
     )!;
-    expect(modelFlyout.style.height).toBe("404px");
-    expect(modelFlyout.dataset.minHeight).toBe("406");
-    expect(modelFlyout.dataset.maxHeight).toBe("406");
+    // Sized to fit one provider tab per harness (11 of them now).
+    expect(modelFlyout.style.height).toBe("440px");
+    expect(modelFlyout.dataset.minHeight).toBe("442");
+    expect(modelFlyout.dataset.maxHeight).toBe("442");
     expect(
       container.querySelector('[role="tablist"][aria-orientation="vertical"]'),
     ).not.toBeNull();
