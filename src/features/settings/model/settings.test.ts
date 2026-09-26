@@ -414,6 +414,7 @@ describe("settings navigation", () => {
       "general",
       "appearance",
       "keybindings",
+      "diagnostics",
       "chat",
       "providers",
       "skills",

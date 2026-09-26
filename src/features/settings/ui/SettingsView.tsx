@@ -306,6 +306,7 @@ import {
 import { SkillsPage } from "../../skills/ui/SkillsPage";
 import { ProjectNotificationSettings } from "../../notifications/ui/ProjectNotificationSettings";
 import { WorktreesPage } from "../../source-control/ui/WorktreesPage";
+import { DiagnosticsCentreView } from "../../diagnostics-centre/ui/DiagnosticsCentreView";
 import {
   removeWorktree,
   type RemoveWorktree,
@@ -513,6 +514,9 @@ export function SettingsView({
                   notificationProjectPath={notificationProjectPath}
                   notificationSettingsRequest={notificationSettingsRequest}
                 />
+              ) : null}
+              {section === "diagnostics" ? (
+                <DiagnosticsCentreView />
               ) : null}
               {section === "archive" ? (
                 <ArchivePage

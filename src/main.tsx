@@ -15,10 +15,14 @@ import {
 import { homeDir } from "./platform/tauri/fs";
 import { setHomeDir } from "./shared/lib/paths";
 import { consumeInstalledUpdate } from "./app/model/updateNotice";
+import { installDiagnosticsCapture } from "./app/model/diagnosticsCapture";
 import "./styles/index.css";
 
 initAppearance();
 initSounds();
+// Feeds real uncaught errors and unhandled rejections into the Diagnostics
+// Centre so it reflects what's actually going wrong, not just probes.
+installDiagnosticsCapture();
 // Prime the real home directory before the first render so every `~/` file
 // reference resolves consistently. The IPC call is local and failures remain
 // best-effort, falling back to inference from a session's cwd.

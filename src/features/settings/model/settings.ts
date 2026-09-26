@@ -10,6 +10,7 @@ export type SettingsSectionId =
   | "chat"
   | "providers"
   | "skills"
+  | "diagnostics"
   | "inbox"
   | "worktrees"
   | "archive";
@@ -57,6 +58,15 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description:
       "Every shortcut the workspace handles, from the app menu and the key handler.",
     keywords: "shortcut hotkey keyboard binding",
+  },
+  {
+    id: "diagnostics",
+    group: "app",
+    label: "Diagnostics",
+    description:
+      "Live subsystem logs, trace levels, and runtime telemetry for the desktop process.",
+    keywords:
+      "log trace level subsystem pty harness storage emit probe telemetry",
   },
   {
     id: "chat",
