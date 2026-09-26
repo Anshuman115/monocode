@@ -372,6 +372,8 @@ import { shouldGenerateSessionTitle } from "../features/sessions/model/sessionTi
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
   providerAccountExists,
+  providerAccountLabel,
+  sameProviderAccountId,
   selectedProviderAccountId,
   supportsProviderAccounts,
   type ProviderAccountProvider,
@@ -2093,23 +2095,69 @@ export default function App({
         return;
       }
 
-      // Provider thread ids are account-owned. Keep the current conversation
-      // pinned to its account and open a clean one for the selected profile.
-      const session = {
-        ...newSession(
-          active.harness,
-          active.cwd,
-          active.model,
-          active.runtimeMode,
-          active.modelSettings,
-        ),
-        providerAccountId: accountId,
-      };
-      const tab = newTab(session.id);
-      setSessions((current) => [...current, session]);
-      appendTab(tab, active.cwd);
-      setActiveTabId(tab.id);
-      setComposerFocused(true);
+      const pendingSwitch = active.pendingSwitch;
+      if (
+        pendingSwitch &&
+        pendingSwitch.from === active.harness &&
+        sameProviderAccountId(pendingSwitch.fromProviderAccountId, accountId)
+      ) {
+        setSessions((current) =>
+          current.map((session) =>
+            session.id === active.id
+              ? {
+                  ...session,
+                  providerAccountId: accountId,
+                  pendingSwitch: undefined,
+                }
+              : session,
+          ),
+        );
+        return;
+      }
+
+      const sessionId = active.id;
+      const fromProviderAccountId = active.providerAccountId;
+      const harness = active.harness;
+      const model = active.model;
+      const modelSettings = active.modelSettings;
+      const cwd = active.cwd;
+      const runtimeMode = active.runtimeMode;
+      void ask(
+        `Switching to ${providerAccountLabel(provider, accountId)}. Continue this conversation under the new account, or start a fresh one?`,
+        {
+          title: "Switch provider account",
+          okLabel: "Continue this conversation",
+          cancelLabel: "Start fresh",
+        },
+      ).then((continueSame) => {
+        if (continueSame) {
+          setSessions((current) =>
+            current.map((session) => {
+              if (session.id !== sessionId) return session;
+              return {
+                ...session,
+                providerAccountId: accountId,
+                pendingSwitch: session.pendingSwitch ?? {
+                  from: session.harness,
+                  fromModel: session.model,
+                  fromSettings: session.modelSettings,
+                  ...(fromProviderAccountId ? { fromProviderAccountId } : {}),
+                },
+              };
+            }),
+          );
+          return;
+        }
+        const session = {
+          ...newSession(harness, cwd, model, runtimeMode, modelSettings),
+          providerAccountId: accountId,
+        };
+        const tab = newTab(session.id);
+        setSessions((current) => [...current, session]);
+        appendTab(tab, cwd);
+        setActiveTabId(tab.id);
+        setComposerFocused(true);
+      });
     },
     [active, appendTab],
   );
@@ -5815,7 +5863,12 @@ export default function App({
           : composeNoteMessage(noteCard, promptText));
 
       const pendingSwitch =
-        current.pendingSwitch && current.pendingSwitch.from !== current.harness
+        current.pendingSwitch &&
+        (current.pendingSwitch.from !== current.harness ||
+          !sameProviderAccountId(
+            current.pendingSwitch.fromProviderAccountId,
+            current.providerAccountId,
+          ))
           ? current.pendingSwitch
           : null;
 

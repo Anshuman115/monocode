@@ -315,8 +315,8 @@ async function resolveHarnessBinary(
   }
   const command: Record<ConfigurableBinaryProvider, string> = {
     claude: "harness_resolve_claude",
-    codex: "harness_resolve_codex",
     "command-code": "harness_resolve_command_code",
+    codex: "harness_resolve_codex",
     cursor: "harness_resolve_cursor",
     grok: "harness_resolve_grok",
     opencode: "harness_resolve_opencode",
