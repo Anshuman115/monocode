@@ -273,6 +273,10 @@ export function writeChild(sessionId: string, line: string): Promise<void> {
   return invoke("harness_write", { sessionId, line });
 }
 
+export function closeChildStdin(sessionId: string): Promise<void> {
+  return invoke("harness_close_stdin", { sessionId });
+}
+
 export function killChild(sessionId: string): Promise<void> {
   livePid.delete(sessionId);
   pendingExit.delete(sessionId);
@@ -312,6 +316,7 @@ async function resolveHarnessBinary(
   const command: Record<ConfigurableBinaryProvider, string> = {
     claude: "harness_resolve_claude",
     codex: "harness_resolve_codex",
+    "command-code": "harness_resolve_command_code",
     cursor: "harness_resolve_cursor",
     grok: "harness_resolve_grok",
     opencode: "harness_resolve_opencode",

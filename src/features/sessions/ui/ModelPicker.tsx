@@ -24,9 +24,10 @@ import {
   getModelSnapshot,
   getPickerVisibilitySnapshot,
   isEffortSettingId,
+  isHarnessCatalogLoading,
   loadFavoriteModels,
   loadRecentModelChoices,
-  modelsFor,
+  modelsForPicker,
   resolveModel,
   saveFavoriteModels,
   showProviderInModelPicker,
@@ -339,7 +340,7 @@ export function ModelPicker({
               (item): item is AgentModel =>
                 item != null && pickerHarnesses.includes(item.harness),
             )
-        : modelsFor(visibleTab);
+        : modelsForPicker(visibleTab);
     if (!needle) return pool;
     return pool.filter((item) =>
       `${item.name} ${HARNESS_TITLE[item.harness]} ${item.provider?.name ?? ""} ${item.provider?.id ?? ""}`
@@ -1384,9 +1385,11 @@ function ModelFlyout({
                 ? "No favorite models"
                 : tab !== "favorites" && !isHarnessAvailable(tab)
                   ? harnessUnavailableHint(tab)
-                  : tab === "codex" && !query.trim()
-                    ? "Loading Codex models…"
-                    : "No matching models"}
+                  : tab !== "favorites" && isHarnessCatalogLoading(tab)
+                    ? `Loading ${HARNESS_TITLE[tab]} models…`
+                    : tab === "codex" && !query.trim()
+                      ? "Loading Codex models…"
+                      : "No matching models"}
             </div>
           ) : (
             groups.map((group) => (

@@ -65,7 +65,6 @@ export type HarnessAdapter = {
   live: boolean;
   /** False when the harness cannot accept a follow-up while a turn is running. Default: same as live. */
   canSteer?: boolean;
-  capabilities?: HarnessCapabilities;
   availabilityProbe?: () => Promise<{
     available: boolean;
     detail?: HarnessAvailabilityDetail;
@@ -208,12 +207,6 @@ export function registerHarness(adapter: HarnessAdapter): void {
 
 export function getHarness(id: HarnessId): HarnessAdapter | undefined {
   return adapters.get(id);
-}
-
-export function getHarnessCapabilities(
-  id: HarnessId,
-): HarnessCapabilities | undefined {
-  return adapters.get(id)?.capabilities;
 }
 
 export function requireHarness(id: HarnessId): HarnessAdapter {

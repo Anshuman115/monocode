@@ -415,6 +415,7 @@ pub fn run() {
             harness::harness_free_port,
             harness::harness_spawn,
             harness::harness_write,
+            harness::harness_close_stdin,
             harness::harness_kill,
             harness::harness_kill_all,
             harness::harness_http,
