@@ -279,6 +279,17 @@ html.has-native-glass:not(.theme-light) .sidebar-glass {
   );
 }
 
+/* The activity dot sits at (23px, 9px) in a 32px button. Its icon is
+   centered at (8px, 8px), so this cuts a 2px gap around the 6px dot. */
+.compact-rail-icon-with-dot {
+  -webkit-mask-image: radial-gradient(
+    circle at 15px 1px,
+    transparent 5px,
+    black 5.5px
+  );
+  mask-image: radial-gradient(circle at 15px 1px, transparent 5px, black 5.5px);
+}
+
 .body-glass {
   background: var(--color-background-base);
 }
