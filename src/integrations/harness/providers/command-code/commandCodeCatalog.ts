@@ -3,6 +3,7 @@ import {
   setHarnessCatalogLoading,
   setHarnessModels,
   type AgentModel,
+  type ModelSetting,
 } from "../../../../features/sessions/model/models";
 import { execChild, resolveCommandCodeBinary } from "../../core/child";
 import {
@@ -15,6 +16,19 @@ import {
 } from "./commandCodeProtocol";
 
 let inflight: Promise<void> | null = null;
+
+const EFFORT: ModelSetting = {
+  id: "effort",
+  label: "Reasoning",
+  kind: "select",
+  value: "default",
+  options: [
+    { value: "default", label: "Default" },
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+  ],
+};
 
 export function refreshCommandCodeCatalog(): Promise<void> {
   if (inflight) return inflight;
@@ -100,6 +114,7 @@ export function parseCommandCodeModelList(output: string): AgentModel[] {
       harness: "command-code",
       nativeId,
       name: modelNameFromCatalogId(nativeId),
+      settings: [EFFORT],
     });
   }
   if (declaredCount > 0 && models.length < declaredCount) {

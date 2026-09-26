@@ -349,6 +349,39 @@ describe("Command Code structured transport", () => {
     }
   });
 
+  it("passes --effort only when a level is chosen", async () => {
+    const untuned = sendCommandCodeTurn({
+      sessionId: "effort-default",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      modelSettings: { effort: "default" },
+      runtimeMode: "supervised",
+      text: "hi",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+    await vi.waitFor(() => expect(transport.args).not.toHaveLength(0));
+    expect(transport.args).not.toContain("--effort");
+    await stopCommandCodeSession("effort-default");
+    await untuned.catch(() => undefined);
+
+    transport.args = [];
+    const tuned = sendCommandCodeTurn({
+      sessionId: "effort-high",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      modelSettings: { effort: "high" },
+      runtimeMode: "supervised",
+      text: "hi",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+    await vi.waitFor(() => expect(transport.args).toContain("--effort"));
+    expect(transport.args).toContain("high");
+    await stopCommandCodeSession("effort-high");
+    await tuned.catch(() => undefined);
+  });
+
   it("ends the turn when the CLI blocks a tool in a read-only mode", async () => {
     const events: HarnessEvent[] = [];
     const turn = sendCommandCodeTurn({

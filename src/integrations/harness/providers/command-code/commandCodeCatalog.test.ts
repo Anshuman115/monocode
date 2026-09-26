@@ -42,6 +42,16 @@ claude-sonnet-5                         recommended
       "DeepSeek V4.1 Flash",
       "Claude Sonnet 5",
     ]);
+    expect(models[0]?.settings).toEqual([
+      expect.objectContaining({
+        id: "effort",
+        kind: "select",
+        value: "default",
+      }),
+    ]);
+    expect(
+      models[0]?.settings?.[0]?.options.map((option) => option.value),
+    ).toEqual(["default", "low", "medium", "high"]);
   });
 
   it("applies the reported window to the active model only", () => {

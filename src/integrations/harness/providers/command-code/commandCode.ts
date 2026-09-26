@@ -86,9 +86,10 @@ export async function sendCommandCodeTurn(input: SendTurnInput): Promise<void> {
     const { path } = await resolveCommandCodeBinary();
     if (cancelledThreads.delete(input.sessionId) || live.cancelled) return;
     const prompt = promptWithAttachments(input.text, input.attachments);
+    const chosenEffort = input.modelSettings?.effort;
     const args = buildCommandCodeArgs({
       model: nativeModelId(input.model),
-      effort: input.modelSettings?.effort,
+      effort: chosenEffort === "default" ? undefined : chosenEffort,
       runtimeMode: input.runtimeMode,
       intent: input.intent,
       resume: resume?.providerSessionId,

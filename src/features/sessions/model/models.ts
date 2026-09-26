@@ -203,6 +203,20 @@ export const MODELS: AgentModel[] = [
     harness: "command-code",
     name: "DeepSeek V4.1 Flash",
     nativeId: "deepseek/deepseek-v4.1-flash",
+    settings: [
+      {
+        id: "effort",
+        label: "Reasoning",
+        kind: "select",
+        value: "default",
+        options: [
+          { value: "default", label: "Default" },
+          { value: "low", label: "Low" },
+          { value: "medium", label: "Medium" },
+          { value: "high", label: "High" },
+        ],
+      },
+    ],
   },
 ];
 
