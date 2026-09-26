@@ -31,6 +31,7 @@ vi.mock("../../core/child", () => ({
 }));
 
 import {
+  bindCommandCodeSession,
   cancelCommandCodeTurn,
   sendCommandCodeTurn,
   stopCommandCodeSession,
@@ -338,5 +339,145 @@ describe("Command Code structured transport", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("ends the turn when the CLI blocks a tool in a read-only mode", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = sendCommandCodeTurn({
+      sessionId: "blocked-thread",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      runtimeMode: "supervised",
+      text: "Create probe.txt",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+
+    await vi.waitFor(() => expect(transport.args).not.toHaveLength(0));
+    emit({
+      type: "event",
+      event: {
+        type: "tool_hook_blocked",
+        toolCallId: "write-1",
+        toolName: "write_file",
+        hookOutput:
+          'Error: Tool "write_file" requires permissions. Use --yolo (or --dangerously-skip-permissions) to enable file writes and shell commands in print mode',
+      },
+    });
+
+    await expect(turn).rejects.toThrow(
+      /cannot approve tool calls in supervised mode/,
+    );
+    expect(transport.killChild).toHaveBeenCalledWith("blocked-thread");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "session.error",
+        message: expect.stringContaining("requires permissions"),
+      }),
+    );
+  });
+
+  it("still settles the blocked turn when the kill itself fails", async () => {
+    transport.killChild.mockImplementationOnce(async () => {
+      throw new Error("harness_kill failed");
+    });
+    const turn = sendCommandCodeTurn({
+      sessionId: "blocked-kill-thread",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      runtimeMode: "supervised",
+      text: "Create probe.txt",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+
+    await vi.waitFor(() => expect(transport.args).not.toHaveLength(0));
+    emit({
+      type: "event",
+      event: {
+        type: "tool_hook_blocked",
+        toolCallId: "write-2",
+        toolName: "write_file",
+        hookOutput: "Error: Tool \"write_file\" requires permissions.",
+      },
+    });
+
+    await expect(turn).rejects.toThrow(
+      /cannot approve tool calls in supervised mode/,
+    );
+  });
+
+  it("surfaces a hook block verbatim under full access", async () => {
+    const hookOutput = 'Error: Tool "shell_command" blocked by project hook';
+    const turn = sendCommandCodeTurn({
+      sessionId: "hook-thread",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      runtimeMode: "full-access",
+      text: "Run the hook",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+
+    await vi.waitFor(() => expect(transport.args).not.toHaveLength(0));
+    emit({
+      type: "event",
+      event: {
+        type: "tool_hook_blocked",
+        toolCallId: "hook-1",
+        toolName: "shell_command",
+        hookOutput,
+      },
+    });
+
+    await expect(turn).rejects.toThrow(hookOutput);
+    expect(transport.args).toContain("--yolo");
+  });
+
+  it("drops a resume id whose native session is gone without resending", async () => {
+    bindCommandCodeSession("resume-thread", "dead-session", "/repo");
+    const events: HarnessEvent[] = [];
+    const turn = sendCommandCodeTurn({
+      sessionId: "resume-thread",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      runtimeMode: "supervised",
+      text: "continue",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+
+    await vi.waitFor(() => expect(transport.args).toContain("--resume"));
+    emit({
+      type: "result",
+      subtype: "error",
+      error: 'Error: No session "dead-session" found to resume.',
+    });
+    transport.onExit?.(0);
+    await turn;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "session.error",
+        message: expect.stringContaining(
+          "next message will start a new conversation",
+        ),
+      }),
+    );
+
+    transport.args = [];
+    const second = sendCommandCodeTurn({
+      sessionId: "resume-thread",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      runtimeMode: "supervised",
+      text: "hello again",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+    await vi.waitFor(() => expect(transport.args).not.toHaveLength(0));
+    expect(transport.args).not.toContain("--resume");
+    await cancelCommandCodeTurn("resume-thread");
+    await second.catch(() => undefined);
   });
 });

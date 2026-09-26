@@ -14,7 +14,7 @@ export async function probeCommandCodeAvailability(): Promise<{
 }> {
   const { path } = await resolveCommandCodeBinary();
   const version = parseCommandCodeVersion(
-    await execChild(path, ["--no-auto-update", "--version"]),
+    await execChild(path, ["--no-auto-update", "--version"], undefined, "command-code"),
   );
   if (
     !version ||
@@ -29,7 +29,7 @@ export async function probeCommandCodeAvailability(): Promise<{
       },
     };
   }
-  const help = await execChild(path, ["--no-auto-update", "--help"]);
+  const help = await execChild(path, ["--no-auto-update", "--help"], undefined, "command-code");
   if (!hasCommandCodeJsonHeadlessSupport(help)) {
     return {
       available: false,
@@ -43,7 +43,7 @@ export async function probeCommandCodeAvailability(): Promise<{
   }
 
   const status = parseCommandCodeStatus(
-    await execChild(path, ["--no-auto-update", "status", "--json"]),
+    await execChild(path, ["--no-auto-update", "status", "--json"], undefined, "command-code"),
   );
   if (!status) {
     return {

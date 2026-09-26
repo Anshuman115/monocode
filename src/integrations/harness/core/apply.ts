@@ -155,6 +155,11 @@ export function applyHarnessEvent(
       };
     case "status":
       return appendStatus(session, event.text);
+    case "usage.limited":
+      return {
+        ...session,
+        usageLimit: event.resetsAt != null ? { resetsAt: event.resetsAt } : {},
+      };
     case "interjection":
       // A visible boundary the user must not miss, so unlike status it never
       // deduplicates and never reads as turn lifecycle.
@@ -377,6 +382,8 @@ type UserTurnExtra = {
   noteCard?: Block["noteCard"];
   ciContext?: string;
   internal?: boolean;
+  monocode?: boolean;
+  appRequestId?: string;
 };
 
 function userTurnFields(extra?: UserTurnExtra) {
@@ -385,6 +392,8 @@ function userTurnFields(extra?: UserTurnExtra) {
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
     ...(extra?.ciContext ? { ciContext: extra.ciContext } : {}),
     ...(extra?.internal ? { internal: true } : {}),
+    ...(extra?.monocode ? { monocode: true } : {}),
+    ...(extra?.appRequestId ? { appRequestId: extra.appRequestId } : {}),
   };
 }
 
@@ -1118,10 +1127,11 @@ function preferLabel(...parts: (string | undefined)[]): string {
     .filter((part): part is string => !!part?.trim())
     .map((part) => part.trim())
     .filter((part) => !isCallId(part));
-  const strong = filled.filter(
-    (part) => !isWeakToolTitle(part) && compactLabel(part) === part,
-  );
-  strong.sort((a, b) => b.length - a.length);
+  const strong = filled.filter((part) => !isWeakToolTitle(part));
+  const compactStrong = strong.filter((part) => compactLabel(part) === part);
+  compactStrong.sort((a, b) => b.length - a.length);
+  if (compactStrong[0]) return compactStrong[0];
+  // A long command is still more useful than an earlier "Shell" placeholder.
   if (strong[0]) return strong[0];
   const compact = filled.filter((part) => compactLabel(part) === part);
   compact.sort((a, b) => b.length - a.length);

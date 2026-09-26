@@ -57,6 +57,7 @@ import { LAYER } from "../../../shared/lib/layers";
 import { HarnessIcon } from "./HarnessIcon";
 import { Popover } from "../../../shared/ui/Popover";
 import { MOD } from "../../../platform/tauri/platform";
+import { keybindingPressed } from "../../settings/model/settings";
 
 type Props = {
   harness: HarnessId;
@@ -66,6 +67,8 @@ type Props = {
   project?: string;
   /** Hide option rows from the menu when they render as pills beside the picker. */
   hideSettings?: boolean;
+  /** Limit provider tabs for surfaces that only support one harness. */
+  allowedHarnesses?: readonly HarnessId[];
   hotkeys?: boolean;
   onChange: (harness: HarnessId, model: string) => void;
   onSettingsChange: (settings: Record<string, string>) => void;
@@ -218,6 +221,7 @@ export function ModelPicker({
   values,
   project,
   hideSettings = false,
+  allowedHarnesses,
   hotkeys = false,
   onChange,
   onSettingsChange,
@@ -299,13 +303,13 @@ export function ModelPicker({
   ]
     .filter(Boolean)
     .join(" · ");
-
   const pickerHarnesses = useMemo(() => {
     void availabilityVersion;
     void visibilityVersion;
     void projectVersion;
     return HARNESSES.filter(
       (id) =>
+        (!allowedHarnesses || allowedHarnesses.includes(id)) &&
         !isProviderHidden(project, id) &&
         showProviderInModelPicker(
           id,
@@ -313,7 +317,13 @@ export function ModelPicker({
           hasProbedHarnessAvailability(),
         ),
     );
-  }, [availabilityVersion, visibilityVersion, projectVersion, project]);
+  }, [
+    allowedHarnesses,
+    availabilityVersion,
+    visibilityVersion,
+    projectVersion,
+    project,
+  ]);
   const providerKey = pickerHarnesses.join(",");
   const visibleTab = coerceModelPickerTab(tab, (id) =>
     pickerHarnesses.includes(id),
@@ -444,12 +454,14 @@ export function ModelPicker({
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       const mod = event.metaKey || event.ctrlKey;
-      if (
-        hotkeys &&
+      const defaultSwitch =
         mod &&
         !event.altKey &&
         !event.shiftKey &&
-        (event.key === "." || event.code === "Period")
+        (event.key === "." || event.code === "Period");
+      if (
+        hotkeys &&
+        keybindingPressed("App: Switch Model", event, defaultSwitch)
       ) {
         if (!openRef.current && inBlockingUi(event.target)) return;
         event.preventDefault();

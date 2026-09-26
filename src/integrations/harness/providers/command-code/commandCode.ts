@@ -48,6 +48,8 @@ type Live = {
   sawResult: boolean;
   errorEmitted: boolean;
   finish?: (error?: Error) => void;
+  /** Ends the turn early when the CLI reports a tool it will never run. */
+  abortTurn?: (error: Error) => void;
   turnNumber: number;
 };
 
@@ -173,11 +175,19 @@ async function runProcess(
       if (turnTimer) clearTimeout(turnTimer);
       unwatchChild(input.sessionId);
       if (live.finish === finish) live.finish = undefined;
+      if (live.abortTurn === abortTurn) live.abortTurn = undefined;
       if (error) emitSessionError(input, live, error.message);
       if (error && !live.cancelled) reject(error);
       else resolve();
     };
     live.finish = finish;
+    // Headless `--print` cannot answer an approval prompt, and the CLI retries a
+    // blocked tool call until the turn cap, so the first blocked call ends it.
+    const abortTurn = (error: Error) => {
+      live.muted = true;
+      void killChild(input.sessionId).catch(() => undefined).finally(() => finish(error));
+    };
+    live.abortTurn = abortTurn;
 
     const onLine = (line: string) => {
       if (live.muted) return;
@@ -221,19 +231,19 @@ async function runProcess(
     startupTimer = setTimeout(() => {
       if (sawStartup || settled) return;
       live.muted = true;
-      void killChild(input.sessionId).finally(() =>
+      void killChild(input.sessionId).catch(() => undefined).finally(() =>
         finish(new Error("Command Code did not start its JSON stream in time")),
       );
     }, STARTUP_TIMEOUT_MS);
     turnTimer = setTimeout(() => {
       if (settled) return;
       live.muted = true;
-      void killChild(input.sessionId).finally(() =>
+      void killChild(input.sessionId).catch(() => undefined).finally(() =>
         finish(new Error("Command Code turn timed out")),
       );
     }, TURN_TIMEOUT_MS);
 
-    void spawnChild(input.sessionId, path, args, input.cwd)
+    void spawnChild(input.sessionId, path, args, input.cwd, undefined, "command-code")
       .then(() => writeChild(input.sessionId, prompt))
       // Closing stdin is what marks the prompt complete for `--print`.
       .then(() => closeChildStdin(input.sessionId))
@@ -342,9 +352,23 @@ function handleEvent(
         commandCodeToolResultText(event.error ?? event.result),
       );
       break;
-    case "tool_hook_blocked":
-      emitToolUpdated(input, event, "failed", stringField(event, "hookOutput"));
+    case "tool_hook_blocked": {
+      const detail = redactCommandCodeDiagnostic(
+        stringField(event, "hookOutput") ?? "",
+      );
+      emitToolUpdated(input, event, "failed", detail);
+      // The CLI names the tool it refused and why, and hooks can block even
+      // under --yolo, so this event is authoritative in every mode. The CLI
+      // retries the call until the turn cap, so the turn ends here instead.
+      live.abortTurn?.(
+        new Error(
+          input.runtimeMode === "full-access" || !detail
+            ? detail || "Command Code blocked this tool call."
+            : `${detail}\n\nCommand Code cannot approve tool calls in ${input.runtimeMode} mode. Switch this session to Full access and retry.`,
+        ),
+      );
       break;
+    }
     case "tool_denied":
       emitToolUpdated(
         input,
@@ -389,7 +413,20 @@ function handleResult(
   emitUsage(input, asRecord(result.usage));
   emitFinalTextIfNeeded(input, live, stringField(result, "finalText"));
   if (result.subtype !== "success") {
-    emitSessionError(input, live, commandCodeFailureText(result));
+    const message = commandCodeFailureText(result);
+    // A resume id whose native session is gone would fail every later turn, so
+    // drop it. The failed prompt is never resent — that would duplicate its side
+    // effects; the next user message starts a fresh conversation instead.
+    if (/no session .*found to resume/i.test(message)) {
+      resumeByThread.delete(input.sessionId);
+      emitSessionError(
+        input,
+        live,
+        `${message} The next message will start a new conversation.`,
+      );
+      return;
+    }
+    emitSessionError(input, live, message);
   }
 }
 

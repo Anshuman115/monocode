@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCommandCodeArgs,
+  commandCodePermissionArgs,
   compareCommandCodeVersions,
   hasCommandCodeJsonHeadlessSupport,
   parseCommandCodeLine,
@@ -35,6 +36,16 @@ describe("Command Code protocol", () => {
       "--resume",
       "bc14e2c3-d9d2-4a03-b6cd-cea07b15963b",
     ]);
+  });
+
+  it("only grants full access to the one mode that can approve its own tools", () => {
+    expect(commandCodePermissionArgs("full-access")).toEqual(["--yolo"]);
+    // Headless `--print` cannot answer an approval prompt, so these modes must
+    // not quietly become full access: the blocked-tool handler explains instead.
+    expect(commandCodePermissionArgs("auto")).toEqual([]);
+    expect(commandCodePermissionArgs("supervised")).toEqual([]);
+    expect(commandCodePermissionArgs("auto-accept-edits")).toEqual([]);
+    expect(commandCodePermissionArgs("supervised", "plan")).toEqual(["--plan"]);
   });
 
   it("parses structured events and ignores unknown or malformed frames", () => {

@@ -96,16 +96,22 @@ describe("Command Code availability", () => {
       1,
       "/fake/command-code",
       ["--no-auto-update", "--version"],
+      undefined,
+      "command-code",
     );
     expect(child.execChild).toHaveBeenNthCalledWith(
       2,
       "/fake/command-code",
       ["--no-auto-update", "--help"],
+      undefined,
+      "command-code",
     );
     expect(child.execChild).toHaveBeenNthCalledWith(
       3,
       "/fake/command-code",
       ["--no-auto-update", "status", "--json"],
+      undefined,
+      "command-code",
     );
   });
 });

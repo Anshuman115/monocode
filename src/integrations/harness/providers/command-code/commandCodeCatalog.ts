@@ -40,7 +40,7 @@ export async function discoverCommandCodeModels(): Promise<AgentModel[]> {
   const { path } = await resolveCommandCodeBinary();
   const cwd = await homeDir();
   const version = parseCommandCodeVersion(
-    await execChild(path, ["--no-auto-update", "--version"], cwd),
+    await execChild(path, ["--no-auto-update", "--version"], cwd, "command-code"),
   );
   if (!version) throw new Error("Unable to determine Command Code version");
   if (compareCommandCodeVersions(version, MINIMUM_COMMAND_CODE_VERSION) < 0) {
@@ -49,13 +49,14 @@ export async function discoverCommandCodeModels(): Promise<AgentModel[]> {
     );
   }
   const listed = parseCommandCodeModelList(
-    await execChild(path, ["--no-auto-update", "--list-models"], cwd),
+    await execChild(path, ["--no-auto-update", "--list-models"], cwd, "command-code"),
   );
   // The list has no window column; `status` reports one for the active model.
   const status = await execChild(
     path,
     ["--no-auto-update", "status", "--json"],
     cwd,
+    "command-code",
   )
     .then(parseCommandCodeStatus)
     .catch(() => null);
