@@ -12,6 +12,7 @@ import {
   CircleDot,
   Clock,
   FileScript,
+  CloudUpload,
   Folder,
   GitBranch,
   GitPullRequest,
@@ -257,6 +258,7 @@ type Props = {
   onOpenProject?: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
   onNew?: () => string | void;
+  onOpenImportSessions?: () => void;
   onNewTerminal?: () => void;
   onSearch?: () => void;
   onOpenInbox?: () => void;
@@ -345,6 +347,7 @@ function SidebarComponent({
   onOpenProject,
   onRemoveProject,
   onNew,
+  onOpenImportSessions,
   onSearch,
   onOpenInbox,
   onOpenInboxItem,
@@ -1537,7 +1540,10 @@ function SidebarComponent({
                       : "No sessions match these filters"}
                   </p>
                 ) : (
-                  <SessionsEmpty message="Sessions you start will show up here" />
+                  <SessionsEmpty
+                    message="Sessions you start will show up here"
+                    onImportSessions={onOpenImportSessions}
+                  />
                 )
               ) : (
                 <ul className="flex flex-col gap-0.5 p-1.5">
@@ -1826,6 +1832,14 @@ function SidebarComponent({
                   ariaLabel={`Settings (${MOD},)`}
                 />
               ) : null}
+              {onOpenImportSessions ? (
+                <RailAction
+                  label="Import sessions"
+                  icon={CloudUpload}
+                  onClick={onOpenImportSessions}
+                  ariaLabel="Import sessions"
+                />
+              ) : null}
             </div>
           </>
         ) : null}
@@ -1965,6 +1979,7 @@ function SidebarComponent({
           onSelectProject={onSelectProject}
           onOpenProject={onOpenProject}
           onRemoveProject={onRemoveProject}
+          onOpenImportSessions={onOpenImportSessions}
           settingsOpen={settingsOpen}
           settingsSection={settingsSection}
           onOpenSettings={onOpenSettings}
