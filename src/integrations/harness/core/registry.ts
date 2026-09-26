@@ -31,7 +31,6 @@ export type HarnessCapabilities = {
   approvals?: boolean;
   questions?: boolean;
   nativeResume?: boolean;
-  transcriptImport?: boolean;
   compactContext?: boolean;
   rewindLastTurn?: boolean;
 };
