@@ -213,6 +213,22 @@ export type {
 } from "../../features/sessions/model/userQuestion";
 export type {
   HarnessAdapter,
-  TextPromptInput,
   HarnessCapabilities,
+  TextPromptInput,
 } from "./core/registry";
+export {
+  commandCodeImportKey,
+  commandCodeTranscriptImporter,
+  parseCommandCodeTranscript,
+  parseCommandCodeTranscriptLines,
+  parseCommandCodeTranscriptRecords,
+} from "./providers/command-code/commandCodeTranscript";
+export type {
+  ImportedTranscriptMessage,
+  ProviderNeutralImportedSession,
+  TranscriptImporter,
+} from "./core/sessionImport";
+export {
+  getTranscriptImporter,
+  registerTranscriptImporter,
+} from "./core/sessionImport";

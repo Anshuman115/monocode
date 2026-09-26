@@ -26,6 +26,20 @@ export type TitleInput = {
   providerAccountId?: string;
 };
 
+export type HarnessCapabilities = {
+  structuredTransport?: boolean;
+  persistentProcess?: boolean;
+  streaming?: boolean;
+  followUpTurns?: boolean;
+  toolActivity?: boolean;
+  approvals?: boolean;
+  questions?: boolean;
+  nativeResume?: boolean;
+  transcriptImport?: boolean;
+  compactContext?: boolean;
+  rewindLastTurn?: boolean;
+};
+
 /** One-shot, isolated text generation shared by titles and side questions. */
 export type TextPromptInput = {
   cwd: string;
@@ -39,20 +53,6 @@ export type TextPromptInput = {
   timeoutMs?: number;
   signal?: AbortSignal;
   onEvent?: (event: HarnessEvent) => void;
-};
-
-export type HarnessCapabilities = {
-  structuredTransport?: boolean;
-  persistentProcess?: boolean;
-  streaming?: boolean;
-  followUpTurns?: boolean;
-  toolActivity?: boolean;
-  approvals?: boolean;
-  questions?: boolean;
-  nativeResume?: boolean;
-  transcriptImport?: boolean;
-  compactContext?: boolean;
-  rewindLastTurn?: boolean;
 };
 
 /**
