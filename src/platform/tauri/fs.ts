@@ -496,6 +496,20 @@ export function readTextFile(path: string): Promise<string> {
   return invoke<string>("read_text_file", { path });
 }
 
+export type ProviderSessionPreview = {
+  text: string;
+  sizeBytes: number;
+  modifiedAtMs: number | null;
+};
+
+export function readProviderSessionPreview(path: string): Promise<ProviderSessionPreview> {
+  return invoke<ProviderSessionPreview>("read_provider_session_preview", { path });
+}
+
+export function readProviderSessionFile(path: string): Promise<string> {
+  return invoke<string>("read_provider_session_file", { path });
+}
+
 /** Raw bytes for the image viewer. Arrives as an ArrayBuffer, not base64. */
 export async function readBinaryFile(path: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>("read_binary_file", { path });
