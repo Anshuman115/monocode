@@ -1,6 +1,7 @@
 import { asRecord } from "../../../integrations/harness/providers/codex/codexProtocol";
 
-export type RateLimitProvider = "claude" | "codex" | "opencode";
+export type RateLimitProvider =
+  "claude" | "codex" | "opencode" | "command-code";
 
 export type RateLimitStatus =
   "idle" | "fetching" | "ok" | "error" | "unavailable";
@@ -110,7 +111,10 @@ export function fetchingRateLimits(
 ): ProviderRateLimits {
   if (
     previous &&
-    (previous.session || previous.weekly || previous.monthly || previous.resetCredits)
+    (previous.session ||
+      previous.weekly ||
+      previous.monthly ||
+      previous.resetCredits)
   ) {
     return { ...previous, status: "fetching" };
   }
@@ -149,7 +153,10 @@ export function errorRateLimits(
 ): ProviderRateLimits {
   if (
     previous &&
-    (previous.session || previous.weekly || previous.monthly || previous.resetCredits)
+    (previous.session ||
+      previous.weekly ||
+      previous.monthly ||
+      previous.resetCredits)
   ) {
     return {
       ...previous,
@@ -352,6 +359,52 @@ export function parseCodexRateLimits(result: unknown): ProviderRateLimits {
     updatedAt: Date.now(),
     error: null,
     status: "ok",
+  };
+}
+
+export function parseCommandCodeUsage(body: string): ProviderRateLimits {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return errorRateLimits(
+      "command-code",
+      "Command Code usage response was not JSON",
+    );
+  }
+  const rec = asRecord(parsed);
+  const credits = asRecord(rec?.credits);
+  const windows = asRecord(credits?.windowLimits);
+  const session = mapCommandCodeWindow(
+    windows?.fiveHour,
+    SESSION_WINDOW_MINUTES,
+  );
+  const weekly = mapCommandCodeWindow(windows?.weekly, WEEKLY_WINDOW_MINUTES);
+  return {
+    provider: "command-code",
+    session,
+    weekly,
+    monthly: null,
+    resetCredits: null,
+    updatedAt: Date.now(),
+    error: null,
+    status: session || weekly ? "ok" : "error",
+  };
+}
+
+function mapCommandCodeWindow(
+  raw: unknown,
+  windowMinutes: number,
+): RateLimitWindow | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const used = numberField(rec, "used");
+  const cap = numberField(rec, "cap");
+  if (used == null || cap == null || cap <= 0) return null;
+  return {
+    usedPercent: clampUsedPercent((used / cap) * 100),
+    windowMinutes,
+    resetsAt: parseResetTimestamp(rec?.resetAt),
   };
 }
 

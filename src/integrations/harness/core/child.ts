@@ -311,6 +311,7 @@ async function resolveHarnessBinary(
   }
   const command: Record<ConfigurableBinaryProvider, string> = {
     claude: "harness_resolve_claude",
+    "command-code": "harness_resolve_command_code",
     codex: "harness_resolve_codex",
     cursor: "harness_resolve_cursor",
     grok: "harness_resolve_grok",
@@ -340,6 +341,10 @@ export function resolveOpenCodeBinary(
   binaryPath?: string | null,
 ): Promise<{ path: string }> {
   return resolveHarnessBinary("opencode", binaryPath);
+}
+
+export function resolveCommandCodeBinary(): Promise<{ path: string }> {
+  return invoke("harness_resolve_command_code");
 }
 
 export function resolveClaudeBinary(

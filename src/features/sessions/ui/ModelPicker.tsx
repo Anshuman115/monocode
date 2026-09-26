@@ -393,7 +393,7 @@ export function ModelPicker({
   useEffect(() => {
     if (!open) return;
     void probeHarnessAvailability();
-    void refreshHarnessCatalogs([current.harness]);
+    void refreshHarnessCatalogs([current.harness], { force: true });
     setTab(
       coerceModelPickerTab(current.harness, (id) =>
         pickerHarnesses.includes(id),
@@ -416,7 +416,7 @@ export function ModelPicker({
     if (!open || submenu?.kind !== "models" || visibleTab === "favorites") {
       return;
     }
-    void refreshHarnessCatalogs([visibleTab]);
+    void refreshHarnessCatalogs([visibleTab], { force: true });
   }, [open, submenu?.kind, visibleTab]);
 
   useEffect(() => {
