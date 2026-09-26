@@ -433,6 +433,7 @@ export function QuickModelSelector({
             <QuickPermissions
               embedded
               value={runtimeMode}
+              harness={model.harness}
               onChange={onRuntimeModeChange}
               onClose={onClose}
             />

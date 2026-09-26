@@ -116,11 +116,12 @@ export function commandCodePermissionArgs(
   intent?: TurnIntent,
 ): string[] {
   if (intent === "plan") return ["--plan"];
-  // `full-access` is the only mode whose tools can run unattended: headless
-  // `--print` has no approval channel, and `--accept-edits` was measured to
-  // still refuse writes. Every other mode is therefore read-only, and the
-  // blocked-tool handler tells the user to switch instead of granting `--yolo`
-  // behind a mode that promises approval ("auto" promises an AI reviewer).
+  // `full-access` is the only mode whose mutating tools can run unattended:
+  // headless `--print` has no approval channel, and `--accept-edits` was
+  // measured to still refuse writes. Reads run in every mode, so the rest are
+  // read-only, and the blocked-tool handler tells the user to switch instead of
+  // granting `--yolo` behind a mode that promises approval ("auto" promises an
+  // AI reviewer).
   return runtimeMode === "full-access" ? ["--yolo"] : [];
 }
 

@@ -68,3 +68,22 @@ it("dismisses on Escape without changing permissions", () => {
   expect(onChange).not.toHaveBeenCalled();
   expect(onClose).toHaveBeenCalledOnce();
 });
+
+it("describes a provider that cannot approve tools by what it can do", () => {
+  act(() =>
+    root.render(
+      createElement(QuickPermissions, {
+        value: "auto",
+        harness: "command-code",
+        onChange,
+        onClose,
+      }),
+    ),
+  );
+  const text = container.textContent ?? "";
+  expect(text).toContain(
+    "Read-only: Command Code has no reviewer to approve actions.",
+  );
+  expect(text).toContain("Read-only: Command Code cannot answer approval prompts.");
+  expect(text).not.toContain("An AI reviewer can approve or deny actions");
+});

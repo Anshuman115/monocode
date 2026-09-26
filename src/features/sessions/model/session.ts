@@ -376,6 +376,28 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
     "Allow commands, edits, and supported MCP confirmations in non-plan turns without prompts.",
 };
 
+/**
+ * Modes whose generic label describes an approval flow the provider cannot run.
+ * Command Code's headless transport has no approval channel, so only Full access
+ * can execute tools there and the rest are read-only.
+ */
+const HARNESS_MODE_HINTS: Partial<
+  Record<HarnessId, Partial<Record<RuntimeMode, string>>>
+> = {
+  "command-code": {
+    supervised: "Read-only: Command Code cannot answer approval prompts.",
+    "auto-accept-edits":
+      "Read-only: Command Code cannot answer approval prompts.",
+    auto: "Read-only: Command Code has no reviewer to approve actions.",
+  },
+};
+
+/** The access-mode hint that matches the session's provider. */
+export function runtimeModeHint(mode: RuntimeMode, harness?: HarnessId): string {
+  const override = harness ? HARNESS_MODE_HINTS[harness]?.[mode] : undefined;
+  return override ?? RUNTIME_MODE_HINT[mode];
+}
+
 export type WorkspaceMode = "current" | "worktree";
 
 export type Session = {
