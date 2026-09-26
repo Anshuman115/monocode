@@ -11,6 +11,8 @@ use tauri::AppHandle;
 use crate::dirs_home;
 
 pub(crate) const MAX_TEXT_FILE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_PROVIDER_SESSION_BYTES: u64 = 256 * 1024 * 1024;
+const PROVIDER_SESSION_PREVIEW_BYTES: u64 = 256 * 1024;
 pub(crate) const MAX_ATTACHMENT_EMBED_BYTES: u64 = 20 * 1024 * 1024;
 pub(crate) const MAX_PREVIEW_BYTES: u64 = 25 * 1024 * 1024;
 
@@ -144,6 +146,14 @@ pub struct OmpInterjectionAnchor {
 pub struct OmpAssistantText {
     text: String,
     concat: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSessionPreview {
+    text: String,
+    size_bytes: u64,
+    modified_at_ms: Option<u64>,
 }
 
 /// Recover displayed OMP custom messages that older MonoCode builds omitted
@@ -5080,6 +5090,74 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Read only the opening portion of an external provider transcript for import discovery.
+#[tauri::command]
+pub async fn read_provider_session_preview(path: String) -> Result<ProviderSessionPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || read_provider_session_preview_sync(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn read_provider_session_preview_sync(path: &str) -> Result<ProviderSessionPreview, String> {
+    let path = expand_home(path);
+    let mut file = std::fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("Not a file".into());
+    }
+    let mut bytes = Vec::with_capacity(PROVIDER_SESSION_PREVIEW_BYTES as usize);
+    Read::by_ref(&mut file)
+        .take(PROVIDER_SESSION_PREVIEW_BYTES)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 == PROVIDER_SESSION_PREVIEW_BYTES && !bytes.ends_with(b"\n") {
+        if let Some(end) = bytes.iter().rposition(|byte| *byte == b'\n') {
+            bytes.truncate(end + 1);
+        } else {
+            bytes.clear();
+        }
+    }
+    let text = String::from_utf8(bytes).map_err(|_| "Session preview is not valid UTF-8".to_owned())?;
+    let modified_at_ms = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64);
+    Ok(ProviderSessionPreview {
+        text,
+        size_bytes: meta.len(),
+        modified_at_ms,
+    })
+}
+
+/// Read one selected provider transcript. Discovery must use the bounded preview command above.
+#[tauri::command]
+pub async fn read_provider_session_file(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || read_provider_session_file_sync(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn read_provider_session_file_sync(path: &str) -> Result<String, String> {
+    let path = expand_home(path);
+    let file = std::fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("Not a file".into());
+    }
+    if meta.len() > MAX_PROVIDER_SESSION_BYTES {
+        return Err("Session is larger than the 256 MB import limit".into());
+    }
+    let mut bytes = Vec::with_capacity(meta.len().min(MAX_PROVIDER_SESSION_BYTES) as usize);
+    file.take(MAX_PROVIDER_SESSION_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    if bytes.len() as u64 > MAX_PROVIDER_SESSION_BYTES {
+        return Err("Session is larger than the 256 MB import limit".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "Session file is not valid UTF-8".into())
+}
+
 fn read_text_file_sync(path: &str) -> Result<String, String> {
     let path = expand_home(path);
     let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -5500,6 +5578,21 @@ mod tests {
             github_star_status_from_result(Err("GitHub CLI is not installed".into())),
             GitHubStarStatus::Unavailable
         );
+    }
+
+    #[test]
+    fn provider_session_preview_reads_only_a_bounded_prefix_of_large_files() {
+        let dir = tmp("provider-session-preview");
+        let path = dir.0.join("session.jsonl");
+        let mut contents = vec![b'x'; (PROVIDER_SESSION_PREVIEW_BYTES + 1024) as usize];
+        contents[PROVIDER_SESSION_PREVIEW_BYTES as usize - 2] = b'\n';
+        std::fs::write(&path, contents).unwrap();
+
+        let preview = read_provider_session_preview_sync(path.to_str().unwrap()).unwrap();
+
+        assert_eq!(preview.size_bytes, PROVIDER_SESSION_PREVIEW_BYTES + 1024);
+        assert!(preview.text.len() < PROVIDER_SESSION_PREVIEW_BYTES as usize);
+        assert!(preview.text.ends_with('\n'));
     }
 
     #[test]

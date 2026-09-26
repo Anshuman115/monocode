@@ -2,6 +2,7 @@ import {
   BellOff,
   ChevronDown,
   ChevronRight,
+  CloudUpload,
   FolderPlus,
   Inbox,
   MoreHorizontal,
@@ -104,6 +105,7 @@ type Props = {
   onSelectProject: (path: string) => void;
   onOpenProject: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
+  onOpenImportSessions?: () => void;
   liveAgents?: LiveAgent[];
   activeSessionId?: string;
   onSelectAgent?: (sessionId: string) => void;
@@ -140,6 +142,7 @@ export function ProjectRail({
   onSelectProject,
   onOpenProject,
   onRemoveProject,
+  onOpenImportSessions,
   liveAgents = [],
   activeSessionId,
   onSelectAgent,
@@ -519,6 +522,14 @@ export function ProjectRail({
               shortcut={`${MOD},`}
               ariaLabel={`Settings (${MOD},)`}
             />
+            {onOpenImportSessions ? (
+              <RailAction
+                label="Import sessions"
+                icon={CloudUpload}
+                onClick={onOpenImportSessions}
+                ariaLabel="Import sessions"
+              />
+            ) : null}
           </div>
         </>
       )}
