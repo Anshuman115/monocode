@@ -325,7 +325,6 @@ async function resolveHarnessBinary(
     fx: "harness_resolve_fx",
     hermes: "harness_resolve_hermes",
     antigravity: "harness_resolve_antigravity",
-    "command-code": "harness_resolve_command_code",
   };
   return invoke(command[provider]);
 }
