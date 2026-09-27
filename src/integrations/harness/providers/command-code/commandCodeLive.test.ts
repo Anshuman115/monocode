@@ -190,16 +190,27 @@ describe("Command Code structured transport", () => {
     emit({ type: "event", event: { type: "text_delta", delta: "27 failed" } });
     emit({ type: "event", event: { type: "text_delta", delta: "\n\n" } });
     emit({ type: "event", event: { type: "text_delta", delta: "| a | b |" } });
+    emit({ type: "event", event: { type: "thinking_start" } });
+    emit({ type: "event", event: { type: "thinking_delta", delta: "weigh" } });
+    emit({ type: "event", event: { type: "thinking_delta", delta: " " } });
+    emit({ type: "event", event: { type: "thinking_delta", delta: "trade" } });
+    emit({ type: "event", event: { type: "thinking_delta", delta: "\n\n" } });
+    emit({ type: "event", event: { type: "thinking_delta", delta: "decide" } });
     emit({ type: "event", event: { type: "message_end" } });
     emit({ type: "result", subtype: "success" });
     transport.onExit?.(0);
     await turn;
 
-    const streamed = events
+    const text = events
       .filter((event) => event.type === "message.delta")
       .map((event) => event.text)
       .join("");
-    expect(streamed).toBe("those 27 failed\n\n| a | b |");
+    const reasoning = events
+      .filter((event) => event.type === "reasoning.delta")
+      .map((event) => event.text)
+      .join("");
+    expect(text).toBe("those 27 failed\n\n| a | b |");
+    expect(reasoning).toBe("weigh trade\n\ndecide");
   });
 
   it("sends attachment paths over stdin, never in argv", async () => {
