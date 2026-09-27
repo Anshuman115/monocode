@@ -64,6 +64,7 @@ import { Sidebar } from "./shell/Sidebar";
 import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
 import { ProviderSignInDialog } from "../features/sessions/ui/ProviderSignInDialog";
+import { ImportSessionsDialog } from "../features/sessions/ui/ImportSessionsDialog";
 import { TitleBar, type Tab as TitleTab } from "./shell/TitleBar";
 import { MenuBar } from "./shell/MenuBar";
 import { FilePicker } from "../features/files/ui/FilePicker";
@@ -978,6 +979,7 @@ export default function App({
     sessionId: string;
     harness: HarnessId;
   } | null>(null);
+  const [importSessionsOpen, setImportSessionsOpen] = useState(false);
   const seenProviderSignInRequestsRef = useRef<Set<string> | null>(null);
   const seenProviderSignInRequests =
     seenProviderSignInRequestsRef.current ??
@@ -1715,6 +1717,34 @@ export default function App({
       if (!loadedProjectsRef.current.has(key)) setHistoryErrorCwd(key);
     }
   }, []);
+
+  const onImportedSessions = useCallback(
+    (imported: SessionSummary[]) => {
+      setHistory((current) =>
+        imported.reduce(
+          (next, summary) => mergeProjectHistorySummary(next, summary),
+          current,
+        ),
+      );
+      const importedProjects = [
+        ...new Set(
+          imported
+            .map((summary) => normalizeProjectPath(summary.cwd))
+            .filter(looksLikeProject),
+        ),
+      ];
+      if (importedProjects.length === 0) return;
+      let nextRecents = loadRecents();
+      for (const path of importedProjects) {
+        nextRecents = rememberProject(path);
+      }
+      setRecents(nextRecents);
+      for (const path of importedProjects) {
+        void rememberProjectLocation(path).catch(() => undefined);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     void refreshHistory(sidebarCwd);
@@ -10232,6 +10262,7 @@ export default function App({
               onOpenProject={pickProject}
               onRemoveProject={onRemoveProject}
               onNew={onNew}
+              onOpenImportSessions={() => setImportSessionsOpen(true)}
               openSessions={openProjectSessions}
               onNewTerminal={onNewTerminal}
               onSearch={onOpenSearch}
@@ -10660,6 +10691,12 @@ export default function App({
               key={providerSignInRequest.key}
               harness={providerSignInRequest.harness}
               onClose={() => setProviderSignInRequest(null)}
+            />
+          ) : null}
+          {importSessionsOpen ? (
+            <ImportSessionsDialog
+              onClose={() => setImportSessionsOpen(false)}
+              onImported={onImportedSessions}
             />
           ) : null}
         </div>
