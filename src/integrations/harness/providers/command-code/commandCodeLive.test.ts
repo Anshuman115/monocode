@@ -171,6 +171,37 @@ describe("Command Code structured transport", () => {
     expect(transport.killChild).not.toHaveBeenCalled();
   });
 
+  it("keeps whitespace-only chunks so Markdown blocks stay separate", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = sendCommandCodeTurn({
+      sessionId: "whitespace-thread",
+      cwd: "/repo",
+      model: "command-code:deepseek/deepseek-v4.1-flash",
+      runtimeMode: "supervised",
+      text: "Summarise the run",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+
+    await vi.waitFor(() => expect(transport.args).not.toHaveLength(0));
+    emit({ type: "event", event: { type: "message_start" } });
+    emit({ type: "event", event: { type: "text_delta", delta: "those" } });
+    emit({ type: "event", event: { type: "text_delta", delta: " " } });
+    emit({ type: "event", event: { type: "text_delta", delta: "27 failed" } });
+    emit({ type: "event", event: { type: "text_delta", delta: "\n\n" } });
+    emit({ type: "event", event: { type: "text_delta", delta: "| a | b |" } });
+    emit({ type: "event", event: { type: "message_end" } });
+    emit({ type: "result", subtype: "success" });
+    transport.onExit?.(0);
+    await turn;
+
+    const streamed = events
+      .filter((event) => event.type === "message.delta")
+      .map((event) => event.text)
+      .join("");
+    expect(streamed).toBe("those 27 failed\n\n| a | b |");
+  });
+
   it("sends attachment paths over stdin, never in argv", async () => {
     const turn = sendCommandCodeTurn({
       sessionId: "attachment-thread",
