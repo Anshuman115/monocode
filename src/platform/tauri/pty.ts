@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emitDiagnostic } from "../../features/diagnostics-centre/model/diagnosticsCentre";
 
 type DataPayload = { id: string; data: string };
 type ExitPayload = { id: string; code: number | null };
@@ -87,6 +88,14 @@ function ensureBridge() {
     }),
     listen<ExitPayload>("pty-exit", (event) => {
       const { id, code } = event.payload;
+      // A non-zero or absent exit means the shell died on its own; that is the
+      // single most useful PTY fact when a terminal has gone quiet.
+      emitDiagnostic(
+        "pty",
+        code == null || code === 0 ? "info" : "warn",
+        `PTY ${id} exited with code ${code ?? "unknown"}`,
+        { id, code },
+      );
       exitHandlers.get(id)?.(code);
     }),
   ]);
@@ -120,6 +129,7 @@ export async function spawnPty(
   rows: number,
 ): Promise<void> {
   await invoke("pty_spawn", { id, cwd, cols, rows });
+  emitDiagnostic("pty", "info", `PTY ${id} spawned`, { cols, rows });
 }
 
 export async function writePty(id: string, data: string): Promise<void> {

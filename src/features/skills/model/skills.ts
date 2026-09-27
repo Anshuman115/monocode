@@ -13,6 +13,7 @@ import { looksLikeProject, normalizeProjectPath } from "../../projects/model/rec
 import { isMarkdownBlockquotePosition } from "../../sessions/model/quoteDraft";
 import type { HarnessId } from "../../sessions/model/session";
 import { getHarness } from "../../../integrations/harness/core/registry";
+import { emitDiagnostic } from "../../diagnostics-centre/model/diagnosticsCentre";
 import type { NativeCommand } from "../../../integrations/harness/core/nativeCommands";
 import {
   CREATE_SKILL_BODY,
@@ -315,7 +316,14 @@ async function loadCatalog(context: SkillCatalogContext): Promise<Skill[]> {
   const disabledPaths = loadDisabledSkillPaths();
   const discovered = await listSkills(context.cwd, disabledPaths);
   const disabled = disabledSkillPathSet();
-  return mergeCatalog(discovered.filter((skill) => !disabled.has(skill.path)));
+  const catalog = mergeCatalog(
+    discovered.filter((skill) => !disabled.has(skill.path)),
+  );
+  emitDiagnostic("skills", "debug", `Discovered ${catalog.length} skills`, {
+    discovered: discovered.length,
+    active: catalog.length,
+  });
+  return catalog;
 }
 
 export function mergeCatalog(discovered: DiscoveredSkill[]): Skill[] {

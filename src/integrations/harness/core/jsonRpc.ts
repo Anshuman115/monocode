@@ -1,4 +1,5 @@
 import { writeChild } from "./child";
+import { emitDiagnostic } from "../../../features/diagnostics-centre/model/diagnosticsCentre";
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -176,18 +177,29 @@ export class JsonRpcClient {
     // cancellation waiting on the session/cancel notify).
     const line = JSON.stringify(payload);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let pendingTimedOut = false;
     try {
       await Promise.race([
         writeChild(this.sessionId, line),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error("harness write timed out")),
-            WRITE_TIMEOUT_MS,
-          );
+          timer = setTimeout(() => {
+            pendingTimedOut = true;
+            reject(new Error("harness write timed out"));
+          }, WRITE_TIMEOUT_MS);
         }),
       ]);
     } finally {
       if (timer) clearTimeout(timer);
+      if (pendingTimedOut) {
+        // A child that stops draining stdin is the classic "agent wedged"
+        // symptom, and it is otherwise invisible until the session dies.
+        emitDiagnostic(
+          "harness",
+          "warn",
+          `${this.label} stalled writing to a child process`,
+          { label: this.label, sessionId: this.sessionId },
+        );
+      }
     }
   }
 
@@ -198,11 +210,17 @@ export class JsonRpcClient {
       if (!pending) return;
       this.pending.delete(key);
       if (msg.error) {
-        pending.reject(
-          new Error(
-            msg.error.message || `${this.label} error ${msg.error.code ?? ""}`,
-          ),
+        const message =
+          msg.error.message || `${this.label} error ${msg.error.code ?? ""}`;
+        // Every provider (Codex, Claude, Cursor, ...) speaks JSON-RPC through
+        // this client, so one hook here covers harness errors app-wide.
+        emitDiagnostic(
+          "harness",
+          "error",
+          `${this.label} RPC error ${msg.error.code ?? ""}: ${message}`.trim(),
+          { label: this.label, code: msg.error.code, requestId: msg.id },
         );
+        pending.reject(new Error(message));
         return;
       }
       pending.resolve(msg.result);

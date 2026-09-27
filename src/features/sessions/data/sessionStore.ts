@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
+import { emitDiagnostic } from "../../diagnostics-centre/model/diagnosticsCentre";
 import { titleFromToolInput } from "../../../integrations/harness/core/preview";
 import { recoverCursorSubagents } from "../../../integrations/harness/providers/cursor/cursorSubagents";
 import { persistableAttachment } from "../model/attachments";
@@ -534,7 +535,20 @@ export async function saveWorkspaceSnapshot(snapshot: unknown): Promise<void> {
     .catch(() => undefined)
     .then(() => invoke("workspace_set_snapshot", { snapshot }));
   workspaceWrite = run;
-  await run;
+  try {
+    await run;
+  } catch (error) {
+    // Losing the workspace layout is silent otherwise: the next launch just
+    // reopens whatever was on screen last, with no indication the save failed.
+    emitDiagnostic(
+      "storage",
+      "error",
+      `Could not save the workspace layout: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    throw error;
+  }
 }
 
 export async function loadWorkspaceSnapshot(): Promise<unknown | null> {
