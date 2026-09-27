@@ -5117,7 +5117,8 @@ fn read_provider_session_preview_sync(path: &str) -> Result<ProviderSessionPrevi
             bytes.clear();
         }
     }
-    let text = String::from_utf8(bytes).map_err(|_| "Session preview is not valid UTF-8".to_owned())?;
+    let text =
+        String::from_utf8(bytes).map_err(|_| "Session preview is not valid UTF-8".to_owned())?;
     let modified_at_ms = meta
         .modified()
         .ok()
