@@ -17,6 +17,7 @@ import { loadProjectProviderSettings } from "./projectProviders";
 
 export type HarnessId =
   | "claude"
+  | "command-code"
   | "codex"
   | "cursor"
   | "grok"
@@ -38,6 +39,7 @@ export const HARNESSES: HarnessId[] = [
   "fx",
   "hermes",
   "antigravity",
+  "command-code",
 ];
 
 export type BlockRole =
@@ -374,6 +376,23 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
     "Allow commands, edits, and supported MCP confirmations in non-plan turns without prompts.",
 };
 
+const HARNESS_MODE_HINTS: Partial<
+  Record<HarnessId, Partial<Record<RuntimeMode, string>>>
+> = {
+  "command-code": {
+    supervised:
+      "Read-only: Command Code cannot answer approval prompts. Use Full access for edits and commands.",
+    "auto-accept-edits":
+      "Read-only: Command Code cannot answer approval prompts, so edits are not approved. Use Full access for edits and commands.",
+    auto: "Read-only: Command Code has no reviewer to approve actions. Use Full access for edits and commands.",
+  },
+};
+
+export function runtimeModeHint(mode: RuntimeMode, harness?: HarnessId): string {
+  const override = harness ? HARNESS_MODE_HINTS[harness]?.[mode] : undefined;
+  return override ?? RUNTIME_MODE_HINT[mode];
+}
+
 export type WorkspaceMode = "current" | "worktree";
 
 export type Session = {
@@ -461,6 +480,7 @@ export type PendingHarnessSwitch = {
 
 export const HARNESS_LABEL: Record<HarnessId, string> = {
   claude: "claude",
+  "command-code": "cmd",
   codex: "codex",
   cursor: "cursor",
   grok: "grok",
@@ -474,6 +494,7 @@ export const HARNESS_LABEL: Record<HarnessId, string> = {
 
 export const HARNESS_TITLE: Record<HarnessId, string> = {
   claude: "Claude Code",
+  "command-code": "Command Code",
   codex: "Codex",
   cursor: "Cursor",
   grok: "Grok Build",

@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { QuickModelSelector } from "./QuickModelSelector";
 import {
+  modelsFor,
   resetHarnessModelOverlays,
+  setHarnessCatalogLoading,
   setHarnessModels,
   saveLastModelSettings,
   type AgentModel,
@@ -110,6 +112,32 @@ it("browses one provider at a time and selects a model without closing settings"
   );
   expect(onChange).toHaveBeenCalledWith(grok);
   expect(onClose).not.toHaveBeenCalled();
+});
+
+it("shows loading instead of the Command Code fallback during initial discovery", () => {
+  const commandCode = modelsFor("command-code")[0]!;
+  act(() => {
+    setHarnessCatalogLoading("command-code", true);
+    root.render(
+      createElement(QuickModelSelector, {
+        key: "command-code",
+        model: commandCode,
+        values: {},
+        availableHarnesses: ["command-code"],
+        onChange,
+        onSettingsChange,
+        runtimeMode: "supervised",
+        onRuntimeModeChange,
+        onClose,
+      }),
+    );
+  });
+
+  const modelList = container.querySelector('[aria-label="Models"]');
+  expect(modelList?.textContent).toContain("Loading models…");
+  expect(
+    modelList?.querySelector('[role="option"]'),
+  ).toBeNull();
 });
 
 it("updates effort inline and closes with Escape", () => {

@@ -36,6 +36,7 @@ const LOGIN_RESOLVERS: Partial<
   // only their own binary resolver, and merely rendering a transcript must not
   // require every other CLI resolver to exist in that mock.
   claude: () => child.resolveClaudeBinary(),
+  "command-code": () => child.resolveCommandCodeBinary(),
   codex: () => child.resolveCodexBinary(),
   cursor: () => child.resolveCursorBinary(),
   grok: () => child.resolveGrokBinary(),

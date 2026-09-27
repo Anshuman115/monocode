@@ -16,7 +16,7 @@ import {
   getPickerVisibilitySnapshot,
   loadFavoriteModels,
   modelEffortSetting,
-  modelsFor,
+  modelsForPicker,
   preferredModelSettings,
   saveFavoriteModels,
   showProviderInModelPicker,
@@ -88,7 +88,7 @@ export function QuickModelSelector({
             (item): item is AgentModel =>
               !!item && providers.includes(item.harness),
           )
-      : modelsFor(visibleTab);
+      : modelsForPicker(visibleTab);
   const models = filterQuickModels(pool, query);
   const effort =
     modelEffortSetting(model) ??
@@ -433,6 +433,7 @@ export function QuickModelSelector({
             <QuickPermissions
               embedded
               value={runtimeMode}
+              harness={model.harness}
               onChange={onRuntimeModeChange}
               onClose={onClose}
             />

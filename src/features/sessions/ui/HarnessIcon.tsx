@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import claude from "../../../assets/providers/claude.svg";
+import commandCode from "../../../assets/providers/command-code.svg";
 import codex from "../../../assets/providers/codex.svg";
 import cursor from "../../../assets/providers/cursor.svg";
 import fx from "../../../assets/providers/fx.svg";
@@ -13,6 +14,7 @@ import type { HarnessId } from "../model/session";
 
 export const HARNESS_ICONS: Record<HarnessId, string> = {
   claude,
+  "command-code": commandCode,
   codex,
   cursor,
   grok,

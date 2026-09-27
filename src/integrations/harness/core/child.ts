@@ -273,6 +273,10 @@ export function writeChild(sessionId: string, line: string): Promise<void> {
   return invoke("harness_write", { sessionId, line });
 }
 
+export function closeChildStdin(sessionId: string): Promise<void> {
+  return invoke("harness_close_stdin", { sessionId });
+}
+
 export function killChild(sessionId: string): Promise<void> {
   livePid.delete(sessionId);
   pendingExit.delete(sessionId);
@@ -311,6 +315,7 @@ async function resolveHarnessBinary(
   }
   const command: Record<ConfigurableBinaryProvider, string> = {
     claude: "harness_resolve_claude",
+    "command-code": "harness_resolve_command_code",
     codex: "harness_resolve_codex",
     cursor: "harness_resolve_cursor",
     grok: "harness_resolve_grok",
@@ -346,6 +351,12 @@ export function resolveClaudeBinary(
   binaryPath?: string | null,
 ): Promise<{ path: string }> {
   return resolveHarnessBinary("claude", binaryPath);
+}
+
+export function resolveCommandCodeBinary(
+  binaryPath?: string | null,
+): Promise<{ path: string }> {
+  return resolveHarnessBinary("command-code", binaryPath);
 }
 
 export function resolvePiBinary(

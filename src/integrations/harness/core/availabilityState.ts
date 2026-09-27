@@ -6,9 +6,15 @@ import type { HarnessId } from "../../../features/sessions/model/session";
  * harness integration graph.
  */
 export type HarnessAvailability = Record<HarnessId, boolean>;
+export type HarnessAvailabilityDetail = {
+  state: "missing" | "available" | "unauthenticated" | "unsupported" | "limited";
+  version?: string;
+  message?: string;
+};
 
 let availability: HarnessAvailability = {
   claude: false,
+  "command-code": false,
   codex: false,
   cursor: false,
   grok: false,
@@ -19,6 +25,7 @@ let availability: HarnessAvailability = {
   hermes: false,
   antigravity: false,
 };
+let details: Partial<Record<HarnessId, HarnessAvailabilityDetail>> = {};
 let version = 0;
 let probedAt = 0;
 const listeners = new Set<() => void>();
@@ -49,8 +56,20 @@ export function isHarnessAvailable(id: HarnessId): boolean {
   return availability[id];
 }
 
+export function getHarnessAvailabilityDetail(
+  id: HarnessId,
+): HarnessAvailabilityDetail | undefined {
+  return details[id];
+}
+
 export function setHarnessAvailability(next: HarnessAvailability): void {
   availability = next;
+}
+
+export function setHarnessAvailabilityDetails(
+  next: Partial<Record<HarnessId, HarnessAvailabilityDetail>>,
+): void {
+  details = next;
 }
 
 /** When the probe last finished, or `0` before the first probe. */

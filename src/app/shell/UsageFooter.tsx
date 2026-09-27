@@ -11,6 +11,7 @@ import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { Popover, type PopoverDismissReason } from "../../shared/ui/Popover";
 import {
   consumeCodexRateLimitResetCredit,
+  fetchCommandCodeRateLimits,
   fetchClaudeRateLimits,
   fetchCodexRateLimits,
   fetchOpencodeGoRateLimits,
@@ -25,8 +26,15 @@ import {
   type ProviderRateLimits,
   type RateLimitProvider,
 } from "../../features/providers/model/rateLimits";
-import { HARNESS_LABEL, HARNESS_TITLE, type HarnessId } from "../../features/sessions/model/session";
-import { loginHarness, supportsHarnessLogin } from "../../integrations/harness/core/auth";
+import {
+  HARNESS_LABEL,
+  HARNESS_TITLE,
+  type HarnessId,
+} from "../../features/sessions/model/session";
+import {
+  loginHarness,
+  supportsHarnessLogin,
+} from "../../integrations/harness/core/auth";
 import {
   runningTerminalChipLabel,
   type RunningTerminal,
@@ -88,6 +96,7 @@ export function UsageFooter({
   const wantClaude = providers.includes("claude");
   const wantCodex = providers.includes("codex");
   const wantOpencode = providers.includes("opencode");
+  const wantCommandCode = providers.includes("command-code");
   const [claude, setClaude] = useState<ProviderRateLimits>(() =>
     idleRateLimits("claude"),
   );
@@ -97,6 +106,9 @@ export function UsageFooter({
   const [opencode, setOpencode] = useState<ProviderRateLimits>(() =>
     idleRateLimits("opencode"),
   );
+  const [commandCode, setCommandCode] = useState<ProviderRateLimits>(() =>
+    idleRateLimits("command-code"),
+  );
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const [, setAccountsVersion] = useState(0);
@@ -104,9 +116,11 @@ export function UsageFooter({
   const claudeRef = useRef(claude);
   const codexRef = useRef(codex);
   const opencodeRef = useRef(opencode);
+  const commandCodeRef = useRef(commandCode);
   claudeRef.current = claude;
   codexRef.current = codex;
   opencodeRef.current = opencode;
+  commandCodeRef.current = commandCode;
   const claudeAccountId =
     session?.harness === "claude" && session.providerAccountId
       ? session.providerAccountId
@@ -148,7 +162,11 @@ export function UsageFooter({
       const fetchOpencode =
         wantOpencode &&
         shouldFetchProvider(opencodeRef.current, { force, visible });
-      if (!fetchClaude && !fetchCodex && !fetchOpencode) return;
+      const fetchCommandCode =
+        wantCommandCode &&
+        shouldFetchProvider(commandCodeRef.current, { force, visible });
+      if (!fetchClaude && !fetchCodex && !fetchOpencode && !fetchCommandCode)
+        return;
       if (force) setRefreshing(true);
       const jobs: Promise<void>[] = [];
       if (fetchClaude) {
@@ -177,6 +195,12 @@ export function UsageFooter({
           }),
         );
       }
+      if (fetchCommandCode) {
+        setCommandCode((current) =>
+          fetchingRateLimits("command-code", current),
+        );
+        jobs.push(fetchCommandCodeRateLimits().then(setCommandCode));
+      }
       const run = Promise.allSettled(jobs)
         .then(() => undefined)
         .finally(() => {
@@ -193,6 +217,7 @@ export function UsageFooter({
       codexAccountId,
       wantClaude,
       wantCodex,
+      wantCommandCode,
       wantOpencode,
     ],
   );
@@ -209,6 +234,14 @@ export function UsageFooter({
     const pending = inflight.current;
     if (pending) void pending.finally(() => refresh(true));
   }, [claudeAccountAvailable, claudeAccountId, refresh]);
+
+  useEffect(() => {
+    const next = idleRateLimits("command-code");
+    commandCodeRef.current = next;
+    setCommandCode(next);
+    const pending = inflight.current;
+    if (pending) void pending.finally(() => refresh(true));
+  }, [refresh]);
 
   useEffect(() => {
     const next = codexAccountAvailable
@@ -358,7 +391,10 @@ export function UsageFooter({
   );
 
   const showOpencodeChip = wantOpencode && opencode.status !== "unavailable";
-  const showUsage = wantClaude || wantCodex || showOpencodeChip;
+  const showCommandCodeChip =
+    wantCommandCode && commandCode.status !== "unavailable";
+  const showUsage =
+    wantClaude || wantCodex || showOpencodeChip || showCommandCodeChip;
   const showTerminals = terminals.length > 0;
   const showTerminalButton = Boolean(onNewTerminal || onShowTerminal);
   const terminalLabel = projectTerminalActive
@@ -416,6 +452,13 @@ export function UsageFooter({
           ) : null}
           {showOpencodeChip ? (
             <UsageProviderChip limits={opencode} now={now} project={project} />
+          ) : null}
+          {showCommandCodeChip ? (
+            <UsageProviderChip
+              limits={commandCode}
+              now={now}
+              project={project}
+            />
           ) : null}
           <button
             type="button"

@@ -42,6 +42,161 @@ pub struct OpencodeGoUsageFetch {
 }
 
 const OPENCODE_GO_USAGE_URL: &str = "https://opencode.ai/zen/go/v1/usage";
+const COMMAND_CODE_API_URL: &str = "https://api.commandcode.ai";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandCodeUsageFetch {
+    pub status: String,
+    pub http_status: Option<u16>,
+    pub body: Option<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn fetch_command_code_usage() -> Result<CommandCodeUsageFetch, String> {
+    tauri::async_runtime::spawn_blocking(fetch_command_code_usage_sync)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn fetch_command_code_usage_sync() -> Result<CommandCodeUsageFetch, String> {
+    let Some(api_key) = read_command_code_api_key() else {
+        return Ok(command_code_usage_result(
+            "unavailable",
+            None,
+            None,
+            Some("Command Code not signed in".into()),
+        ));
+    };
+
+    let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build();
+    let whoami = command_code_get(&agent, "/alpha/whoami?limits=1", &api_key)?;
+    if !(200..300).contains(&whoami.0) {
+        return Ok(command_code_usage_error(whoami.0));
+    }
+    let org_id = command_code_org_id(&whoami.1);
+    let org_query = org_id
+        .as_deref()
+        .filter(|id| {
+            id.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+        })
+        .map(|id| format!("?orgId={id}"))
+        .unwrap_or_default();
+    let credits = command_code_get(
+        &agent,
+        &format!("/alpha/billing/credits{org_query}"),
+        &api_key,
+    )?;
+    if !(200..300).contains(&credits.0) {
+        return Ok(command_code_usage_error(credits.0));
+    }
+
+    let body = command_code_usage_body(&credits.1);
+    Ok(command_code_usage_result(
+        "ok",
+        Some(credits.0),
+        Some(body),
+        None,
+    ))
+}
+
+fn command_code_usage_body(response: &str) -> String {
+    let parsed = serde_json::from_str::<Value>(response).unwrap_or(Value::Null);
+    let windows = parsed.pointer("/credits/windowLimits");
+    let window = |name: &str| {
+        let value = windows.and_then(|limits| limits.get(name));
+        serde_json::json!({
+            "used": value.and_then(|entry| entry.get("used")),
+            "cap": value.and_then(|entry| entry.get("cap")),
+            "resetAt": value.and_then(|entry| entry.get("resetAt")),
+        })
+    };
+    serde_json::json!({
+        "credits": {"windowLimits": {
+            "fiveHour": window("fiveHour"),
+            "weekly": window("weekly"),
+        }}
+    })
+    .to_string()
+}
+
+fn command_code_get(
+    agent: &ureq::Agent,
+    path: &str,
+    api_key: &str,
+) -> Result<(u16, String), String> {
+    let result = agent
+        .get(&format!("{COMMAND_CODE_API_URL}{path}"))
+        .set("Authorization", &format!("Bearer {api_key}"))
+        .set("Accept", "application/json")
+        .call();
+    match result {
+        Ok(response) => Ok((
+            response.status(),
+            response.into_string().unwrap_or_default(),
+        )),
+        Err(ureq::Error::Status(status, response)) => {
+            Ok((status, response.into_string().unwrap_or_default()))
+        }
+        Err(error) => Err(format!("Command Code usage request failed: {error}")),
+    }
+}
+
+fn command_code_org_id(body: &str) -> Option<String> {
+    serde_json::from_str::<Value>(body).ok().and_then(|value| {
+        value
+            .pointer("/org/id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    })
+}
+
+fn command_code_usage_result(
+    status: &str,
+    http_status: Option<u16>,
+    body: Option<String>,
+    error: Option<String>,
+) -> CommandCodeUsageFetch {
+    CommandCodeUsageFetch {
+        status: status.into(),
+        http_status,
+        body,
+        error,
+    }
+}
+
+fn command_code_usage_error(status: u16) -> CommandCodeUsageFetch {
+    let message = if status == 401 {
+        "Command Code sign-in expired".into()
+    } else {
+        format!("Command Code usage request failed ({status})")
+    };
+    command_code_usage_result("error", Some(status), None, Some(message))
+}
+
+fn read_command_code_api_key() -> Option<String> {
+    if let Some(value) = std::env::var_os("COMMAND_CODE_API_KEY") {
+        let value = value.to_string_lossy().trim().to_owned();
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+    let home = dirs_home().or_else(|| {
+        std::env::var_os("USERPROFILE").map(|value| value.to_string_lossy().into_owned())
+    })?;
+    let raw = std::fs::read_to_string(PathBuf::from(home).join(".commandcode/auth.json")).ok()?;
+    serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("apiKey")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .filter(|value| !value.is_empty())
+}
 
 /// Fetch OpenCode Go 5h / weekly / monthly usage via the local Go API key.
 /// Runs in the host process so the webview CORS policy does not apply.
@@ -734,6 +889,25 @@ fn run_with_timeout(cmd: &mut std::process::Command, timeout: Duration) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_code_usage_body_exposes_only_display_windows() {
+        let raw = r#"{"credits":{"windowLimits":{"fiveHour":{"used":2,"cap":10,"resetAt":"2026-09-26T00:00:00Z","private":"hidden"},"weekly":{"used":4,"cap":20,"resetAt":"2026-09-29T00:00:00Z"}},"account":"private"},"subscription":{"email":"private"}}"#;
+        let body: Value = serde_json::from_str(&command_code_usage_body(raw)).unwrap();
+        assert_eq!(
+            body.pointer("/credits/windowLimits/fiveHour/used"),
+            Some(&Value::from(2))
+        );
+        assert_eq!(
+            body.pointer("/credits/windowLimits/weekly/cap"),
+            Some(&Value::from(20))
+        );
+        assert!(body
+            .pointer("/credits/windowLimits/fiveHour/private")
+            .is_none());
+        assert!(body.pointer("/credits/account").is_none());
+        assert!(body.pointer("/subscription").is_none());
+    }
 
     #[test]
     fn extract_access_token_from_claude_credentials() {

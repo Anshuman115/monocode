@@ -3,6 +3,7 @@ import { homeDir } from "../../../platform/tauri/fs";
 import {
   errorRateLimits,
   parseClaudeOAuthUsage,
+  parseCommandCodeUsage,
   parseCodexRateLimits,
   parseOpencodeGoUsage,
   unavailableRateLimits,
@@ -40,9 +41,7 @@ export async function fetchOpencodeGoRateLimits(): Promise<ProviderRateLimits> {
   } catch (error) {
     return errorRateLimits(
       "opencode",
-      error instanceof Error
-        ? error.message
-        : "OpenCode Go usage unavailable",
+      error instanceof Error ? error.message : "OpenCode Go usage unavailable",
     );
   }
   if (result.status === "ok" && result.body) {
@@ -80,6 +79,39 @@ type ClaudeUsageFetch = {
   body?: string | null;
   error?: string | null;
 };
+
+type CommandCodeUsageFetch = {
+  status: "ok" | "error" | "unavailable" | string;
+  httpStatus?: number | null;
+  body?: string | null;
+  error?: string | null;
+};
+
+export async function fetchCommandCodeRateLimits(): Promise<ProviderRateLimits> {
+  try {
+    const result = await invoke<CommandCodeUsageFetch>(
+      "fetch_command_code_usage",
+    );
+    if (result.status === "ok" && result.body) {
+      return parseCommandCodeUsage(result.body);
+    }
+    if (result.status === "unavailable") {
+      return unavailableRateLimits(
+        "command-code",
+        result.error?.trim() || "Command Code not signed in",
+      );
+    }
+    return errorRateLimits(
+      "command-code",
+      result.error?.trim() || "Command Code usage unavailable",
+    );
+  } catch (error) {
+    return errorRateLimits(
+      "command-code",
+      error instanceof Error ? error.message : "Command Code usage unavailable",
+    );
+  }
+}
 
 export async function fetchClaudeRateLimits(
   accountId = "default",

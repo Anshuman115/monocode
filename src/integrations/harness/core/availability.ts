@@ -12,13 +12,16 @@ import {
   resolveOpenCodeBinary,
   resolvePiBinary,
 } from "./child";
-import { isLiveHarness } from "./registry";
+import { getHarness, isLiveHarness } from "./registry";
 import {
   emitHarnessAvailability,
   harnessAvailabilityProbedAt,
   markHarnessAvailabilityProbed,
   setHarnessAvailability,
+  setHarnessAvailabilityDetails,
+  getHarnessAvailabilityDetail,
   type HarnessAvailability,
+  type HarnessAvailabilityDetail,
 } from "./availabilityState";
 
 export type { HarnessAvailability } from "./availabilityState";
@@ -27,6 +30,7 @@ export {
   hasProbedHarnessAvailability,
   isHarnessAvailable,
   subscribeHarnessAvailability,
+  getHarnessAvailabilityDetail,
 } from "./availabilityState";
 
 /**
@@ -35,6 +39,10 @@ export {
  */
 const CLI: Record<HarnessId, { name: string; install?: string }> = {
   claude: { name: "Claude Code CLI" },
+  "command-code": {
+    name: "Command Code CLI",
+    install: "npm i -g command-code",
+  },
   codex: { name: "Codex CLI" },
   cursor: { name: "Cursor CLI" },
   grok: {
@@ -64,6 +72,15 @@ let inflight: Promise<void> | null = null;
 const PROBE_TTL_MS = 30_000;
 
 export function harnessUnavailableHint(id: HarnessId): string {
+  const detail = getHarnessAvailabilityDetail(id);
+  if (detail?.message) return detail.message;
+  if (detail?.state === "unauthenticated") {
+    return `${CLI[id].name} is installed but not authenticated.`;
+  }
+  if (detail?.state === "unsupported") return `${CLI[id].name} is unsupported.`;
+  if (detail?.state === "limited") {
+    return `${CLI[id].name} is installed with limited capabilities.`;
+  }
   const { name, install } = CLI[id];
   const how = install ? ` (\`${install}\`)` : "";
   return `${name} not found${how}. Install it, or restart MonoCode if it is already installed.`;
@@ -80,6 +97,15 @@ export function probeHarnessAvailability(
   inflight = Promise.all(
     HARNESSES.map(async (id) => {
       if (!isLiveHarness(id)) return [id, false] as const;
+      const providerProbe = getHarness(id)?.availabilityProbe;
+      if (providerProbe) {
+        try {
+          const result = await providerProbe();
+          return [id, result.available, result.detail] as const;
+        } catch {
+          return [id, false, { state: "missing" }] as const;
+        }
+      }
       if (id === "cursor") {
         try {
           await resolveCursorBinary();
@@ -165,8 +191,14 @@ export function probeHarnessAvailability(
   )
     .then((entries) => {
       const next = {} as HarnessAvailability;
-      for (const [id, ok] of entries) next[id] = ok;
+      const nextDetails: Partial<Record<HarnessId, HarnessAvailabilityDetail>> =
+        {};
+      for (const [id, ok, detail] of entries) {
+        next[id] = ok;
+        if (detail) nextDetails[id] = detail;
+      }
       setHarnessAvailability(next);
+      setHarnessAvailabilityDetails(nextDetails);
       emitHarnessAvailability();
     })
     .finally(() => {

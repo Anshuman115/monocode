@@ -198,10 +198,31 @@ export const MODELS: AgentModel[] = [
     name: "Gemini 3.8 Flash (High)",
     nativeId: "gemini-3.8-flash-high",
   },
+  {
+    id: "command-code:deepseek/deepseek-v4.1-flash",
+    harness: "command-code",
+    name: "DeepSeek V4.1 Flash",
+    nativeId: "deepseek/deepseek-v4.1-flash",
+    settings: [
+      {
+        id: "effort",
+        label: "Reasoning",
+        kind: "select",
+        value: "default",
+        options: [
+          { value: "default", label: "Default" },
+          { value: "low", label: "Low" },
+          { value: "medium", label: "Medium" },
+          { value: "high", label: "High" },
+        ],
+      },
+    ],
+  },
 ];
 
 export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
   claude: "claude:sonnet-5",
+  "command-code": "command-code:deepseek/deepseek-v4.1-flash",
   codex: "",
   cursor: "cursor:composer-2.5",
   grok: "grok:grok-4.6",
@@ -240,12 +261,14 @@ const HARNESS_ORDER: HarnessId[] = [
   "fx",
   "hermes",
   "antigravity",
+  "command-code",
 ];
 
 const EMPTY_MODELS: AgentModel[] = [];
 
 let overlays: Partial<Record<HarnessId, AgentModel[]>> = {};
 let overlayDefaults: Partial<Record<HarnessId, string>> = {};
+let loadingCatalogs = new Set<HarnessId>();
 let catalogVersion = 0;
 const listeners = new Set<() => void>();
 
@@ -283,10 +306,27 @@ export function hasLiveCatalog(harness: HarnessId): boolean {
   return overlays[harness] != null;
 }
 
+export function isHarnessCatalogLoading(harness: HarnessId): boolean {
+  return loadingCatalogs.has(harness);
+}
+
+export function setHarnessCatalogLoading(
+  harness: HarnessId,
+  loading: boolean,
+): void {
+  if (loadingCatalogs.has(harness) === loading) return;
+  const next = new Set(loadingCatalogs);
+  if (loading) next.add(harness);
+  else next.delete(harness);
+  loadingCatalogs = next;
+  emit();
+}
+
 /** Test seam. */
 export function resetHarnessModelOverlays() {
   overlays = {};
   overlayDefaults = {};
+  loadingCatalogs = new Set();
   emit();
 }
 
@@ -314,6 +354,13 @@ function baseModelsFor(harness: HarnessId): AgentModel[] {
 
 export function modelsFor(harness: HarnessId): AgentModel[] {
   return overlays[harness] ?? baseModelsFor(harness);
+}
+
+export function modelsForPicker(harness: HarnessId): AgentModel[] {
+  if (isHarnessCatalogLoading(harness) && !hasLiveCatalog(harness)) {
+    return EMPTY_MODELS;
+  }
+  return modelsFor(harness);
 }
 
 export function allModels(): AgentModel[] {
@@ -864,6 +911,15 @@ function pickDefaultId(harness: HarnessId, models: AgentModel[]): string {
   }
   if (harness === "codex") {
     return models[0]?.id ?? "";
+  }
+  if (harness === "command-code") {
+    return (
+      models.find((model) => model.nativeId === "deepseek/deepseek-v4.1-flash")
+        ?.id ??
+      models.find((model) => model.id === DEFAULT_MODEL_ID[harness])?.id ??
+      models[0]?.id ??
+      DEFAULT_MODEL_ID[harness]
+    );
   }
   if (harness === "grok") {
     return (

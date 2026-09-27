@@ -7,6 +7,7 @@ import type { GeneratedSessionTitle } from "../../../features/sessions/model/ses
 import type { PrContent } from "../../../features/source-control/model/gitText";
 import { hasLiveCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
+import type { HarnessAvailabilityDetail } from "./availabilityState";
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
@@ -23,6 +24,20 @@ export type TitleInput = {
   cwd: string;
   message: string;
   providerAccountId?: string;
+};
+
+export type HarnessCapabilities = {
+  structuredTransport?: boolean;
+  persistentProcess?: boolean;
+  streaming?: boolean;
+  followUpTurns?: boolean;
+  toolActivity?: boolean;
+  approvals?: boolean;
+  questions?: boolean;
+  nativeResume?: boolean;
+  transcriptImport?: boolean;
+  compactContext?: boolean;
+  rewindLastTurn?: boolean;
 };
 
 /** One-shot, isolated text generation shared by titles and side questions. */
@@ -50,6 +65,10 @@ export type HarnessAdapter = {
   live: boolean;
   /** False when the harness cannot accept a follow-up while a turn is running. Default: same as live. */
   canSteer?: boolean;
+  availabilityProbe?: () => Promise<{
+    available: boolean;
+    detail?: HarnessAvailabilityDetail;
+  }>;
   commands?: NativeCommandProvider;
   sendTurn(input: SendTurnInput): Promise<void>;
   /** Trigger provider-owned compaction outside MonoCode's normal user-turn path. */
@@ -379,6 +398,7 @@ export function bindHarnessSession(
  */
 export async function refreshHarnessCatalogs(
   ids: Iterable<HarnessId>,
+  options?: { force?: boolean },
 ): Promise<void> {
   const wanted = new Set(ids);
   if (wanted.size === 0) return;
@@ -386,7 +406,11 @@ export async function refreshHarnessCatalogs(
     [...adapters.values()]
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
-        if (!adapter.refreshCatalog || hasLiveCatalog(adapter.id)) return;
+        if (
+          !adapter.refreshCatalog ||
+          (!options?.force && hasLiveCatalog(adapter.id))
+        )
+          return;
         await adapter.refreshCatalog().catch((error: unknown) => {
           console.debug(`[monocode] ${adapter.id} catalog`, error);
         });
