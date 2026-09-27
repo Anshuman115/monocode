@@ -5,11 +5,21 @@ import {
   clearDiagnosticLogs,
   type DiagnosticLogEntry,
 } from "../model/diagnosticsCentre";
+import { runDiagnosticChecks } from "../model/diagnosticsChecks";
+
+/** Debug is intentionally muted: it is high-volume detail, not a signal. */
+const LEVEL_CLASS: Record<DiagnosticLogEntry["level"], string> = {
+  error: "bg-rose-500/10 text-rose-500",
+  warn: "bg-amber-500/10 text-amber-500",
+  info: "bg-blue-500/10 text-blue-500",
+  debug: "bg-content/5 text-content/45",
+};
 
 export function DiagnosticsCentreView() {
   const [logs, setLogs] = useState<DiagnosticLogEntry[]>(loadDiagnosticLogs);
   const [filterLevel, setFilterLevel] = useState<string>("all");
   const [filterSubsystem, setFilterSubsystem] = useState<string>("all");
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     const handleUpdate = () => setLogs(loadDiagnosticLogs());
@@ -30,21 +40,21 @@ export function DiagnosticsCentreView() {
     });
   }, [logs, filterLevel, filterSubsystem]);
 
-  const handleSimulateLog = () => {
-    const subsystems: DiagnosticLogEntry["subsystem"][] = [
-      "tauri-core",
-      "pty",
-      "harness",
-      "storage",
-      "network",
-      "skills",
-    ];
-    const levels: DiagnosticLogEntry["level"][] = ["info", "warn", "error", "debug"];
-    emitDiagnostic(
-      subsystems[Math.floor(Math.random() * subsystems.length)],
-      levels[Math.floor(Math.random() * levels.length)],
-      `Subsystem diagnostic check completed with status OK`,
-    );
+  /**
+   * Actually exercises the plumbing it claims to: a real IPC round trip, the
+   * storage write path and the event bus. Each check reports its own outcome,
+   * so a failure here is real information rather than a canned "status OK".
+   */
+  const handleRunChecks = async () => {
+    setChecking(true);
+    try {
+      const results = await runDiagnosticChecks();
+      for (const result of results) {
+        emitDiagnostic(result.subsystem, result.level, result.message);
+      }
+    } finally {
+      setChecking(false);
+    }
   };
 
   return (
@@ -56,10 +66,11 @@ export function DiagnosticsCentreView() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleSimulateLog}
-            className="px-2.5 py-1 text-xs rounded border border-content/10 hover:bg-content/5 text-content font-medium"
+            onClick={handleRunChecks}
+            disabled={checking}
+            className="px-2.5 py-1 text-xs rounded border border-content/10 hover:bg-content/5 disabled:opacity-50 text-content font-medium"
           >
-            Emit Probe
+            {checking ? "Running…" : "Run Checks"}
           </button>
           <button
             type="button"
@@ -117,13 +128,7 @@ export function DiagnosticsCentreView() {
                 {new Date(l.timestamp).toLocaleTimeString()}
               </span>
               <span
-                className={`text-[10px] uppercase font-bold px-1 rounded ${
-                  l.level === "error"
-                    ? "bg-rose-500/10 text-rose-500"
-                    : l.level === "warn"
-                      ? "bg-amber-500/10 text-amber-500"
-                      : "bg-blue-500/10 text-blue-500"
-                }`}
+                className={`text-[10px] uppercase font-bold px-1 rounded ${LEVEL_CLASS[l.level]}`}
               >
                 {l.level}
               </span>

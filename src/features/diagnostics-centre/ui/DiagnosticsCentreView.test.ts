@@ -2,7 +2,14 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "../../../platform/tauri/invoke";
 import { DiagnosticsCentreView } from "./DiagnosticsCentreView";
+
+// Mock the wrapper (not @tauri-apps/api/core) so the checks' IPC call can be
+// driven directly, including into a failure.
+vi.mock("../../../platform/tauri/invoke", () => ({ invoke: vi.fn() }));
+
+const invokeMock = vi.mocked(invoke);
 
 let container: HTMLDivElement;
 let root: Root;
@@ -74,6 +81,8 @@ async function render() {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
+  invokeMock.mockReset();
+  invokeMock.mockResolvedValue(undefined);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -110,18 +119,16 @@ describe("diagnostics centre", () => {
     expect(container.textContent).not.toContain("Relay connection dropped");
   });
 
-  it("emits a probe event into the log and clears everything", async () => {
+  it("runs real checks and clears everything", async () => {
     seedLogs();
     await render();
 
-    await act(async () => button("Emit Probe").click());
+    await act(async () => button("Run Checks").click());
 
-    expect(
-      JSON.parse(localStorage.getItem("monocode.diagnosticsLogs")!),
-    ).toHaveLength(3);
-    expect(container.textContent).toContain(
-      "Subsystem diagnostic check completed with status OK",
-    );
+    // The IPC check runs a real invoke, so assert on the outcome it recorded
+    // rather than on a canned string.
+    expect(container.textContent).toMatch(/IPC round trip/);
+    expect(container.textContent).toContain("Diagnostics storage is writable");
 
     await act(async () => button("Clear Logs").click());
 
@@ -129,5 +136,45 @@ describe("diagnostics centre", () => {
     expect(
       JSON.parse(localStorage.getItem("monocode.diagnosticsLogs") ?? "[]"),
     ).toHaveLength(0);
+  });
+
+  it("reports an IPC failure as an error entry", async () => {
+    invokeMock.mockRejectedValue(new Error("backend gone"));
+    await render();
+
+    await act(async () => button("Run Checks").click());
+
+    expect(container.textContent).toContain("backend gone");
+    const logs = JSON.parse(
+      localStorage.getItem("monocode.diagnosticsLogs")!,
+    ) as { level: string; message: string }[];
+    expect(
+      logs.some(
+        (l) => l.level === "error" && l.message.includes("backend gone"),
+      ),
+    ).toBe(true);
+  });
+
+  it("gives debug its own muted badge instead of the info colour", async () => {
+    localStorage.setItem(
+      "monocode.diagnosticsLogs",
+      JSON.stringify([
+        {
+          id: "diag_debug",
+          timestamp: 1_700_000_000_000,
+          subsystem: "skills",
+          level: "debug",
+          message: "Discovered 3 skills",
+        },
+      ]),
+    );
+    await render();
+
+    const badge = Array.from(container.querySelectorAll("span")).find(
+      (node) => node.textContent?.trim() === "debug",
+    );
+    expect(badge).toBeDefined();
+    expect(badge!.className).toContain("text-content/45");
+    expect(badge!.className).not.toContain("blue-500");
   });
 });
