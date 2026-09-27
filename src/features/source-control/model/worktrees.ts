@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { appendReadyHandoff, buildDeterministicHandoff } from "../../sessions/model/handoff";
 import { notifyGitChanged } from "../../../platform/tauri/fs";
 import { isFilesystemTab, type FilePaneTab } from "../../workspace/model/layout";

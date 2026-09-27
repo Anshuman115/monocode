@@ -14,7 +14,7 @@ import {
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { prettyParent, projectName } from "../../../shared/lib/paths";

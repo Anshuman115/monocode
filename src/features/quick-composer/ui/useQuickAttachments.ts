@@ -6,7 +6,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   attachmentsFromFiles,

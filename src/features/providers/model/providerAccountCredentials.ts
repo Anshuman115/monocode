@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import type { ProviderAccountProvider } from "./providerAccounts";
 
 /** Remove a named profile's native credentials before its UI metadata. */

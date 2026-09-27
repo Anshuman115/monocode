@@ -14,7 +14,7 @@ import {
   rebaseCiRepairs,
   trackCiRepair,
 } from "../features/inbox/model/ciRepairTracking";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../platform/tauri/invoke";
 import {
   orchestrationCheckoutCwd,
   orchestrationProjectCwd,

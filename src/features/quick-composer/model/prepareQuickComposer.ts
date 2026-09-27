@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 
 /** Prepare hidden windows after a paint and in idle time, never on startup's
  * critical path. If focus leaves first, wait for the workspace to regain it. */

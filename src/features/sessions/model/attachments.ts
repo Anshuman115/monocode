@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { basename, pickFiles as pickFilePaths } from "../../../platform/tauri/fs";
 import type { Attachment, AttachmentKind } from "./session";
 

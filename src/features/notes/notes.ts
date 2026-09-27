@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../platform/tauri/invoke";
 import { fuzzyMatch } from "../../shared/lib/fuzzy";
 import type { ProjectFile } from "../../platform/tauri/fs";
 import type { RankedFile } from "../files/model/fileIndex";

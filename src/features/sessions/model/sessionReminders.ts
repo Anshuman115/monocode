@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import type { HarnessId } from "./session";
 
 export const REMINDERS_CHANGED = "monocode:reminders-changed";

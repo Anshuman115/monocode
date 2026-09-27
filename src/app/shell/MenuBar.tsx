@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../platform/tauri/invoke";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ExplorerMenu,

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "../../sessions/model/session";
 import { loadSoundsEnabled, playCue } from "../../settings/model/sounds";
 import {

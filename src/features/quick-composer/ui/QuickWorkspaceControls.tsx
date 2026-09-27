@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { listen } from "@tauri-apps/api/event";
 import { Folder, FolderTree } from "../../../shared/ui/icons";
 import { notifyGitChanged } from "../../../platform/tauri/fs";

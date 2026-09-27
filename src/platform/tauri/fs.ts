@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { slash } from "../../shared/lib/paths";
 import type { InterjectionMeta } from "../../features/sessions/model/session";

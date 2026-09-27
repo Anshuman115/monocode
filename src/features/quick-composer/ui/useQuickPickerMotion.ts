@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 
 const DURATION = 240;
 const EASING = "cubic-bezier(0.22, 1, 0.36, 1)";

@@ -1,6 +1,6 @@
 import { parseQuickAttachments } from "./quickAttachments";
 import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { IS_MAC } from "../../../platform/tauri/platform";
 import { loadQuickComposerShortcut } from "../../settings/model/settings";
 import { pathKey, projectName, prettyParent } from "../../../shared/lib/paths";

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { HARNESSES, type HarnessId, type Session } from "../../sessions/model/session";
 import { pathKey } from "../../../shared/lib/paths";
 import type { ApprovalDecision, HarnessEvent } from "../../../integrations/harness/core/types";

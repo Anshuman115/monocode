@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { MAX_ATTACHMENTS, MAX_EMBED_BYTES } from "../../features/sessions/model/attachments";
 import type { Attachment } from "../../features/sessions/model/session";
 

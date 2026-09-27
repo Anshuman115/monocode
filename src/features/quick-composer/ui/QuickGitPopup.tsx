@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { listen } from "@tauri-apps/api/event";
 import { NativePopupHost } from "../../../shared/ui/NativePopupHost";
 import { BranchPicker } from "../../source-control/ui/BranchPicker";

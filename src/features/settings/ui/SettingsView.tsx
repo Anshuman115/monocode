@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {

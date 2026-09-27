@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../platform/tauri/invoke";
 import { listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
