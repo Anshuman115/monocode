@@ -389,6 +389,8 @@ pub fn run() {
             fs::read_binary_file,
             fs::write_attachment,
             fs::read_text_file,
+            fs::read_provider_session_preview,
+            fs::read_provider_session_file,
             fs::omp_session_interjections,
             fs::omp_active_assistant_texts,
             fs::claude_shell_commands,
