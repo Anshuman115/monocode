@@ -268,9 +268,13 @@ describe("keybinding overrides", () => {
   });
 
   it("rejects a shortcut that shadows another command's default", () => {
+    // "App: Go to File" is bound to `${MOD}P`, which resolves to Command on
+    // macOS and Control elsewhere, so the shadowing chord has to follow suit.
+    const mod = IS_MAC ? "Command" : "Control";
     expect(() =>
-      saveKeybindingOverride("App: Search", { shortcut: "Control+KeyP" }),
+      saveKeybindingOverride("App: Search", { shortcut: `${mod}+KeyP` }),
     ).toThrow("Already used by App: Go to File");
+    // "Tab: Cycle Next" is bound to `Control+Tab` on every platform.
     expect(() =>
       saveKeybindingOverride("Tab: New", { shortcut: "Control+Tab" }),
     ).toThrow("Already used by Tab: Cycle Next");

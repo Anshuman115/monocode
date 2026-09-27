@@ -1,6 +1,7 @@
-// @vitest-environment happy-dom
+// @vitest-environment node
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { Window } from "happy-dom";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Streamdown } from "streamdown";
@@ -24,8 +25,15 @@ import { describe, expect, it } from "vitest";
  * rule that matches nothing, or matches every paragraph, fails.
  */
 
-// happy-dom rewrites import.meta.url, so resolve from the vitest root instead.
+// This test needs both a real DOM (it matches rendered markup against the
+// shipped selectors) and real filesystem access (it reads index.css and
+// resolves its @source directories). The happy-dom environment stubs every
+// `node:` builtin, so it runs in the node environment and drives a Window it
+// constructs itself. import.meta.url is trustworthy here, but the vitest root
+// is simpler to reason about.
 const CSS_PATH = resolve(process.cwd(), "src/styles/index.css");
+
+const { document } = new Window();
 
 const SAMPLE = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
 
