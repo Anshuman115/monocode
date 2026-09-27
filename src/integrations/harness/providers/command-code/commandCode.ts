@@ -5,6 +5,7 @@ import type {
   ToolPreview,
 } from "../../../../features/sessions/model/session";
 import { extractToolPreview } from "../../core/preview";
+import { streamTextDelta } from "../../core/streamText";
 import {
   closeChildStdin,
   killChild,
@@ -290,7 +291,7 @@ function handleEvent(
       live.messageCompleted = false;
       break;
     case "text_delta": {
-      const delta = stringField(event, "delta");
+      const delta = streamTextDelta(event.delta);
       if (delta) {
         live.assistantText += delta;
         input.onEvent({ type: "message.delta", text: delta });
@@ -301,7 +302,7 @@ function handleEvent(
       live.reasoningOpen = true;
       break;
     case "thinking_delta": {
-      const delta = stringField(event, "delta");
+      const delta = streamTextDelta(event.delta);
       if (delta) {
         live.reasoningText += delta;
         input.onEvent({ type: "reasoning.delta", text: delta });
