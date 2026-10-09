@@ -416,6 +416,7 @@ import {
   focusedWorkspaceTabCwd,
 } from "../features/workspace/model/workspaceTabGroups";
 import { applyAddToChatRequest } from "../features/sessions/model/addChatToWorkspace";
+import { newWorkspaceSession } from "./model/newWorkspaceSession";
 import {
   ADD_TO_CHAT_EVENT,
   type AddToChatRequest,
@@ -2653,14 +2654,8 @@ function Workspace({
     setInboxViewOpen(false);
     setNotesViewOpen(false);
     setAutomationsViewOpen(false);
-    const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
-    const focus = worktreeFocus(cwd);
-    const session = {
-      ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
-      ...(focus && pathKey(focus.path) !== pathKey(cwd)
-        ? { worktreeCwd: focus.path, branch: focus.branch ?? undefined }
-        : {}),
-    };
+    const cwd = sidebarCwd;
+    const session = newWorkspaceSession(cwd, sessionDefaults?.runtimeMode);
     const tab = newTab(session.id);
     setSessions((prev) => [...prev, session]);
     appendTab(tab, cwd);
@@ -2668,11 +2663,9 @@ function Workspace({
     setComposerFocused(true);
     return session.id;
   }, [
-    active?.cwd,
     appendTab,
-    sessionDefaults?.cwd,
     sessionDefaults?.runtimeMode,
-    projectCwd,
+    sidebarCwd,
   ]);
 
   const onSelectRemoteSession = useCallback(
