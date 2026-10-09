@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mono commits include only the selected files' current working-copy contents and preserve unrelated staged work, including partial staging. Other existing repository changes are excluded by default, even when already staged. Generated commit context uses a temporary Git index without changing the real staging area or including unselected changes.
 - Mono artifact and changes panels use a wider reader layout. Switching repositories preserves each checkout's selection and draft, and a completed commit clears only its selected files from the Mono review.
 - Large streamed Markdown code blocks reuse highlighted lines and rendered content, reducing rendering work and stalls as output grows. Regression coverage checks correctness and layout in Chromium and WebKit. In #863 by @nwoolls.
-- Regression coverage now includes Devin transport, permissions, model catalogs, usage and subagents; Mono checkpoints and multi-repository commits; literal Git paths and staging preservation; sidebar preferences; image zoom; and composer autocorrect on the supported platforms.
+- Regression coverage now includes Devin transport, permissions, model catalogs, usage and subagents; Mono checkpoints and multi-repository commits; literal Git paths and staging preservation; sidebar preferences; image zoom; source-navigation cancellation; and composer autocorrect on the supported platforms. File-navigation fixtures keep mocked file contents stable across watcher IPC calls on slower runners.
 
 ### Fixed
 
