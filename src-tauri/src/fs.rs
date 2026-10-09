@@ -2743,12 +2743,14 @@ impl Drop for GitSelectionIndex {
 fn git_selected_context_for(root: &Path, paths: &[String]) -> Result<GitStagedContext, String> {
     let paths = git_selected_paths(root, paths)?;
     let index_dir = std::env::temp_dir().join(format!("monocode-git-selection-{}", Uuid::new_v4()));
-    let mut directory = std::fs::DirBuilder::new();
+    let directory = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    {
+    let directory = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut directory = directory;
         directory.mode(0o700);
-    }
+        directory
+    };
     directory.create(&index_dir).map_err(|e| e.to_string())?;
     let index = GitSelectionIndex(index_dir);
     let run = |args: &[&str]| -> Result<String, String> {

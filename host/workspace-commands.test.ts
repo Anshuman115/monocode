@@ -23,7 +23,9 @@ afterEach(() =>
 );
 
 function fixture() {
-  const home = realpathSync(
+  // Use the same native resolution as fs/promises.realpath in the host,
+  // including expansion of Windows short directory names such as RUNNER~1.
+  const home = realpathSync.native(
     mkdtempSync(join(tmpdir(), "monocode-selected-git-")),
   );
   const store = new HostStore(join(home, "host.db"));
@@ -58,6 +60,9 @@ function fixture() {
   };
   return { home, commands, repo };
 }
+
+const apiRoot = (path: string) =>
+  process.platform === "win32" ? path.replace(/\\/g, "/") : path;
 
 it("commits only selected working files and preserves other staging and repos", async () => {
   const { commands, repo } = fixture();
@@ -224,10 +229,10 @@ it("locates each checkout and deleted parents while enforcing host boundaries", 
       paths: relatives.map((path, i) => join(roots[i], path)),
     }),
   ).toEqual([
-    { root: a.cwd, relative: relatives[0] },
-    { root: b.cwd, relative: "chosen.txt" },
-    { root: tree, relative: "chosen.txt" },
-    { root: join(a.cwd, "nested"), relative: "chosen.txt" },
+    { root: apiRoot(a.cwd), relative: relatives[0] },
+    { root: apiRoot(b.cwd), relative: "chosen.txt" },
+    { root: apiRoot(tree), relative: "chosen.txt" },
+    { root: apiRoot(join(a.cwd, "nested")), relative: "chosen.txt" },
   ]);
   await expect(
     commands.run("git_locate_files", { paths: [join(home, "outside.txt")] }),
@@ -257,7 +262,7 @@ it.skipIf(process.platform === "win32")(
       await commands.run("git_locate_files", {
         paths: [join(cwd, "file-link")],
       }),
-    ).toEqual([{ root: cwd, relative: "file-link" }]);
+    ).toEqual([{ root: apiRoot(cwd), relative: "file-link" }]);
     const context = (await commands.run("git_staged_context", {
       cwd,
       paths: ["file-link"],
