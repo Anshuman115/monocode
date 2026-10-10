@@ -392,6 +392,11 @@ export type Block = {
   monoCard?: import("../../monos/model/monoCards").MonoCard;
 };
 
+  /**
+   * The emoji a Mono answered this user message with. Drawn from its reply
+   * when the chat renders; see `features/monos/model/monoReaction`.
+   */
+  monoReaction?: string;
 export type RuntimeMode =
   "supervised" | "auto-accept-edits" | "auto" | "full-access";
 

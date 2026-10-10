@@ -56,6 +56,7 @@ import { PixelMascot } from "../../projects/ui/PixelMascot";
 import type { MonoLook } from "../../monos/model/mono";
 import { monoSpawnedSessions } from "../../monos/model/monoSpawnedSessions";
 import type { MessageDelivery } from "../../monos/model/monoMessaging";
+import { monoReactionBlocks } from "../../monos/model/monoReaction";
 import type { ApprovalDecision } from "../../../integrations/harness";
 import {
   isHarnessAuthError,
@@ -313,9 +314,14 @@ function AgentTranscriptComponent({
   onScrollerChange,
   managed = false,
 }: Props) {
+  const isMonoChat = !!agentMascot;
   const blocks = useMemo(() => {
-    if (!harness || !supportsHarnessLogin(harness)) return sourceBlocks;
-    const visibleBlocks = sourceBlocks.filter(
+    // A Mono's reaction sits on the message it answers, not in a bubble.
+    const chatBlocks = isMonoChat
+      ? monoReactionBlocks(sourceBlocks)
+      : sourceBlocks;
+    if (!harness || !supportsHarnessLogin(harness)) return chatBlocks;
+    const visibleBlocks = chatBlocks.filter(
       (block) =>
         !(
           block.role === "system" &&
@@ -323,10 +329,10 @@ function AgentTranscriptComponent({
           isHarnessAuthError(block.text)
         ),
     );
-    return visibleBlocks.length === sourceBlocks.length
-      ? sourceBlocks
+    return visibleBlocks.length === chatBlocks.length
+      ? chatBlocks
       : visibleBlocks;
-  }, [harness, sourceBlocks]);
+  }, [harness, isMonoChat, sourceBlocks]);
   const editableUserBlockId = useMemo(
     () => lastUserTurnBlock(blocks)?.id,
     [blocks],
@@ -1119,15 +1125,17 @@ function AgentTranscriptComponent({
               workSummaryLine(summarizedWork)
             );
           const showFoldLine =
-            !!habit ||
-            standaloneReply ||
-            live ||
-            durationMs != null ||
-            (inlineWork
-              ? items.some(
-                  (item) => item.type !== "block" || item.block.role !== "user",
-                )
-              : !!fold);
+            !reactedOnly &&
+            (!!habit ||
+              standaloneReply ||
+              live ||
+              durationMs != null ||
+              (inlineWork
+                ? items.some(
+                    (item) =>
+                      item.type !== "block" || item.block.role !== "user",
+                  )
+                : !!fold));
           // It sits where the work starts, from before there is any: the row
           // is there from the first token, so nothing shoves the answer down
           // when the turn folds.
@@ -1186,6 +1194,16 @@ function AgentTranscriptComponent({
                 />
               ) : (
                 <ActivityPhases
+          // A Mono that only reacted answered on the message itself.
+          const reactedOnly =
+            inlineWork &&
+            !live &&
+            items.every(
+              (item) => item.type === "block" && item.block.role === "user",
+            ) &&
+            items.some(
+              (item) => item.type === "block" && !!item.block.monoReaction,
+            );
                   key={item.blocks[0].id}
                   blocks={item.blocks}
                   cwd={cwd}
@@ -1504,6 +1522,7 @@ function AgentTranscriptComponent({
           onDismiss={dismissSelection}
         />
       ) : null}
+              !reactedOnly &&
     </div>
   );
 }
@@ -2299,6 +2318,25 @@ function UserMessageBlock({
     Boolean(text) &&
     !block.draft &&
     !bubbleAttachments?.length &&
+/**
+ * A Mono's emoji answer, on the corner of the message it answers. The top
+ * left keeps it clear of the bubble's tail and the hover actions below.
+ */
+function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
+  return (
+    <span
+      role="img"
+      aria-label={`Reacted ${emoji}`}
+      data-mono-reaction={emoji}
+      className={`${live ? "mono-reaction-in " : ""}absolute -top-4 -left-2 z-[1] rounded-full bg-background-base p-0.5 leading-none`}
+    >
+      <span className="grid h-6 min-w-7 place-items-center rounded-full bg-content/10 px-1.5 font-sans text-[14px]">
+        {emoji}
+      </span>
+    </span>
+  );
+}
+
     !card &&
     !note &&
     !block.ciContext;
@@ -2333,6 +2371,8 @@ function UserMessageBlock({
     const measure = () => {
       // Reading a descendant's size makes the browser lay out an otherwise
       // skipped historical turn. Leave it skipped until it comes into view.
+  // Only a reaction that arrives while the chat is open pops in.
+  const [reactionAtMount] = useState(block.monoReaction);
       if (
         !el.isConnected ||
         (el.checkVisibility &&
@@ -2414,7 +2454,7 @@ function UserMessageBlock({
         <div
           data-chat-message={block.id}
           data-chat-message-role="user"
-          className="select-none font-sans text-6xl leading-none"
+          className="relative select-none font-sans text-6xl leading-none"
         >
           {displayText.trim()}
         </div>
@@ -2485,6 +2525,12 @@ function UserMessageBlock({
                   ))}
                 </div>
               ) : null}
+          {block.monoReaction ? (
+            <MonoReactionBadge
+              emoji={block.monoReaction}
+              live={block.monoReaction !== reactionAtMount}
+            />
+          ) : null}
               {note ? (
                 <div className={text || card ? "mb-2" : ""}>
                   <NoteMiniCard card={note} embedded />
@@ -2660,6 +2706,12 @@ function TurnRow({
     // Hidden tabs and reduced-motion styles may never fire animationend.
     const timer = window.setTimeout(() => {
       setFoldState(folded ? "closed" : "open");
+              {block.monoReaction ? (
+                <MonoReactionBadge
+                  emoji={block.monoReaction}
+                  live={block.monoReaction !== reactionAtMount}
+                />
+              ) : null}
     }, 350);
     return () => window.clearTimeout(timer);
   }, [foldState, folded]);
