@@ -344,6 +344,7 @@ function AgentTranscriptComponent({
   const showJumpRef = useRef(false);
   const distanceFromBottom = useRef(0);
   const lastScrollTop = useRef(0);
+  const pointerScrolling = useRef(false);
   const wheelHold = useRef(0);
   const prependHeight = useRef<number | null>(null);
   const prependAnchor = useRef<{ element: HTMLElement; top: number } | null>(
@@ -425,10 +426,10 @@ function AgentTranscriptComponent({
 
   const syncPinned = useCallback(
     (el: HTMLElement) => {
-      // Layout and our own pins also queue scroll events. Those events must
-      // not stop a Mono following the end before its layout has settled.
-      // Upward wheel, touch, keyboard and scrollbar input release the pin.
-      if (bottomAligned && stickToBottom.current) {
+      // Rendering can shrink and regrow the transcript before observers run,
+      // leaving a browser-clamped offset above the new bottom. An offset alone
+      // cannot identify manual scrolling. Input handlers release the pin.
+      if (stickToBottom.current && !pointerScrolling.current) {
         lastScrollTop.current = el.scrollTop;
         distanceFromBottom.current = 0;
         setShowJump(false);
@@ -450,7 +451,7 @@ function AgentTranscriptComponent({
       if (stickToBottom.current && !wasFollowing) refreshChatMotion.current?.();
       setShowJump(!stickToBottom.current && el.scrollHeight > el.clientHeight);
     },
-    [bottomAligned, setShowJump],
+    [setShowJump],
   );
 
   const rememberScroll = useCallback((el: HTMLElement) => {
@@ -526,40 +527,107 @@ function AgentTranscriptComponent({
         syncPinned(scrollerEl);
     };
     let release: ReturnType<typeof setTimeout> | undefined;
+    let heldScrollTop: number | undefined;
+    const pauseFollowing = () => {
+      stickToBottom.current = false;
+      setShowJump(scrollerEl.scrollHeight > scrollerEl.clientHeight);
+    };
+    const holdFollowing = () => {
+      heldScrollTop ??= scrollerEl.scrollTop;
+      wheelHold.current = performance.now() + WHEEL_HOLD_MS;
+      clearTimeout(release);
+      release = setTimeout(() => {
+        if (!scrollerEl.isConnected) return;
+        if (
+          heldScrollTop !== undefined &&
+          scrollerEl.scrollTop < heldScrollTop &&
+          !scrollClampedToBottom(scrollerEl, heldScrollTop)
+        )
+          pauseFollowing();
+        heldScrollTop = undefined;
+        followTranscript(scrollerEl);
+      }, WHEEL_HOLD_MS);
+    };
     const onWheel = (e: WheelEvent) => {
       if (innerScrollerTakes(scrollerEl, e)) return;
       if (e.deltaY < 0) {
-        stickToBottom.current = false;
-        setShowJump(true);
+        pauseFollowing();
       } else if (e.deltaY === 0) {
         // A trackpad gesture can open with an event that carries no
         // direction, and the rest of it may reach us after the scroll has
         // moved. Hold the pin until its upward events can release it.
-        wheelHold.current = performance.now() + WHEEL_HOLD_MS;
-        clearTimeout(release);
-        release = setTimeout(() => {
-          if (scrollerEl.isConnected) followTranscript(scrollerEl);
-        }, WHEEL_HOLD_MS);
+        holdFollowing();
       }
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (bottomAligned && event.target === scrollerEl) {
-        stickToBottom.current = false;
+      if (event.pointerType !== "touch") pointerScrolling.current = true;
+      if (event.target === scrollerEl) pauseFollowing();
+    };
+    const onPointerUp = () => {
+      if (pointerScrolling.current && scrollerEl.isConnected)
+        syncPinned(scrollerEl);
+      pointerScrolling.current = false;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest("input, textarea, select"))
+      )
+        return;
+      if (
+        event.key !== "ArrowUp" &&
+        event.key !== "PageUp" &&
+        event.key !== "Home" &&
+        !(event.key === " " && event.shiftKey)
+      )
+        return;
+      if (!innerScrollerTakes(scrollerEl, { target, deltaX: 0, deltaY: -1 }))
+        pauseFollowing();
+    };
+    let touchY: number | undefined;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY;
+      holdFollowing();
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const next = event.touches[0]?.clientY;
+      if (touchY !== undefined && next !== undefined && next > touchY) {
+        if (
+          !innerScrollerTakes(scrollerEl, {
+            target: event.target,
+            deltaX: 0,
+            deltaY: touchY - next,
+          })
+        )
+          pauseFollowing();
       }
+      touchY = next;
     };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
     scrollerEl.addEventListener("wheel", onWheel, { passive: true });
     scrollerEl.addEventListener("pointerdown", onPointerDown, {
       passive: true,
     });
+    document.addEventListener("pointerup", onPointerUp, { passive: true });
+    document.addEventListener("pointercancel", onPointerUp, { passive: true });
+    scrollerEl.addEventListener("keydown", onKeyDown);
+    scrollerEl.addEventListener("touchstart", onTouchStart, { passive: true });
+    scrollerEl.addEventListener("touchmove", onTouchMove, { passive: true });
     return () => {
       clearTimeout(release);
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
       scrollerEl.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointercancel", onPointerUp);
+      pointerScrolling.current = false;
+      scrollerEl.removeEventListener("keydown", onKeyDown);
+      scrollerEl.removeEventListener("touchstart", onTouchStart);
+      scrollerEl.removeEventListener("touchmove", onTouchMove);
     };
   }, [
-    bottomAligned,
     scrollerEl,
     followTranscript,
     setShowJump,
