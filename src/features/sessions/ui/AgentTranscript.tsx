@@ -1192,6 +1192,16 @@ function AgentTranscriptComponent({
             ) : (
               workSummaryLine(summarizedWork)
             );
+          // A Mono that only reacted answered on the message itself.
+          const reactedOnly =
+            inlineWork &&
+            !live &&
+            items.every(
+              (item) => item.type === "block" && item.block.role === "user",
+            ) &&
+            items.some(
+              (item) => item.type === "block" && !!item.block.monoReaction,
+            );
           const showFoldLine =
             !reactedOnly &&
             (!!habit ||
@@ -1262,16 +1272,6 @@ function AgentTranscriptComponent({
                 />
               ) : (
                 <ActivityPhases
-          // A Mono that only reacted answered on the message itself.
-          const reactedOnly =
-            inlineWork &&
-            !live &&
-            items.every(
-              (item) => item.type === "block" && item.block.role === "user",
-            ) &&
-            items.some(
-              (item) => item.type === "block" && !!item.block.monoReaction,
-            );
                   key={item.blocks[0].id}
                   blocks={item.blocks}
                   cwd={cwd}
@@ -1522,6 +1522,7 @@ function AgentTranscriptComponent({
                 ? latestTurnAccessory
                 : null}
               {settled &&
+              !reactedOnly &&
               (durationMs != null ||
                 turnEditAction ||
                 standaloneReply ||
@@ -1590,7 +1591,6 @@ function AgentTranscriptComponent({
           onDismiss={dismissSelection}
         />
       ) : null}
-              !reactedOnly &&
     </div>
   );
 }
@@ -2318,6 +2318,25 @@ const TranscriptBlock = memo(function TranscriptBlock({
   );
 });
 
+/**
+ * A Mono's emoji answer, on the corner of the message it answers. The top
+ * left keeps it clear of the bubble's tail and the hover actions below.
+ */
+function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
+  return (
+    <span
+      role="img"
+      aria-label={`Reacted ${emoji}`}
+      data-mono-reaction={emoji}
+      className={`${live ? "mono-reaction-in " : ""}absolute -top-4 -left-2 z-[1] rounded-full bg-background-base p-0.5 leading-none`}
+    >
+      <span className="grid h-6 min-w-7 place-items-center rounded-full bg-content/10 px-1.5 font-sans text-[14px]">
+        {emoji}
+      </span>
+    </span>
+  );
+}
+
 function UserMessageBlock({
   block,
   layout,
@@ -2352,6 +2371,8 @@ function UserMessageBlock({
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const [singleLine, setSingleLine] = useState(false);
+  // Only a reaction that arrives while the chat is open pops in.
+  const [reactionAtMount] = useState(block.monoReaction);
   const textRef = useRef<HTMLElement>(null);
   const card = block.secondOpinion;
   const note = block.noteCard;
@@ -2386,25 +2407,6 @@ function UserMessageBlock({
     Boolean(text) &&
     !block.draft &&
     !bubbleAttachments?.length &&
-/**
- * A Mono's emoji answer, on the corner of the message it answers. The top
- * left keeps it clear of the bubble's tail and the hover actions below.
- */
-function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
-  return (
-    <span
-      role="img"
-      aria-label={`Reacted ${emoji}`}
-      data-mono-reaction={emoji}
-      className={`${live ? "mono-reaction-in " : ""}absolute -top-4 -left-2 z-[1] rounded-full bg-background-base p-0.5 leading-none`}
-    >
-      <span className="grid h-6 min-w-7 place-items-center rounded-full bg-content/10 px-1.5 font-sans text-[14px]">
-        {emoji}
-      </span>
-    </span>
-  );
-}
-
     !card &&
     !note &&
     !block.ciContext;
@@ -2439,8 +2441,6 @@ function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
     const measure = () => {
       // Reading a descendant's size makes the browser lay out an otherwise
       // skipped historical turn. Leave it skipped until it comes into view.
-  // Only a reaction that arrives while the chat is open pops in.
-  const [reactionAtMount] = useState(block.monoReaction);
       if (
         !el.isConnected ||
         (el.checkVisibility &&
@@ -2525,6 +2525,12 @@ function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
           className="relative select-none font-sans text-6xl leading-none"
         >
           {displayText.trim()}
+          {block.monoReaction ? (
+            <MonoReactionBadge
+              emoji={block.monoReaction}
+              live={block.monoReaction !== reactionAtMount}
+            />
+          ) : null}
         </div>
         {deliveryControl}
       </div>
@@ -2593,12 +2599,6 @@ function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
                   ))}
                 </div>
               ) : null}
-          {block.monoReaction ? (
-            <MonoReactionBadge
-              emoji={block.monoReaction}
-              live={block.monoReaction !== reactionAtMount}
-            />
-          ) : null}
               {note ? (
                 <div className={text || card ? "mb-2" : ""}>
                   <NoteMiniCard card={note} embedded />
@@ -2706,6 +2706,12 @@ function MonoReactionBadge({ emoji, live }: { emoji: string; live: boolean }) {
                   startedAt={block.startedAt}
                 />
               ) : null}
+              {block.monoReaction ? (
+                <MonoReactionBadge
+                  emoji={block.monoReaction}
+                  live={block.monoReaction !== reactionAtMount}
+                />
+              ) : null}
             </div>
           )}
         </div>
@@ -2774,12 +2780,6 @@ function TurnRow({
     // Hidden tabs and reduced-motion styles may never fire animationend.
     const timer = window.setTimeout(() => {
       setFoldState(folded ? "closed" : "open");
-              {block.monoReaction ? (
-                <MonoReactionBadge
-                  emoji={block.monoReaction}
-                  live={block.monoReaction !== reactionAtMount}
-                />
-              ) : null}
     }, 350);
     return () => window.clearTimeout(timer);
   }, [foldState, folded]);
