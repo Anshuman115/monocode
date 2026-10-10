@@ -34,7 +34,8 @@ export class HarnessEventQueue {
   private lastForegroundFlush = -Infinity;
 
   constructor(
-    private readonly isForeground: (sessionId: string) => boolean,
+    /** Whether the conversation is on screen; idle parking reads it too. */
+    readonly isForeground: (sessionId: string) => boolean,
     private readonly apply: (
       batches: ReadonlyMap<string, HarnessEvent[]>,
     ) => void,
