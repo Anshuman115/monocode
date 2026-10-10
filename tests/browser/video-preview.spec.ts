@@ -46,5 +46,19 @@ test("file preview decodes, plays and seeks a video, then pauses on tab change",
   const bounds = await video.boundingBox();
   expect(bounds!.width).toBeLessThanOrEqual(850);
   expect(bounds!.height).toBeLessThanOrEqual(600);
+
+  await video.evaluate(async (element: HTMLVideoElement) => {
+    await element.play();
+  });
+  await page.getByRole("button", { name: "Hide workspace" }).click();
+  await expect(video).toBeHidden();
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.paused))
+    .toBe(true);
+  await page.getByRole("button", { name: "Show workspace" }).click();
+  await expect(video).toBeVisible();
+  expect(
+    await video.evaluate((element: HTMLVideoElement) => element.paused),
+  ).toBe(true);
   await page.screenshot({ path: test.info().outputPath("video-preview.png") });
 });

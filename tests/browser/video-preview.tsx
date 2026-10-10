@@ -31,26 +31,35 @@ const fileErrorCounts = new Map<string, number>();
 
 function Fixture() {
   const [pane, setPane] = useState(initialPane);
+  const [visible, setVisible] = useState(true);
   return (
-    <FilePane
-      pane={pane}
-      focused
-      dirtyFileIds={dirtyFileIds}
-      fileErrorCounts={fileErrorCounts}
-      sessions={[]}
-      onFocus={noop}
-      onSelectFile={(_paneId, activeFileId) =>
-        setPane({ ...pane, activeFileId })
-      }
-      onCloseFile={noop}
-      onCloseOtherFiles={noop}
-      onDirtyChange={noop}
-      onErrorCountChange={noop}
-      onReorderFiles={noop}
-      onOpenFile={noop}
-      onUpdatePlan={noop}
-      onBuildPlan={noop}
-    />
+    <div className="flex h-full flex-col">
+      <button type="button" onClick={() => setVisible(!visible)}>
+        {visible ? "Hide workspace" : "Show workspace"}
+      </button>
+      <div className={visible ? "min-h-0 flex-1" : "hidden"}>
+        <FilePane
+          pane={pane}
+          focused
+          visible={visible}
+          dirtyFileIds={dirtyFileIds}
+          fileErrorCounts={fileErrorCounts}
+          sessions={[]}
+          onFocus={noop}
+          onSelectFile={(_paneId, activeFileId) =>
+            setPane({ ...pane, activeFileId })
+          }
+          onCloseFile={noop}
+          onCloseOtherFiles={noop}
+          onDirtyChange={noop}
+          onErrorCountChange={noop}
+          onReorderFiles={noop}
+          onOpenFile={noop}
+          onUpdatePlan={noop}
+          onBuildPlan={noop}
+        />
+      </div>
+    </div>
   );
 }
 
