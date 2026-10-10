@@ -3899,18 +3899,22 @@ function SubagentMascot({
   state: ToolCallState;
   active?: boolean;
 }) {
+  // The slot keeps the row's 14px icon width; the sprite sits a size smaller
+  // inside it so it weighs the same as the line icons around it.
   return (
-    <ProjectMascot
-      project={name}
-      active={active}
-      className={`size-3.5 shrink-0 ${
-        state === "rejected"
-          ? "text-red-400"
-          : state === "pending"
-            ? "text-content/70"
-            : "text-content/45"
-      }`}
-    />
+    <span className="flex size-3.5 shrink-0 items-center justify-center">
+      <ProjectMascot
+        project={name}
+        active={active}
+        className={`size-3 shrink-0 ${
+          state === "rejected"
+            ? "text-red-400"
+            : state === "pending"
+              ? "text-content/70"
+              : "text-content/45"
+        }`}
+      />
+    </span>
   );
 }
 
