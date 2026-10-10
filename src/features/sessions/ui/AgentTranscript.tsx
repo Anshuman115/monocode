@@ -37,6 +37,7 @@ import { GeneratedImage } from "./GeneratedImage";
 import { MonocodeSparkles } from "./MonocodeSparkles";
 import { OrchestratorConstellation } from "./OrchestratorConstellation";
 import { PlanStepsBurst } from "./PlanStepsBurst";
+import { settleWordFades } from "./wordFade";
 import { FilePreview } from "../../files/ui/FilePreview";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { ToolDiffPreview } from "./ToolDiffPreview";
@@ -670,6 +671,7 @@ function AgentTranscriptComponent({
     if (!opened) return;
     const el = scroller.current;
     if (!el) return;
+    settleWordFades(el);
     syncTranscriptViewport(el);
     const restore = restoreScroll.current;
     restoreScroll.current = false;

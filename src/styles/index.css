@@ -3147,7 +3147,10 @@ html.theme-light .mono-pill {
  * Opacity only: a word that moved would jostle the line it is set on. The
  * fade plays as a word's span is added, and words already on screen keep
  * theirs while the reply is coming in. The spans come off once the fade
- * ends, so a finished reply hidden and shown again never replays.
+ * ends, so a finished reply hidden and shown again never replays. One still
+ * fading when its tab hides would replay every word on return, since showing
+ * a `display: none` subtree restarts its animations, so the transcript marks
+ * the words already shown as settled before that first paint.
  */
 @keyframes word-fade-in {
   from {
@@ -3155,7 +3158,7 @@ html.theme-light .mono-pill {
   }
 }
 
-.agent-markdown.word-fading [data-word-fade] {
+.agent-markdown.word-fading [data-word-fade]:not([data-word-settled]) {
   animation: word-fade-in 320ms ease-out both;
 }
 
