@@ -20,6 +20,7 @@ import {
 import { DiscussionEmpty } from "./DiscussionEmpty";
 import { LinkedWorkItemUpdateNotice } from "../../inbox/ui/LinkedWorkItemUpdateNotice";
 import { SessionChangesButton, SessionReview } from "./SessionReview";
+import { sessionEditPaths } from "../model/checkpointEdits";
 import { PromptOutline } from "./PromptOutline";
 import {
   canCompactHarnessContext,
@@ -370,6 +371,10 @@ const LocalSessionPane = memo(function LocalSessionPane({
   );
   const title = sessionDisplayTitle(session.title, session.harness);
   const isEmpty = session.blocks.length === 0;
+  const editedPaths = useMemo(
+    () => (session.busy ? undefined : sessionEditPaths(session.blocks)),
+    [session.blocks, session.busy],
+  );
   const messageDeliveries = useMemo(
     () => monoMessageDeliveries(session),
     [session.queuedMessages, session.queueStatus],
@@ -1044,6 +1049,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                       reviewHidden || !agent ? undefined : (
                         <SessionChangesButton
                           sessionId={session.id}
+                          editedPaths={editedPaths}
                           cwd={workCwd}
                           enabled={visible}
                           busy={!!session.busy}
@@ -1055,6 +1061,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                       reviewHidden || agent ? undefined : (
                         <SessionReview
                           sessionId={session.id}
+                          editedPaths={editedPaths}
                           cwd={workCwd}
                           enabled={visible}
                           busy={!!session.busy}

@@ -345,6 +345,8 @@ export type Block = {
     status?: string;
     detail?: string;
     preview?: ToolPreview;
+    /** Every file in a multi-file edit, retained for checkpoint recovery. */
+    paths?: string[];
     /** Left running by the agent when it yielded; the turn waits on it. */
     background?: boolean;
   };
