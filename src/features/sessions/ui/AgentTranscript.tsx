@@ -243,6 +243,11 @@ type Props = {
   ) => void;
   /** Session-level output shown after the latest reply and before its action row. */
   latestTurnAccessory?: ReactNode;
+  /**
+   * Session-level control in the action row of the latest turn that edited
+   * files. A Mono's chat never ends, so its review stays where it began.
+   */
+  editTurnAction?: ReactNode;
   /** False while another tab is in front; local transcript state is retained. */
   visible?: boolean;
   /** Kept mounted after its pane closed. Showing it again counts as a new visit. */
@@ -301,6 +306,7 @@ function AgentTranscriptComponent({
   onRevealReady,
   onNavigateReady,
   latestTurnAccessory,
+  editTurnAction,
 
   visible = true,
   parked = false,
@@ -651,6 +657,11 @@ function AgentTranscriptComponent({
     (latest, turn, index) =>
       turn[0].monoHabit || turn[0].role === "handoff" ? latest : index,
     -1,
+  );
+  const hasEditTurnAction = editTurnAction != null;
+  const editTurnIndex = useMemo(
+    () => (hasEditTurnAction ? lastEditTurnIndex(turns) : -1),
+    [hasEditTurnAction, turns],
   );
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
@@ -1063,6 +1074,11 @@ function AgentTranscriptComponent({
               )
             : folded;
           const workOpen = openWork[turnId] ?? false;
+          // The action keeps the pane's props, which go stale once parked.
+          const turnEditAction =
+            firstVisibleTurn + turnIndex === editTurnIndex && !parked
+              ? editTurnAction
+              : undefined;
           // The fold line is the turn's status line from the first token to
           // the last: the mark, and the clock beside it. It never moves, so a
           // turn settling does not shuffle the layout around the answer.
@@ -1421,6 +1437,7 @@ function AgentTranscriptComponent({
                 : null}
               {settled &&
               (durationMs != null ||
+                turnEditAction ||
                 standaloneReply ||
                 (inlineWork && firstWork >= 0) ||
                 (spawnedSessions.length > 0 && onShowSessions)) ? (
@@ -1472,6 +1489,7 @@ function AgentTranscriptComponent({
                   onHandoff={
                     onHandoff ? (target) => onHandoff(target, turn) : undefined
                   }
+                  extraAction={turnEditAction}
                 />
               ) : null}
             </div>
@@ -1652,6 +1670,7 @@ function TurnDuration({
   fromModel,
   onSecondOpinion,
   onHandoff,
+  extraAction,
 }: {
   elapsedMs: number | null;
   label?: string;
@@ -1673,6 +1692,7 @@ function TurnDuration({
   fromModel?: string;
   onSecondOpinion?: (target: ModelTarget) => void;
   onHandoff?: (target: ModelTarget) => void;
+  extraAction?: ReactNode;
 }) {
   const label =
     completionLabel ?? formatWorkingDuration(elapsedMs, modelName, true);
@@ -1736,6 +1756,7 @@ function TurnDuration({
             excludeFromModel
           />
         ) : null}
+        {extraAction}
         <TurnMetricsBadge metrics={metrics} elapsedMs={elapsedMs} />
       </span>
       {labelHidden ? null : (
@@ -4864,6 +4885,23 @@ function monoTurnUserBlock(
       return block;
   }
   return blocks.find((block) => block.role === "user");
+}
+
+/** Matches the edit tools whose files the session's review records. */
+function lastEditTurnIndex(turns: Block[][]): number {
+  for (let index = turns.length - 1; index >= 0; index--) {
+    const edited = turns[index].some(
+      (block) =>
+        block.role === "tool" &&
+        isEditTool(
+          block.tool?.kind,
+          block.text || block.tool?.title,
+          block.tool?.preview,
+        ),
+    );
+    if (edited) return index;
+  }
+  return -1;
 }
 
 function sumDurations(durations: (number | undefined)[]): number | undefined {
