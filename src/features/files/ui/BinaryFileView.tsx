@@ -214,8 +214,11 @@ function VideoView({
 
   useEffect(() => {
     const video = videoRef.current;
-    // Restore the source if React replays effects after the cleanup below.
-    if (video && !video.hasAttribute("src")) video.src = url;
+    // Restore the source and restart loading if React replays effects after cleanup.
+    if (video && !video.hasAttribute("src")) {
+      video.src = url;
+      video.load();
+    }
     return () => {
       if (!video) return;
       video.pause();

@@ -197,9 +197,16 @@ describe("BinaryFileView video playback", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:image-preview");
   });
 
-  it("keeps the source after StrictMode replays its effects", async () => {
+  it("restarts loading the restored source after StrictMode replays its effects", async () => {
+    const loadedSources: Array<string | null> = [];
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      loadedSources.push(this.getAttribute("src"));
+    });
     await renderViewer("/repo/clip.mp4", true, true);
     expect(container.querySelector("video")?.src).toBe("blob:image-preview");
+    expect(loadedSources).toEqual([null, "blob:image-preview"]);
   });
 
   it("shows file read errors and allows retry", async () => {
