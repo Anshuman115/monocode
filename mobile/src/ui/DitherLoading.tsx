@@ -13,12 +13,14 @@ import Animated, {
 
 import { encodePng } from "@/features/background/dither";
 
+import { traceSwitch } from "./ScenePager";
 import { useColors } from "./theme";
 
 // A screen's content loading, in the desktop charts' dither: a ring of 3pt
 // cells inked through the 4x4 Bayer pattern (crates/monocode-gpui/src/visuals/
 // dither.rs), its bright head sweeping round from twelve o'clock as the
-// charts' donut does, its tail thinning into scattered cells behind it.
+// charts' donut does, its tail thinning into scattered cells behind it, in the
+// desktop spinner's slate, peach and pink.
 //
 // It shows while the drawer shuts, so nothing in it may load the JS thread.
 // Its frames are drawn once, side by side in one strip, and the strip steps a
@@ -45,8 +47,10 @@ const GROUND_OUT = { delay: 140, duration: 260, easing: Easing.inOut(Easing.quad
 /** How small the ring gets as it goes. */
 const RING_GONE_SCALE = 0.7;
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-/** The tail's ink, scattered through it, as the empty session's field uses. */
-const VIOLET = "#a78bfa";
+/** The desktop's working spinner's inks, top row to bottom
+ *  (crates/monocode-gpui/src/session_mark.rs): slate, peach and pink. The
+ *  ring takes them top to bottom too, so its head runs through all three. */
+const INKS = ["#6f84a3", "#e8b583", "#e47fa6"];
 
 /** Strips drawn so far, by colour and pixel density. */
 const strips = new Map<string, { uri: string; scale: number }>();
@@ -57,16 +61,24 @@ function rgb(hex: string): [number, number, number] {
 }
 
 /** Every frame of the ring, left to right, on a clear ground. */
-function strip(accent: string) {
+function strip() {
   const scale = Math.round(PixelRatio.get());
-  const key = `${accent}:${scale}`;
+  const key = String(scale);
   const cached = strips.get(key);
   if (cached) return cached;
   const cell = CELL * scale;
   const side = SIZE * scale;
   const width = side * FRAMES;
   const pixels = new Uint8Array(width * side * 4);
-  const inks = [rgb(accent), rgb(VIOLET)];
+  const inks = INKS.map(rgb);
+  // Each cell's ink by its height in the ring, the neighbouring two blended
+  // through a dither of their own, offset from the tone's.
+  const inkAt = (row: number, col: number) => {
+    const t = ((row + 0.5) / CELLS) * (inks.length - 1);
+    const i = Math.min(Math.floor(t), inks.length - 2);
+    const mix = (BAYER4[((row + 2) & 3) * 4 + ((col + 1) & 3)] + 0.5) / 16;
+    return inks[t - i > mix ? i + 1 : i];
+  };
   const middle = (INNER + OUTER) / 2;
   const half = (OUTER - INNER) / 2;
   for (let frame = 0; frame < FRAMES; frame++) {
@@ -84,9 +96,7 @@ function strip(accent: string) {
         const tone = Math.max(0, 1 - behind * 1.35) * (0.55 + 0.45 * (1 - Math.abs(r - middle) / half));
         const step = (BAYER4[(row & 3) * 4 + (col & 3)] + 0.5) / 16;
         if (Math.round(tone * 16) / 16 <= step) continue;
-        // Violet creeps in toward the tail, through a dither of its own.
-        const mix = (BAYER4[((row + 2) & 3) * 4 + ((col + 1) & 3)] + 0.5) / 16;
-        const [red, green, blue] = inks[behind > mix * 0.9 ? 1 : 0];
+        const [red, green, blue] = inkAt(row, col);
         for (let y = row * cell; y < (row + 1) * cell; y++) {
           for (let x = col * cell; x < (col + 1) * cell; x++) {
             const at = (y * width + frame * side + x) * 4;
@@ -111,10 +121,9 @@ function strip(accent: string) {
 /** Draws the frames ahead of need, as when the drawer opens, so the cover
  *  has nothing to draw when it goes up. */
 export function useWarmDitherLoading(ready: boolean) {
-  const { accent } = useColors();
   useEffect(() => {
-    if (ready) strip(accent);
-  }, [ready, accent]);
+    if (ready) strip();
+  }, [ready]);
 }
 
 /**
@@ -132,7 +141,7 @@ export function DitherLoading({
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
-  const source = strip(colors.accent);
+  const source = strip();
   const turn = useSharedValue(0);
   const ground = useSharedValue(0);
   const ring = useSharedValue(0);
@@ -152,6 +161,7 @@ export function DitherLoading({
         GROUND_OUT.delay,
         withTiming(0, GROUND_OUT, (finished) => {
           if (finished && onGone) scheduleOnRN(onGone);
+          if (finished) scheduleOnRN(traceSwitch, "cover gone");
         }),
       ),
     );

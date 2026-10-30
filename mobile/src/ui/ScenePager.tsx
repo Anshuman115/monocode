@@ -87,6 +87,15 @@ function usePager() {
   return pager;
 }
 
+/** Dev only: when each stage of a switch from the drawer happens, in ms from
+ *  the tap, in the Metro log, to see where a switch's time goes. */
+let switchStarted = 0;
+export function traceSwitch(stage: string) {
+  if (!__DEV__) return;
+  if (stage === "tap") switchStarted = performance.now();
+  console.log(`[switch] ${Math.round(performance.now() - switchStarted)}ms ${stage}`);
+}
+
 type DrawerActions = {
   open: () => void;
   close: () => void;
@@ -285,10 +294,12 @@ export function ScenePagerHost({
   const route = useRef(pathname);
   const swapFrom = useRef<string | null>(null);
   const finishSwitch = useCallback(() => {
+    traceSwitch("new route arrived");
     swapFrom.current = null;
     afterFrames(SWITCH_FRAMES, () => {
       // A newer switch keeps the cover up for its own screen.
       if (pendingSwitch.current || swapFrom.current) return;
+      traceSwitch("new screen drawn, cover leaving");
       setSwapping(false);
       setSwitching(false);
     });
@@ -300,10 +311,12 @@ export function ScenePagerHost({
   const runSwitch = useCallback(() => {
     const change = pendingSwitch.current;
     pendingSwitch.current = null;
+    traceSwitch("drawer shut, switching");
     const from = route.current;
     swapFrom.current = from;
     setSwapping(true);
     change?.();
+    traceSwitch("switch called");
     // Nothing arrived (the switch went nowhere): don't hold the cover up.
     setTimeout(() => {
       if (swapFrom.current === from) finishSwitch();
@@ -325,6 +338,7 @@ export function ScenePagerHost({
       open: () => animateTo(true),
       close: () => animateTo(false),
       closeThen: (change) => {
+        traceSwitch("tap");
         pendingSwitch.current = change;
         setSwitching(true);
         animateTo(false);

@@ -20,6 +20,7 @@ import { SessionActivity } from "@/features/sessions/SessionActivity";
 import { SessionFrame } from "@/features/sessions/SessionScreen";
 import { WorkspaceDrawer } from "@/features/workspace/WorkspaceDrawer";
 import { WorkspaceProvider } from "@/features/workspace/WorkspaceProvider";
+import { Timed } from "@/ui/Timed";
 import { codeScreenOptions, HEADER_OWN_BLUR } from "@/features/files/codeScreen";
 import { applySavedAppearance } from "@/features/settings/appearance";
 import { ScenePagerHost } from "@/ui/ScenePager";
@@ -142,6 +143,7 @@ function LinkedWorkspace() {
       <SessionNotifications />
       <SessionActivity />
       <ScenePagerHost drawer={<WorkspaceDrawer />}>
+        <Timed id="persistent frame">
         <SessionFrame>
           {/* A native stack: sessions push over their project, and the
               code screens, Changes, settings, the model picker and the project
@@ -165,6 +167,7 @@ function LinkedWorkspace() {
             <Stack.Screen name="changes" options={screens.changes} />
           </Stack>
         </SessionFrame>
+        </Timed>
       </ScenePagerHost>
     </WorkspaceProvider>
   );

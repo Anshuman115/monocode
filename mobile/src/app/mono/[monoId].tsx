@@ -8,6 +8,7 @@ import { effortLabel } from "@/features/models/modelChoice";
 import { useSessionChoice } from "@/features/models/sessionChoice";
 import { useModelCatalog } from "@/features/models/useModelCatalog";
 import { useDrawerSwipe } from "@/ui/ScenePager";
+import { Timed } from "@/ui/Timed";
 import { useConnection } from "@/features/connection/ConnectionProvider";
 import { rememberPlace } from "@/features/workspace/lastPlace";
 import { markMonoSeen } from "@/features/workspace/monoSeen";
@@ -61,6 +62,7 @@ export default function MonoScreen() {
   if (!mono || !conversationId) return <Redirect href="/" />;
 
   return (
+    <Timed id="mono screen">
     <SessionScreen
       pill={{
         icon: <PixelMascot name={mono.mascot} color={mono.color} status={mono.status} size={28} />,
@@ -99,6 +101,7 @@ export default function MonoScreen() {
         ? <NativeTranscript key={mono.id} conversationId={conversationId} agent={agent} />
         : <MonoTranscript key={mono.id} conversationId={conversationId} agent={agent} />}
     </SessionScreen>
+    </Timed>
   );
 }
 

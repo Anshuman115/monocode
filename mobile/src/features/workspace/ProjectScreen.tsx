@@ -72,8 +72,13 @@ import { Icon } from "@/ui/Icon";
 import { androidBackHeader } from "@/ui/AndroidHeader";
 import { GlassBlurTarget, LiquidView } from "@/ui/LiquidView";
 import { useDrawerActions, useDrawerSwipe } from "@/ui/ScenePager";
+import { Timed } from "@/ui/Timed";
 import { useColors } from "@/ui/theme";
 import { usePushedIn, usePushStarted } from "@/ui/usePushedIn";
+
+/** How long after a project's screen arrives its sessions page is built:
+ *  past the drawer's switch, which this would otherwise hold up. */
+const SESSIONS_PAGE_DELAY = 900;
 
 /**
  * A project's screen: a new session, or with `sessionId` one of its sessions.
@@ -135,6 +140,17 @@ export function ProjectScreen({
   );
   // Only a new session has pages; a session is the chat alone.
   const pages = useProjectPages(project.id, !sessionId);
+  // The sessions page is the costliest thing here (its list renders twice as
+  // it loads) and out of sight on arrival, so it is built once the switch
+  // has settled, or at once if the user goes there first. Each project's
+  // starts over, as a switch between projects only swaps the params.
+  const [sessionsFor, setSessionsFor] = useState<string | null>(null);
+  const sessionsReady = sessionsFor === project.id || pages.view === "sessions";
+  useEffect(() => {
+    if (sessionsReady) return;
+    const timer = setTimeout(() => setSessionsFor(project.id), SESSIONS_PAGE_DELAY);
+    return () => clearTimeout(timer);
+  }, [sessionsReady, project.id]);
   // Between pages, mid-swipe or springing to one.
   const swiping = useDerivedValue(() => {
     const at = pages.progress.get();
@@ -460,23 +476,29 @@ export function ProjectScreen({
             pages={pages}
             chat={
               <Animated.View style={[styles.chat, emptyStyle]}>
-                <ProjectEmptySession
-                  project={project}
-                  inView={focused && pages.view === "chat"}
-                  swiping={swiping}
-                  onOpen={(session) => openSession(session.id)}
-                />
+                <Timed id="project new-session page">
+                  <ProjectEmptySession
+                    project={project}
+                    inView={focused && pages.view === "chat"}
+                    swiping={swiping}
+                    onOpen={(session) => openSession(session.id)}
+                  />
+                </Timed>
               </Animated.View>
             }
             sessions={
-              <SessionsPage
-                projectId={project.id}
-                active={pages.view === "sessions"}
-                worktree={
-                  workspace.mode === "existing" ? workspace.worktree : undefined
-                }
-                onOpen={(session) => openSession(session.id)}
-              />
+              sessionsReady ? (
+              <Timed id="project sessions page">
+                <SessionsPage
+                  projectId={project.id}
+                  active={pages.view === "sessions"}
+                  worktree={
+                    workspace.mode === "existing" ? workspace.worktree : undefined
+                  }
+                  onOpen={(session) => openSession(session.id)}
+                />
+              </Timed>
+              ) : null
             }
           />
         )}

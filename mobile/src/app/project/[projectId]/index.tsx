@@ -6,6 +6,7 @@ import { SessionFrame } from "@/features/sessions/SessionScreen";
 import { rememberPlace } from "@/features/workspace/lastPlace";
 import { onProjectPick } from "@/features/workspace/projectPick";
 import { ProjectScreen } from "@/features/workspace/ProjectScreen";
+import { Timed } from "@/ui/Timed";
 import { projectForRoute } from "@/features/workspace/routing";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 import { useNativeHeaderHeight } from "@/ui/useNativeHeaderHeight";
@@ -33,8 +34,10 @@ export default function ProjectRoute() {
   }, [desktop, placeId]);
   if (!project) return <Redirect href="/" />;
   return (
-    <SessionFrame nativeHeaderHeight={headerHeight}>
-      <ProjectScreen project={project} sessionId={undefined} />
-    </SessionFrame>
+    <Timed id="project screen">
+      <SessionFrame nativeHeaderHeight={headerHeight}>
+        <ProjectScreen project={project} sessionId={undefined} />
+      </SessionFrame>
+    </Timed>
   );
 }
