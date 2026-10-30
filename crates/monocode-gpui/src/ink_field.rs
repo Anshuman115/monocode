@@ -442,10 +442,7 @@ impl InkField {
     }
 }
 impl Render for InkField {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.sim.borrow().quiet() {
-            crate::pulse::request(crate::pulse::Rate::Smooth, window, cx);
-        }
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let sim = self.sim.clone();
         div()
             .id("empty-session-ink")
@@ -481,7 +478,15 @@ impl Render for InkField {
             .child(
                 canvas(
                     |_, _, _| {},
-                    move |bounds, _, window, _| sim.borrow_mut().paint(bounds, window),
+                    move |bounds, _, window, cx| {
+                        let mut sim = sim.borrow_mut();
+                        sim.paint(bounds, window);
+                        // Painting initializes the greeting ripple. Lease the
+                        // clock afterwards, including on the very first frame.
+                        if !sim.quiet() {
+                            crate::pulse::request(crate::pulse::Rate::Smooth, window, cx);
+                        }
+                    },
                 )
                 .absolute()
                 .size_full(),
@@ -492,6 +497,54 @@ impl Render for InkField {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn first_paint_starts_the_clock_and_a_quiet_field_releases_it(cx: &mut gpui::TestAppContext) {
+        use std::time::Duration;
+
+        cx.update(|cx| cx.set_reduce_motion(false));
+        let (view, cx) = cx.add_window_view(|_, cx| InkField::new(cx));
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert!(view.sim.borrow().greeted);
+            assert!(!view.sim.borrow().quiet());
+        });
+        cx.update(|_, cx| assert!(crate::pulse::running(cx)));
+
+        view.update(cx, |view, _| {
+            view.sim.borrow_mut().last = Some(Instant::now() - Duration::from_millis(33));
+        });
+        cx.executor().advance_clock(Duration::from_millis(33));
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert!(view.sim.borrow().time >= 0.03));
+
+        view.update(cx, |view, cx| {
+            *view.sim.borrow_mut() = Sim {
+                greeted: true,
+                ..Default::default()
+            };
+            cx.notify();
+        });
+        cx.executor().advance_clock(Duration::from_millis(66));
+        cx.run_until_parked();
+        cx.update(|_, cx| assert!(!crate::pulse::running(cx)));
+
+        cx.simulate_mouse_down(
+            point(px(100.), px(100.)),
+            MouseButton::Left,
+            gpui::Modifiers::default(),
+        );
+        cx.run_until_parked();
+        cx.update(|_, cx| assert!(crate::pulse::running(cx)));
+    }
+
+    #[gpui::test]
+    fn reduced_motion_never_starts_the_ink_clock(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| cx.set_reduce_motion(true));
+        let (_, cx) = cx.add_window_view(|_, cx| InkField::new(cx));
+        cx.run_until_parked();
+        cx.update(|_, cx| assert!(!crate::pulse::running(cx)));
+    }
 
     fn sim() -> Sim {
         let mut sim = Sim::default();
