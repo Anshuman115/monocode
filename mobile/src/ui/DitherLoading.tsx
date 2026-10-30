@@ -1,9 +1,9 @@
 import { useEffect } from "react";
-import { Image, PixelRatio, StyleSheet, View } from "react-native";
+import { Image, PixelRatio, StyleSheet } from "react-native";
+import { scheduleOnRN } from "react-native-worklets";
 import Animated, {
   Easing,
-  FadeIn,
-  FadeOut,
+  withDelay,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -35,10 +35,15 @@ const SIZE = CELLS * CELL;
 /** Frames in a turn, and how long a turn takes. */
 const FRAMES = 24;
 const TURN_MS = 1200;
-/** The cover fades in as the drawer starts to shut, and out over the next
- *  screen once it has drawn, rather than cutting either way. */
-const FADE_IN = FadeIn.duration(150).easing(Easing.out(Easing.quad));
-const FADE_OUT = FadeOut.duration(260).easing(Easing.inOut(Easing.quad));
+/** The cover's arrival: its ground fades in as the drawer starts to shut, the
+ *  ring a beat after. Its leaving, in turn: the ring fades and shrinks as it
+ *  spins, then the ground fades off the next screen. */
+const GROUND_IN = { duration: 150, easing: Easing.out(Easing.quad) };
+const RING_IN = { delay: 70, duration: 180, easing: Easing.out(Easing.quad) };
+const RING_OUT = { duration: 200, easing: Easing.in(Easing.quad) };
+const GROUND_OUT = { delay: 140, duration: 260, easing: Easing.inOut(Easing.quad) };
+/** How small the ring gets as it goes. */
+const RING_GONE_SCALE = 0.7;
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 /** The tail's ink, scattered through it, as the empty session's field uses. */
 const VIOLET = "#a78bfa";
@@ -112,16 +117,50 @@ export function useWarmDitherLoading(ready: boolean) {
   }, [ready, accent]);
 }
 
-/** Fills its parent while a screen's content loads, the ring in its middle. */
-export function DitherLoading() {
+/**
+ * Fills its parent while a screen's content loads, the ring in its middle.
+ * With `leaving` it plays its way out, the ring then the ground, and calls
+ * `onGone` once it is clear, for the parent to let it go; asked to stay again
+ * meanwhile, it comes back.
+ */
+export function DitherLoading({
+  leaving = false,
+  onGone,
+}: {
+  leaving?: boolean;
+  onGone?: () => void;
+}) {
   const colors = useColors();
   const reduced = useReducedMotion();
   const source = strip(colors.accent);
   const turn = useSharedValue(0);
+  const ground = useSharedValue(0);
+  const ring = useSharedValue(0);
   useEffect(() => {
     if (!reduced)
       turn.set(withRepeat(withTiming(FRAMES, { duration: TURN_MS, easing: Easing.linear }), -1));
   }, [turn, reduced]);
+  useEffect(() => {
+    if (!leaving) {
+      ground.set(withTiming(1, GROUND_IN));
+      ring.set(withDelay(RING_IN.delay, withTiming(1, RING_IN)));
+      return;
+    }
+    ring.set(withTiming(0, RING_OUT));
+    ground.set(
+      withDelay(
+        GROUND_OUT.delay,
+        withTiming(0, GROUND_OUT, (finished) => {
+          if (finished && onGone) scheduleOnRN(onGone);
+        }),
+      ),
+    );
+  }, [leaving, ground, ring, onGone]);
+  const groundStyle = useAnimatedStyle(() => ({ opacity: ground.get() }));
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: ring.get(),
+    transform: [{ scale: RING_GONE_SCALE + (1 - RING_GONE_SCALE) * ring.get() }],
+  }));
   const frameStyle = useAnimatedStyle(() => ({
     // A whole frame at a time, so the cells never sit between pixels.
     transform: [{ translateX: -(Math.floor(turn.get()) % FRAMES) * SIZE }],
@@ -130,11 +169,9 @@ export function DitherLoading() {
     <Animated.View
       accessibilityLabel="Loading"
       pointerEvents="none"
-      entering={FADE_IN}
-      exiting={FADE_OUT}
-      style={[styles.fill, { backgroundColor: colors.background }]}
+      style={[styles.fill, { backgroundColor: colors.background }, groundStyle]}
     >
-      <View style={styles.window}>
+      <Animated.View style={[styles.window, ringStyle]}>
         <Animated.View style={[styles.strip, frameStyle]}>
           <Image
             source={{
@@ -146,7 +183,7 @@ export function DitherLoading() {
             style={styles.strip}
           />
         </Animated.View>
-      </View>
+      </Animated.View>
     </Animated.View>
   );
 }

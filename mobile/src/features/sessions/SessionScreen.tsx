@@ -322,6 +322,7 @@ export function SessionFrame({
   // show through the modal's while it is up.
   const pathname = usePathname();
   const swapping = useSceneSwapping();
+  const switching = useSceneSwitching();
   const [scene, setScene] = useState(pathname);
   // Leaving a screen under this frame's header for a native one, the header
   // and cover stay on it until the next screen has arrived, rather than
@@ -329,6 +330,12 @@ export function SessionFrame({
   const holding = swapping && !native && !hasNativeHeader(scene);
   if (scene !== pathname && !isModalRoute(pathname) && !holding) setScene(pathname);
   const covered = !native && hasNativeHeader(scene);
+  // The loading cover stays up through its own way out, the ring then the
+  // ground, once the switch no longer needs it.
+  const covering = switching && !covered;
+  const [coverShown, setCoverShown] = useState(covering);
+  if (covering && !coverShown) setCoverShown(true);
+  const coverGone = useCallback(() => setCoverShown(false), []);
   // Each route's chrome, and the last route's while the header pushes it out.
   const [header, setHeader] = useState<{
     path: string;
@@ -351,7 +358,6 @@ export function SessionFrame({
   const headerPath = header?.path;
   // A switch from the drawer has no push: the header is simply the next
   // screen's, in place, as the drawer shuts over a still frame.
-  const switching = useSceneSwitching();
   const switchingNow = useRef(switching);
   // Before the push's own effect below, which reads it on the same commit.
   useLayoutEffect(() => {
@@ -569,7 +575,9 @@ export function SessionFrame({
                 header and composer stay, the frame's own or the native one.
                 A frame standing aside for a native header's leaves it to that
                 screen's own frame. */}
-            {switching && !covered ? <DitherLoading /> : null}
+            {coverShown ? (
+              <DitherLoading leaving={!covering} onGone={coverGone} />
+            ) : null}
 
             {/* Under the native header too, which is transparent over it. */}
             {covered ? null : (
