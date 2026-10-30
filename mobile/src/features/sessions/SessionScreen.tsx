@@ -13,7 +13,6 @@ import {
   type RefObject,
 } from "react";
 import {
-  ActivityIndicator,
   Platform,
   Text,
   View,
@@ -49,7 +48,8 @@ import {
   useSceneKey,
 } from "@/ui/SceneFade";
 import { GlassBlurTarget, GlassPresence, LiquidView } from "@/ui/LiquidView";
-import { useDrawerActions, useSceneSwitching } from "@/ui/ScenePager";
+import { DitherLoading } from "@/ui/DitherLoading";
+import { useDrawerActions, useSceneSwapping, useSceneSwitching } from "@/ui/ScenePager";
 import { UnreadDot, useAnyUnreadMono } from "@/features/workspace/UnreadDot";
 import { themedStyles, useColors } from "@/ui/theme";
 
@@ -321,8 +321,13 @@ export function SessionFrame({
   // The screen under a modal still has it, so the frame's own header doesn't
   // show through the modal's while it is up.
   const pathname = usePathname();
+  const swapping = useSceneSwapping();
   const [scene, setScene] = useState(pathname);
-  if (scene !== pathname && !isModalRoute(pathname)) setScene(pathname);
+  // Leaving a screen under this frame's header for a native one, the header
+  // and cover stay on it until the next screen has arrived, rather than
+  // going the moment the route changes while it is still on screen.
+  const holding = swapping && !native && !hasNativeHeader(scene);
+  if (scene !== pathname && !isModalRoute(pathname) && !holding) setScene(pathname);
   const covered = !native && hasNativeHeader(scene);
   // Each route's chrome, and the last route's while the header pushes it out.
   const [header, setHeader] = useState<{
@@ -564,11 +569,7 @@ export function SessionFrame({
                 header and composer stay, the frame's own or the native one.
                 A frame standing aside for a native header's leaves it to that
                 screen's own frame. */}
-            {switching && !covered ? (
-              <View accessibilityLabel="Loading" style={styles.switchCover}>
-                <ActivityIndicator color={colors.muted} />
-              </View>
-            ) : null}
+            {switching && !covered ? <DitherLoading /> : null}
 
             {/* Under the native header too, which is transparent over it. */}
             {covered ? null : (
@@ -891,16 +892,6 @@ function HeaderTrailing({ chrome }: { chrome: Chrome }) {
 }
 
 const useStyles = themedStyles((colors) => ({
-  switchCover: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.background,
-  },
   scene: {
     flex: 1,
     backgroundColor: colors.background,

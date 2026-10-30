@@ -13,6 +13,7 @@ import { CircleButton } from "@/ui/CircleButton";
 import { GradualBlur } from "@/ui/GradualBlur";
 import { isModalRoute } from "@/ui/SceneFade";
 import { useDrawerActions, useDrawerOpen } from "@/ui/ScenePager";
+import { useWarmDitherLoading } from "@/ui/DitherLoading";
 import { Shimmer } from "@/ui/Shimmer";
 import { radii, themedStyles, useColors } from "@/ui/theme";
 
@@ -46,6 +47,8 @@ const PROJECT_MASCOT = ICON_SLOT * 0.75;
  */
 export function WorkspaceDrawer() {
   const drawer = useDrawerActions();
+  // The switch's loading cover, drawn while the drawer is open to be picked from.
+  useWarmDitherLoading(useDrawerOpen());
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const styles = useStyles();

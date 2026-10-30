@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { useIsFocused } from "expo-router";
+import { useIsFocused, usePathname } from "expo-router";
 import {
   createContext,
   use,
@@ -47,8 +47,11 @@ const SWIPE_MIN_OFFSET = 5;
 const SWIPE_MIN_DISTANCE = 60;
 const SWIPE_MIN_VELOCITY = 500;
 /** How near shut the scene is when a switch from the drawer goes ahead: the
- *  next screen is built only once the motion is done, so it can't hitch it. */
-const SWITCH_AT = 2;
+ *  next screen is built only once the motion looks done, so it can't hitch
+ *  it. Not at rest: the spring's last few points take as long again. */
+const SWITCH_AT = 8;
+/** The longest the cover waits for the next screen to arrive. */
+const SWAP_TIMEOUT = 1500;
 /** Frames the next screen is given to draw under the loading cover. */
 const SWITCH_FRAMES = 2;
 /** The scene's dimming with the drawer fully open, as that drawer's overlay:
@@ -110,10 +113,17 @@ export function useDrawerActions() {
 
 /** Whether a switch from the drawer is under way, for the screen's frame to
  *  cover its content, and only that, while it loads. */
-const SwitchingContext = createContext(false);
+const SwitchingContext = createContext({ switching: false, swapping: false });
 
 export function useSceneSwitching() {
-  return use(SwitchingContext);
+  return use(SwitchingContext).switching;
+}
+
+/** Whether the switch is swapping one screen for the next right now: the
+ *  frame then covers its content whichever screen is going, so the one
+ *  leaving never shows through as it is replaced. */
+export function useSceneSwapping() {
+  return use(SwitchingContext).swapping;
 }
 
 /** Whether the drawer is open or opening; re-renders as it opens and closes. */
@@ -267,15 +277,38 @@ export function ScenePagerHost({
   const [switching, setSwitching] = useState(false);
   const pendingSwitch = useRef<(() => void) | null>(null);
   const switchWaiting = useSharedValue(false);
+  // The cover comes down once the next screen has arrived, as the route
+  // changing says, and drawn; not a set number of frames after the switch,
+  // as a screen can take longer to arrive and the last one shows through.
+  const [swapping, setSwapping] = useState(false);
+  const pathname = usePathname();
+  const route = useRef(pathname);
+  const swapFrom = useRef<string | null>(null);
+  const finishSwitch = useCallback(() => {
+    swapFrom.current = null;
+    afterFrames(SWITCH_FRAMES, () => {
+      // A newer switch keeps the cover up for its own screen.
+      if (pendingSwitch.current || swapFrom.current) return;
+      setSwapping(false);
+      setSwitching(false);
+    });
+  }, []);
+  useEffect(() => {
+    route.current = pathname;
+    if (swapFrom.current !== null && pathname !== swapFrom.current) finishSwitch();
+  }, [pathname, finishSwitch]);
   const runSwitch = useCallback(() => {
     const change = pendingSwitch.current;
     pendingSwitch.current = null;
+    const from = route.current;
+    swapFrom.current = from;
+    setSwapping(true);
     change?.();
-    afterFrames(SWITCH_FRAMES, () => {
-      // A newer switch keeps the cover up for its own screen.
-      if (!pendingSwitch.current) setSwitching(false);
-    });
-  }, []);
+    // Nothing arrived (the switch went nowhere): don't hold the cover up.
+    setTimeout(() => {
+      if (swapFrom.current === from) finishSwitch();
+    }, SWAP_TIMEOUT);
+  }, [finishSwitch]);
   useAnimatedReaction(
     () => switchWaiting.get() && translateX.get() <= SWITCH_AT,
     (shut, wasShut) => {
@@ -284,6 +317,8 @@ export function ScenePagerHost({
       scheduleOnRN(runSwitch);
     },
   );
+
+  const switchState = useMemo(() => ({ switching, swapping }), [switching, swapping]);
 
   const actions = useMemo<DrawerActions>(
     () => ({
@@ -454,7 +489,7 @@ export function ScenePagerHost({
   return (
     <DrawerActionsContext value={actions}>
       <DrawerOpenContext value={open}>
-        <SwitchingContext value={switching}>
+        <SwitchingContext value={switchState}>
         <ScenePagerContext value={pager}>
           <GestureDetector gesture={pan}>
             <View style={[styles.root, { backgroundColor: colors.drawer }]}>
