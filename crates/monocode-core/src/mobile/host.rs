@@ -34,6 +34,8 @@ const APP_METHODS: &[&str] = &[
     "project.gitAction",
     "session.start",
     "conversation.send",
+    "session.answerQuestion",
+    "session.keepQuestionOpen",
     "session.cancel",
     "session.rename",
     "session.delete",

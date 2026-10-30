@@ -52,6 +52,16 @@ pub(super) struct Mobile {
     publishing: bool,
     /// Persisted session IDs, which stay stable for paired phones.
     ids: HashMap<i64, String>,
+    /// The last message of each Mono conversation not open here, by its
+    /// session, with the update time it was read at: read again only once
+    /// the conversation has changed.
+    mono_previews: HashMap<i64, MonoPreview>,
+}
+
+#[derive(Clone)]
+struct MonoPreview {
+    updated_at: u64,
+    text: Value,
 }
 
 struct CatalogEntry {
@@ -109,6 +119,9 @@ struct Snapshot<'a> {
     waiting: Option<&'static str>,
     mono: Option<String>,
     pending: Vec<turns::Pending>,
+    /// The question the agent waits on, as the phone's card shows it; null
+    /// for none, as always for a saved conversation.
+    question: Value,
 }
 impl Snapshot<'_> {
     fn source(&self) -> turns::Source<'_> {
@@ -455,6 +468,15 @@ impl Shell {
                     .collect()
             })
             .unwrap_or_default();
+        // A Mono's conversation not open here still shows its last message
+        // on the phone, read from its saved history.
+        let saved_monos: Vec<(i64, Option<u64>)> = monos
+            .iter()
+            .filter(|(_, live)| live.is_none())
+            .filter_map(|(mono, _)| mono.session_id)
+            .map(|id| (id, self.session_summaries.get(&id).map(|s| s.updated_at)))
+            .collect();
+        let mut previews = self.mobile.mono_previews.clone();
         let store = self.store.clone();
         let mut ids = self.mobile.ids.clone();
         self.mobile.publishing = true;
@@ -468,6 +490,23 @@ impl Shell {
                         entry.insert(value);
                     }
                 }
+                for (id, updated_at) in &saved_monos {
+                    let fresh = previews
+                        .get(id)
+                        .is_some_and(|p| updated_at.is_some_and(|at| at == p.updated_at));
+                    if fresh {
+                        continue;
+                    }
+                    let Ok(history) = store.load(*id) else {
+                        continue;
+                    };
+                    let text = turns::messages(&history.rows)
+                        .pop()
+                        .map(|m| m["text"].clone())
+                        .unwrap_or(json!(""));
+                    previews.insert(*id, MonoPreview { updated_at: updated_at.unwrap_or(0), text });
+                }
+                previews.retain(|id, _| saved_monos.iter().any(|(saved, _)| saved == id));
                 store.mobile_session_metadata()?
             };
             let mut branches = HashMap::new();
@@ -507,6 +546,10 @@ impl Shell {
                     if let Some(session) = mono.session_id.and_then(|id| ids.get(&id)) {
                         value["sessionId"] = json!(session);
                     }
+                    if let Some(preview) = mono.session_id.and_then(|id| previews.get(&id)) {
+                        value["lastMessage"] = preview.text.clone();
+                        value["lastActiveAt"] = json!(preview.updated_at);
+                    }
                     if let Some(live) = live {
                         for (key, field) in live.as_object().into_iter().flatten() {
                             if !field.is_null() {
@@ -520,14 +563,16 @@ impl Shell {
             Ok::<_, String>((
                 json!({"projects": projects, "monos": monos, "sessions": sessions}),
                 ids,
+                previews,
             ))
         });
         cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |this, _| {
                 this.mobile.publishing = false;
-                if let Ok((catalog, ids)) = result {
+                if let Ok((catalog, ids, previews)) = result {
                     this.mobile.ids = ids;
+                    this.mobile.mono_previews = previews;
                     let _ = host.publish(catalog);
                 }
             });
@@ -720,6 +765,7 @@ impl Shell {
                 "messages": turns::messages(snapshot.rows),
                 "turns": turns::build(&source, start..ids.len()),
                 "busy": snapshot.busy,
+                "question": snapshot.question,
             }))
         };
         if let Some(result) = self.with_live_snapshot(&target, cx, &page) {
@@ -769,6 +815,7 @@ impl Shell {
             waiting,
             mono,
             pending: chat.mobile_pending(cx),
+            question: chat.mobile_question(cx),
         };
         Some(f(&snapshot))
     }
@@ -908,7 +955,7 @@ impl Shell {
                 let ids = turns::turn_ids(&source);
                 let (start, from, older) = watch::window(&ids, from.as_deref(), tail);
                 let built = turns::build(&source, start..ids.len());
-                (from, older, built, snapshot.busy)
+                (from, older, built, snapshot.busy, snapshot.question.clone())
             };
             let built = match self.with_live_snapshot(&target, cx, frame) {
                 Some(built) => built,
@@ -923,11 +970,16 @@ impl Shell {
             let Some(watch) = self.mobile.watches.get_mut(&id) else {
                 continue;
             };
-            let (from, older, built, busy) = built;
+            let (from, older, built, busy, question) = built;
             watch.from = from;
-            let Some((update, baseline)) =
-                watch::update(watch.baseline.as_ref(), busy, older, &built, incremental)
-            else {
+            let Some((update, baseline)) = watch::update(
+                watch.baseline.as_ref(),
+                busy,
+                older,
+                &question,
+                &built,
+                incremental,
+            ) else {
                 continue;
             };
             match host.push(&id, update) {
@@ -1117,6 +1169,25 @@ impl Shell {
             }
             ("session.delete", Target::Session(id)) => {
                 self.delete_session(*id, window, cx);
+                Ok(reply)
+            }
+            ("session.answerQuestion" | "session.keepQuestionOpen", target) => {
+                let view = match target {
+                    Target::Session(id) => self.sessions.get(id).cloned(),
+                    Target::Mono(mono) => {
+                        self.monos.as_ref().and_then(|m| m.read(cx).open_chat(mono))
+                    }
+                }
+                .ok_or("This question was already answered")?;
+                let request_id = params["requestId"]
+                    .as_u64()
+                    .ok_or("This question was already answered")?;
+                // Keeping it open sends no reply, only holds a timed question.
+                let answer = request.method == "session.answerQuestion";
+                let answered = answer.then(|| &params["reply"]);
+                view.update(cx, |v, cx| {
+                    v.mobile_answer_question(request_id, answered, cx)
+                })?;
                 Ok(reply)
             }
             ("session.rename", Target::Mono(_)) => {
@@ -1652,6 +1723,7 @@ fn saved_snapshot<'a>(saved: &'a Saved, mono: Option<String>) -> Snapshot<'a> {
         waiting: None,
         mono,
         pending: Vec::new(),
+        question: Value::Null,
     }
 }
 

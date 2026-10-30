@@ -9,7 +9,8 @@ import { MONOCODE_MARK } from "@/ui/brand";
 import { CircleButton } from "@/ui/CircleButton";
 import { GradualBlur } from "@/ui/GradualBlur";
 import { isModalRoute } from "@/ui/SceneFade";
-import { useDrawerActions } from "@/ui/ScenePager";
+import { useDrawerActions, useDrawerOpen } from "@/ui/ScenePager";
+import { Shimmer } from "@/ui/Shimmer";
 import { radii, themedStyles, useColors } from "@/ui/theme";
 
 import { pickProject } from "./projectPick";
@@ -133,7 +134,8 @@ export function WorkspaceDrawer() {
   );
 }
 
-/** A Mono: its mascot showing whether it works or needs you, and its last line. */
+/** A Mono: its mascot, and under its name what it is doing, or else its
+ *  conversation's last line. */
 const MonoRow = memo(function MonoRow({
   mono,
   active,
@@ -144,10 +146,18 @@ const MonoRow = memo(function MonoRow({
   onPress: (id: string) => void;
 }) {
   const styles = useStyles();
+  // The shimmer only runs where it can be seen.
+  const shown = useDrawerOpen();
+  const detail =
+    mono.status === "working"
+      ? "Working…"
+      : mono.status === "needs-you"
+        ? "Needs you"
+        : oneLine(mono.lastMessage) || "No messages yet";
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={mono.name}
+      accessibilityLabel={`${mono.name}, ${detail}`}
       accessibilityState={{ selected: active }}
       onPress={() => onPress(mono.id)}
       style={({ pressed }) => [styles.row, (active || pressed) && styles.rowActive]}
@@ -162,16 +172,27 @@ const MonoRow = memo(function MonoRow({
         <Text style={styles.rowLabel} numberOfLines={1}>
           {mono.name}
         </Text>
-        {mono.lastMessage ? (
-          <Text style={styles.rowDetail} numberOfLines={1}>
-            {mono.lastMessage}
+        {mono.status === "working" && shown ? (
+          <Shimmer style={styles.rowDetail}>{detail}</Shimmer>
+        ) : (
+          <Text
+            style={[styles.rowDetail, mono.status === "needs-you" && styles.rowNeedsYou]}
+            numberOfLines={1}
+          >
+            {detail}
           </Text>
-        ) : null}
+        )}
       </View>
       {mono.unread > 0 ? <View style={styles.unread} /> : null}
     </Pressable>
   );
 });
+
+/** The first line's worth of a message, its line breaks and markdown runs of
+ *  spaces folded. */
+function oneLine(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
 
 /** A project, under its mascot. */
 const ProjectRow = memo(function ProjectRow({
@@ -278,6 +299,9 @@ const useStyles = themedStyles((colors) => ({
     color: colors.muted,
     fontSize: 13,
     marginTop: 1,
+  },
+  rowNeedsYou: {
+    color: colors.caution,
   },
   unread: {
     width: 8,
