@@ -67,6 +67,7 @@ import {
   type Workspace,
 } from "@/features/workspace/WorkspaceMenu";
 import { ComposerWorkspace } from "@/features/workspace/ComposerWorkspace";
+import { UnreadDot, useAnyUnreadMono } from "@/features/workspace/UnreadDot";
 import { Icon } from "@/ui/Icon";
 import { androidBackHeader } from "@/ui/AndroidHeader";
 import { GlassBlurTarget, LiquidView } from "@/ui/LiquidView";
@@ -96,6 +97,8 @@ export function ProjectScreen({
   const [openAfterStarting] = useOpenSessionAfterStarting();
   const colors = useColors();
   const drawer = useDrawerActions();
+  // Read here: the native header's buttons render outside this tree.
+  const unread = useAnyUnreadMono();
   // A session is pushed over its project and swipes back; only the project
   // itself swipes the drawer open.
   useDrawerSwipe(!sessionId);
@@ -274,11 +277,12 @@ export function ProjectScreen({
   );
   const menuButton = (
     <ProjectHeaderButton
-      label="Projects and monos"
+      label={unread ? "Projects and monos, new replies" : "Projects and monos"}
       onPress={drawer.open}
     >
       {/* The drawer's button, as on every screen it opens from. */}
       <Icon name="menu" size={22} color={colors.content} />
+      {unread ? <UnreadDot /> : null}
     </ProjectHeaderButton>
   );
   const settingsButton = (

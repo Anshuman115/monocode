@@ -50,9 +50,13 @@ import {
 } from "@/ui/SceneFade";
 import { GlassBlurTarget, GlassPresence, LiquidView } from "@/ui/LiquidView";
 import { useDrawerActions, useSceneSwitching } from "@/ui/ScenePager";
+import { UnreadDot, useAnyUnreadMono } from "@/features/workspace/UnreadDot";
 import { themedStyles, useColors } from "@/ui/theme";
 
 const HEADER_HEIGHT = 44;
+/** The frame's own header (a mono's) below the status bar: flush with it, so
+ *  its buttons sit level with the native header's on a project. */
+const HEADER_GAP = 0;
 /** The scroll-to-end button above the composer. */
 const JUMP = 36;
 /** Gap between the composer and the keyboard while it is open. */
@@ -423,6 +427,8 @@ export function SessionFrame({
         }));
   // The menu button opens the drawer of projects and monos.
   const drawer = useDrawerActions();
+  // Dotted while a mono has a reply the user hasn't seen.
+  const unread = useAnyUnreadMono();
   const insets = useSafeAreaInsets();
   const extraContentPadding = useSharedValue(0);
   const restingHeight = useRef<number | null>(null);
@@ -454,7 +460,7 @@ export function SessionFrame({
     ],
   }));
 
-  const headerTop = insets.top + 6;
+  const headerTop = insets.top + HEADER_GAP;
   // The outer frame contains the native navigator and its header surfaces.
   // Recording that whole tree can include a blur sampling its own RenderNode.
   // Only the per-screen frame may record content for its sibling surfaces.
@@ -609,11 +615,14 @@ export function SessionFrame({
                   ) : null,
               )}
               <View style={[styles.header, { top: headerTop }]}>
-                <CircleButton
-                  icon="menu"
-                  label="Projects and monos"
-                  onPress={drawer.open}
-                />
+                <View>
+                  <CircleButton
+                    icon="menu"
+                    label={unread ? "Projects and monos, new replies" : "Projects and monos"}
+                    onPress={drawer.open}
+                  />
+                  {unread ? <UnreadDot /> : null}
+                </View>
                 <View style={styles.titleBlock}>
                   {centerLayers.map((layer) => (
                     <HeaderPiece

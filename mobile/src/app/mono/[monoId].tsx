@@ -1,4 +1,4 @@
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo } from "react";
 import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
@@ -10,6 +10,7 @@ import { useModelCatalog } from "@/features/models/useModelCatalog";
 import { useDrawerSwipe } from "@/ui/ScenePager";
 import { useConnection } from "@/features/connection/ConnectionProvider";
 import { rememberPlace } from "@/features/workspace/lastPlace";
+import { markMonoSeen } from "@/features/workspace/monoSeen";
 import { Composer } from "@/features/sessions/Composer";
 import { QuestionCard } from "@/features/sessions/QuestionCard";
 import { EmptySession } from "@/features/sessions/EmptySession";
@@ -38,6 +39,11 @@ export default function MonoScreen() {
   useEffect(() => {
     if (placeId) rememberPlace(desktop, { kind: "mono", id: placeId });
   }, [desktop, placeId]);
+  // Its replies are seen as they arrive while its chat is in front.
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (focused && mono) markMonoSeen(desktop, mono);
+  }, [focused, desktop, mono]);
   // Stable, so the memoized turns keep their rows across polls.
   const name = mono?.name ?? "";
   const mascot = mono?.mascot ?? "";
@@ -60,6 +66,8 @@ export default function MonoScreen() {
         icon: <PixelMascot name={mono.mascot} color={mono.color} status={mono.status} size={28} />,
         label: mono.name,
       }}
+      // Settings on the right, as on a project.
+      action={{ icon: "settings", label: "Settings", onPress: () => router.push("/settings") }}
       composer={
         <>
           {conversation.question ? (

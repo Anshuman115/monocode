@@ -30,7 +30,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { useColors } from "./theme";
+import { LinearGradient } from "expo-linear-gradient";
+
+import { useColors, useScheme } from "./theme";
 
 // The Expo Router drawer's motion (react-native-drawer-layout): its spring and
 // its swipe thresholds, for the pages and the drawer alike.
@@ -49,8 +51,13 @@ const SWIPE_MIN_VELOCITY = 500;
 const SWITCH_AT = 2;
 /** Frames the next screen is given to draw under the loading cover. */
 const SWITCH_FRAMES = 2;
-/** The scene's dimming with the drawer fully open, as that drawer's overlay. */
-const OVERLAY_OPACITY = 0.5;
+/** The scene's dimming with the drawer fully open, as that drawer's overlay:
+ *  in dark mode only, as a light scene dimmed with black reads as going dark. */
+const OVERLAY_OPACITY = { dark: 0.5, light: 0 } as const;
+/** The shadow the scene casts on the drawer as it moves aside: a soft band
+ *  along its left edge, drawn once and moved with the scene, as a live
+ *  shadow on a full-screen view is redrawn each frame and hitches. */
+const EDGE_SHADOW = { width: 18, dark: "rgba(0,0,0,0.35)", light: "rgba(0,0,0,0.10)" } as const;
 /** What the current drag moves. */
 const NONE = 0;
 const PAGES = 1;
@@ -434,8 +441,14 @@ export function ScenePagerHost({
   const sceneStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.get() }],
   }));
+  const scheme = useScheme();
+  const dim = OVERLAY_OPACITY[scheme];
+  // Only there while the scene is aside, so nothing shows at rest.
+  const edgeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.get(), [0, 24], [0, 1], "clamp"),
+  }));
   const overlayStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.get(), [0, drawerWidth], [0, OVERLAY_OPACITY], "clamp"),
+    opacity: interpolate(translateX.get(), [0, drawerWidth], [0, dim], "clamp"),
   }));
 
   return (
@@ -455,6 +468,16 @@ export function ScenePagerHost({
               <Animated.View
                 style={[styles.scene, { backgroundColor: colors.background }, sceneStyle]}
               >
+                {drawer ? (
+                  <Animated.View pointerEvents="none" style={[styles.edge, edgeStyle]}>
+                    <LinearGradient
+                      colors={["transparent", EDGE_SHADOW[scheme]]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  </Animated.View>
+                ) : null}
                 {children}
                 <Animated.View
                   pointerEvents="none"
@@ -489,6 +512,13 @@ const styles = StyleSheet.create({
   },
   scene: {
     flex: 1,
+  },
+  edge: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: -EDGE_SHADOW.width,
+    width: EDGE_SHADOW.width,
   },
   overlay: {
     ...StyleSheet.absoluteFill,

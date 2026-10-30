@@ -3,7 +3,9 @@ import { memo } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useConnection } from "@/features/connection/ConnectionProvider";
 import { PixelMascot } from "@/features/mascots/PixelMascot";
+import { useUnreadMonos } from "./monoSeen";
 import { plainText } from "@/features/sessions/markdownParser";
 import { ProjectMascot } from "@/features/mascots/ProjectMascot";
 import { MONOCODE_MARK } from "@/ui/brand";
@@ -48,6 +50,7 @@ export function WorkspaceDrawer() {
   const colors = useColors();
   const styles = useStyles();
   const { projects, monos } = useWorkspace();
+  const unread = useUnreadMonos(useConnection().pairing?.desktop.fingerprint, monos);
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ projectId?: string; monoId?: string }>();
   const onMono = pathname.startsWith("/mono/");
@@ -108,6 +111,7 @@ export function WorkspaceDrawer() {
               <MonoRow
                 key={mono.id}
                 mono={mono}
+                unread={unread.has(mono.id)}
                 active={mono.id === activeMono}
                 onPress={openMono}
               />
@@ -153,10 +157,13 @@ export function WorkspaceDrawer() {
  *  conversation's last line. */
 const MonoRow = memo(function MonoRow({
   mono,
+  unread,
   active,
   onPress,
 }: {
   mono: Mono;
+  /** A reply it sent that the user hasn't seen. */
+  unread: boolean;
   active: boolean;
   onPress: (id: string) => void;
 }) {
@@ -198,7 +205,7 @@ const MonoRow = memo(function MonoRow({
           </Text>
         )}
       </View>
-      {mono.unread > 0 ? <View style={styles.unread} /> : null}
+      {unread ? <View style={styles.unread} /> : null}
     </Pressable>
   );
 });
