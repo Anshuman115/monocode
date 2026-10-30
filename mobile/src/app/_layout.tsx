@@ -18,6 +18,7 @@ import { WorkspaceGate } from "@/features/connection/WorkspaceGate";
 import { SessionNotifications } from "@/features/notifications/SessionNotifications";
 import { SessionActivity } from "@/features/sessions/SessionActivity";
 import { SessionFrame } from "@/features/sessions/SessionScreen";
+import { WorkspaceDrawer } from "@/features/workspace/WorkspaceDrawer";
 import { WorkspaceProvider } from "@/features/workspace/WorkspaceProvider";
 import { codeScreenOptions, HEADER_OWN_BLUR } from "@/features/files/codeScreen";
 import { applySavedAppearance } from "@/features/settings/appearance";
@@ -140,7 +141,7 @@ function LinkedWorkspace() {
     <WorkspaceProvider key={connection.pairing?.desktop.deviceId}>
       <SessionNotifications />
       <SessionActivity />
-      <ScenePagerHost>
+      <ScenePagerHost drawer={<WorkspaceDrawer />}>
         <SessionFrame>
           {/* A native stack: sessions push over their project, and the
               code screens, Changes, settings, the model picker and the project

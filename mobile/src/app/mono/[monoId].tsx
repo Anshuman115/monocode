@@ -4,6 +4,7 @@ import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
+import { useDrawerSwipe } from "@/ui/ScenePager";
 import { Composer } from "@/features/sessions/Composer";
 import { EmptySession } from "@/features/sessions/EmptySession";
 import { SessionScreen } from "@/features/sessions/SessionScreen";
@@ -21,6 +22,7 @@ import {
 export default function MonoScreen() {
   const { monoId } = useLocalSearchParams<{ monoId: string }>();
   const { monos, sendMessage, stop } = useWorkspace();
+  useDrawerSwipe();
   const mono = monos.find((m) => m.id === monoId);
   const conversationId = mono ? monoConversationId(mono.id) : null;
   const conversation = useConversation(conversationId);

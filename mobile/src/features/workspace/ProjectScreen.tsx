@@ -70,6 +70,7 @@ import { ComposerWorkspace } from "@/features/workspace/ComposerWorkspace";
 import { Icon } from "@/ui/Icon";
 import { androidBackHeader } from "@/ui/AndroidHeader";
 import { GlassBlurTarget, LiquidView } from "@/ui/LiquidView";
+import { useDrawerActions, useDrawerSwipe } from "@/ui/ScenePager";
 import { useColors } from "@/ui/theme";
 import { usePushedIn, usePushStarted } from "@/ui/usePushedIn";
 
@@ -77,8 +78,9 @@ import { usePushedIn, usePushStarted } from "@/ui/usePushedIn";
  * A project's screen: a new session, or with `sessionId` one of its sessions.
  * A new session comes first, then the project's sessions to its right;
  * swiping left slides the sessions in (and the composer out with the new
- * session), the header switch following the finger. The menu button opens
- * the project picker, and the button on the right settings; a session's
+ * session), the header switch following the finger; a swipe right from the
+ * new session opens the drawer. The project's mascot opens it too, and the
+ * button on the right settings; a session's
  * right has its changes and a menu of its actions instead. A session, or
  * one just started, is pushed over it as a screen of its own: its chat under
  * the stack's native header (see the session route).
@@ -93,6 +95,10 @@ export function ProjectScreen({
   const { startSession, sendMessage, stop } = useWorkspace();
   const [openAfterStarting] = useOpenSessionAfterStarting();
   const colors = useColors();
+  const drawer = useDrawerActions();
+  // A session is pushed over its project and swipes back; only the project
+  // itself swipes the drawer open.
+  useDrawerSwipe(!sessionId);
   const blurTarget = use(GlassBlurTarget);
   // What it runs with, as the model picker, a route over it, sets it.
   const { session, chosen, startAccess, accounts } = useSessionChoice(project, sessionId);
@@ -268,11 +274,8 @@ export function ProjectScreen({
   );
   const projectAvatar = (
     <ProjectHeaderButton
-      label={`Switch project, ${project.name}`}
-      onPress={() => router.push({
-        pathname: "/projects",
-        params: { current: project.id },
-      })}
+      label={`Projects and monos, ${project.name}`}
+      onPress={drawer.open}
     >
       <ProjectMascot
         project={project.path}

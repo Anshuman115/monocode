@@ -3,24 +3,36 @@ import { useIsFocused } from "expo-router";
 import {
   createContext,
   use,
+  useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-import { Keyboard, StyleSheet, useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import {
+  BackHandler,
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  interpolate,
   ReduceMotion,
   useAnimatedReaction,
+  useAnimatedStyle,
   useSharedValue,
   withSpring,
   type SharedValue,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
+import { useColors } from "./theme";
+
 // The Expo Router drawer's motion (react-native-drawer-layout): its spring and
-// its swipe thresholds, as the pages moved when a drawer drove them.
+// its swipe thresholds, for the pages and the drawer alike.
 const SPRING = {
   stiffness: 1000,
   damping: 500,
@@ -31,6 +43,12 @@ const SPRING = {
 const SWIPE_MIN_OFFSET = 5;
 const SWIPE_MIN_DISTANCE = 60;
 const SWIPE_MIN_VELOCITY = 500;
+/** The scene's dimming with the drawer fully open, as that drawer's overlay. */
+const OVERLAY_OPACITY = 0.5;
+/** What the current drag moves. */
+const NONE = 0;
+const PAGES = 1;
+const DRAWER = 2;
 
 type ScenePager = {
   /** The page index: 0 on the first page, 1 on the second, in between while dragging. */
@@ -51,6 +69,44 @@ function usePager() {
   const pager = use(ScenePagerContext);
   if (!pager) throw new Error("useScenePager must be used inside ScenePagerHost");
   return pager;
+}
+
+type DrawerActions = {
+  open: () => void;
+  close: () => void;
+  /** Lets a swipe right open the drawer while a screen that wants it is in
+   *  front; returns the undo. */
+  allowSwipe: () => () => void;
+};
+
+/** Never changes, so what only opens or closes the drawer doesn't re-render
+ *  as it moves. */
+const DrawerActionsContext = createContext<DrawerActions | null>(null);
+const DrawerOpenContext = createContext(false);
+
+/** The drawer's actions, which never change. */
+export function useDrawerActions() {
+  const actions = use(DrawerActionsContext);
+  if (!actions) throw new Error("useDrawerActions must be used inside ScenePagerHost");
+  return actions;
+}
+
+/** Whether the drawer is open or opening; re-renders as it opens and closes. */
+export function useDrawerOpen() {
+  return use(DrawerOpenContext);
+}
+
+/**
+ * Lets a swipe right open the drawer while this screen is in front, and not
+ * once another is pushed or presented over it, so it never holds up the
+ * stack's own swipe back.
+ */
+export function useDrawerSwipe(active = true) {
+  const { allowSwipe } = useDrawerActions();
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (focused && active) return allowSwipe();
+  }, [focused, active, allowSwipe]);
 }
 
 /**
@@ -113,9 +169,26 @@ export function useScenePager(
   return progress;
 }
 
-/** The pan behind useScenePager, over the whole scene. */
-export function ScenePagerHost({ children }: { children: ReactNode }) {
+/**
+ * The pan behind useScenePager, over the whole scene, and the side drawer it
+ * also drives, as the Expo Router drawer's "back" type: the scene slides
+ * aside, dimming, to uncover `drawer` fixed underneath. Shut, a swipe goes to
+ * the pages while there is one that way, and otherwise a deliberate swipe
+ * right opens the drawer; open, a swipe left anywhere or a tap on the scene
+ * shuts it. One pan for both, so they never
+ * fight over a swipe. Nothing but a transform and an opacity moves, so the
+ * scene's glass and blur aren't redrawn as it goes.
+ */
+export function ScenePagerHost({
+  children,
+  drawer,
+}: {
+  children: ReactNode;
+  drawer?: ReactNode;
+}) {
+  const colors = useColors();
   const { width } = useWindowDimensions();
+  const drawerWidth = Math.min(Math.round(width * 0.82), 330);
   const progress = useSharedValue(0);
   const target = useSharedValue(0);
   const enabled = useSharedValue(false);
@@ -128,22 +201,78 @@ export function ScenePagerHost({ children }: { children: ReactNode }) {
     pages,
     setOn,
   }));
+  /** How far the scene has moved aside for the drawer. */
+  const translateX = useSharedValue(0);
+  const isOpen = useSharedValue(false);
+  // Mirrors isOpen for React: the scene's tap to close, and the drawer's
+  // own contents.
+  const [open, setOpen] = useState(false);
+  /** How many screens in front let a swipe open the drawer: one at a time,
+   *  but a switch can mount the next before the last lets go. */
+  const swipes = useSharedValue(0);
+  const [swipeCount, setSwipeCount] = useState(0);
   /** Where the finger landed, to tell which way it goes. */
   const touchX = useSharedValue(0);
   const touchY = useSharedValue(0);
-  /** Where the pages were when the finger landed, even mid-animation. */
+  /** Where the pages or the scene were when the finger landed, even
+   *  mid-animation. */
   const dragStart = useSharedValue(0);
-  /** Whether the current drag moves the pages; none on a screen without them. */
-  const paging = useSharedValue(false);
+  /** What the current drag moves: NONE, PAGES or DRAWER. */
+  const moving = useSharedValue(NONE);
 
-  // Built once per width: a new gesture each render would be attached anew.
+  // Side effects of opening or shutting; the motion itself runs on the UI thread.
+  const onToggled = useCallback((willOpen: boolean) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (willOpen) Keyboard.dismiss();
+    setOpen(willOpen);
+  }, []);
+
+  const animateTo = useCallback(
+    (willOpen: boolean) => {
+      if (isOpen.get() !== willOpen) onToggled(willOpen);
+      isOpen.set(willOpen);
+      translateX.set(withSpring(willOpen ? drawerWidth : 0, SPRING));
+    },
+    [isOpen, translateX, drawerWidth, onToggled],
+  );
+
+  const actions = useMemo<DrawerActions>(
+    () => ({
+      open: () => animateTo(true),
+      close: () => animateTo(false),
+      allowSwipe: () => {
+        swipes.set(swipes.get() + 1);
+        setSwipeCount((count) => count + 1);
+        return () => {
+          swipes.set(swipes.get() - 1);
+          setSwipeCount((count) => count - 1);
+        };
+      },
+    }),
+    [animateTo, swipes],
+  );
+
+  // Android's back shuts the drawer before it leaves the screen.
+  useEffect(() => {
+    if (!open) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      animateTo(false);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [open, animateTo]);
+
+  const hasDrawer = !!drawer;
+  // Built once per size: a new gesture each render would be attached anew.
   const pan = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(on)
-        // Takes only a swipe towards a page there is, so one off the edge (left
-        // on the last page, say) goes to what is under the finger, such as a
-        // row's own swipe actions.
+        // Not rebuilt as the drawer opens or shuts: a new gesture would be
+        // attached anew mid-animation.
+        .enabled(on || (hasDrawer && swipeCount > 0))
+        // Takes only a swipe towards a page there is, or the drawer's way, so
+        // one off the edge (left on the last page, say) goes to what is under
+        // the finger, such as a row's own swipe actions.
         .manualActivation(true)
         .onTouchesDown((event) => {
           const touch = event.allTouches[0];
@@ -151,6 +280,9 @@ export function ScenePagerHost({ children }: { children: ReactNode }) {
           touchY.set(touch.absoluteY);
         })
         .onTouchesMove((event, manager) => {
+          // Decided: the moves after are the drag's own, and judging them
+          // again would fail the drawer as soon as the scene moved aside.
+          if (moving.get() !== NONE) return;
           const touch = event.allTouches[0];
           const dx = touch.absoluteX - touchX.get();
           const dy = touch.absoluteY - touchY.get();
@@ -159,16 +291,33 @@ export function ScenePagerHost({ children }: { children: ReactNode }) {
             return;
           }
           if (Math.abs(dx) <= SWIPE_MIN_OFFSET) return;
+          // Open, the drawer takes the swipe that shuts it and nothing else.
+          if (isOpen.get() || translateX.get() > 1) {
+            if (hasDrawer && dx < 0) {
+              moving.set(DRAWER);
+              manager.activate();
+            } else manager.fail();
+            return;
+          }
           const next = target.get() + (dx < 0 ? 1 : -1);
-          if (enabled.get() && next >= 0 && next < pages.get()) manager.activate();
-          else manager.fail();
+          if (enabled.get() && next >= 0 && next < pages.get()) {
+            moving.set(PAGES);
+            manager.activate();
+          } else if (hasDrawer && swipes.get() > 0 && dx > 0) {
+            moving.set(DRAWER);
+            manager.activate();
+          } else manager.fail();
         })
         .onStart(() => {
-          paging.set(enabled.get());
-          dragStart.set(progress.get());
+          dragStart.set(moving.get() === DRAWER ? translateX.get() : progress.get());
         })
         .onUpdate((event) => {
-          if (!paging.get()) return;
+          if (moving.get() === DRAWER) {
+            const next = dragStart.get() + event.translationX;
+            translateX.set(Math.min(drawerWidth, Math.max(0, next)));
+            return;
+          }
+          if (moving.get() !== PAGES) return;
           const next = dragStart.get() - event.translationX / width;
           // Within a page of where it started, so a long drag can't skip one.
           const from = target.get();
@@ -178,39 +327,119 @@ export function ScenePagerHost({ children }: { children: ReactNode }) {
           );
         })
         .onEnd((event) => {
-          if (!paging.get()) return;
           const { translationX, velocityX } = event;
-          // A flick or a long enough drag turns the page in its direction;
-          // anything else snaps back to where it was.
+          // A flick or a long enough drag goes on in its direction; anything
+          // else snaps back to where it was.
           const decisive =
             (Math.abs(translationX) > SWIPE_MIN_OFFSET &&
               Math.abs(velocityX) > SWIPE_MIN_VELOCITY) ||
             Math.abs(translationX) > SWIPE_MIN_DISTANCE;
+          const leftward = (velocityX === 0 ? translationX : velocityX) < 0;
+          if (moving.get() === DRAWER) {
+            // The Expo Router drawer's rule, both ways: a flick or a long
+            // enough drag goes its way, a nudge springs back.
+            const willOpen = decisive ? !leftward : isOpen.get();
+            if (isOpen.get() !== willOpen) scheduleOnRN(onToggled, willOpen);
+            isOpen.set(willOpen);
+            // Springs right here on the UI thread with the finger's velocity,
+            // so there is no frame of lag waiting on JS.
+            translateX.set(
+              withSpring(willOpen ? drawerWidth : 0, { ...SPRING, velocity: velocityX }),
+            );
+            return;
+          }
+          if (moving.get() !== PAGES) return;
           const from = target.get();
           const page = decisive
-            ? Math.min(
-                pages.get() - 1,
-                Math.max(0, from + ((velocityX === 0 ? translationX : velocityX) < 0 ? 1 : -1)),
-              )
+            ? Math.min(pages.get() - 1, Math.max(0, from + (leftward ? 1 : -1)))
             : from;
           if (target.get() !== page) scheduleOnRN(Haptics.selectionAsync);
           target.set(page);
           progress.set(withSpring(page, { ...SPRING, velocity: -velocityX / width }));
+        })
+        .onFinalize(() => {
+          moving.set(NONE);
         }),
-    [width, on, paging, enabled, dragStart, progress, target, pages, touchX, touchY],
+    [
+      width,
+      drawerWidth,
+      on,
+      hasDrawer,
+      swipeCount,
+      moving,
+      enabled,
+      dragStart,
+      progress,
+      target,
+      pages,
+      touchX,
+      touchY,
+      isOpen,
+      translateX,
+      swipes,
+      onToggled,
+    ],
   );
 
+  const sceneStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.get() }],
+  }));
+  const overlayStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.get(), [0, drawerWidth], [0, OVERLAY_OPACITY], "clamp"),
+  }));
+
   return (
-    <ScenePagerContext value={pager}>
-      <GestureDetector gesture={pan}>
-        <View style={styles.root}>{children}</View>
-      </GestureDetector>
-    </ScenePagerContext>
+    <DrawerActionsContext value={actions}>
+      <DrawerOpenContext value={open}>
+        <ScenePagerContext value={pager}>
+          <GestureDetector gesture={pan}>
+            <View style={[styles.root, { backgroundColor: colors.drawer }]}>
+              {drawer ? (
+                // Kept as a view of its own: flattened away, the drawer's
+                // header and footer would stack over the scene.
+                <View collapsable={false} style={[styles.drawer, { width: drawerWidth }]}>
+                  {drawer}
+                </View>
+              ) : null}
+              <Animated.View
+                style={[styles.scene, { backgroundColor: colors.background }, sceneStyle]}
+              >
+                {children}
+                <Animated.View
+                  pointerEvents="none"
+                  style={[styles.overlay, overlayStyle]}
+                />
+                {open ? (
+                  <Pressable
+                    accessibilityLabel="Close sidebar"
+                    style={StyleSheet.absoluteFill}
+                    onPress={actions.close}
+                  />
+                ) : null}
+              </Animated.View>
+            </View>
+          </GestureDetector>
+        </ScenePagerContext>
+      </DrawerOpenContext>
+    </DrawerActionsContext>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  drawer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    bottom: 0,
+  },
+  scene: {
+    flex: 1,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "#000",
   },
 });

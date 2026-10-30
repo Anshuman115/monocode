@@ -1,4 +1,4 @@
-import { router, useGlobalSearchParams, useIsFocused, usePathname } from "expo-router";
+import { useIsFocused, usePathname } from "expo-router";
 import { BlurTargetView } from "expo-blur";
 import {
   createContext,
@@ -48,6 +48,7 @@ import {
   useSceneKey,
 } from "@/ui/SceneFade";
 import { GlassBlurTarget, GlassPresence, LiquidView } from "@/ui/LiquidView";
+import { useDrawerActions } from "@/ui/ScenePager";
 import { themedStyles, useColors } from "@/ui/theme";
 
 const HEADER_HEIGHT = 44;
@@ -405,8 +406,8 @@ export function SessionFrame({
           key: sharedTrailingKey(layer.path, layer.chrome),
           still: false,
         }));
-  // The menu button opens the project picker, the current project checked.
-  const { projectId } = useGlobalSearchParams<{ projectId?: string }>();
+  // The menu button opens the drawer of projects and monos.
+  const drawer = useDrawerActions();
   const insets = useSafeAreaInsets();
   const extraContentPadding = useSharedValue(0);
   const restingHeight = useRef<number | null>(null);
@@ -585,13 +586,8 @@ export function SessionFrame({
               <View style={[styles.header, { top: headerTop }]}>
                 <CircleButton
                   icon="menu"
-                  label="Switch project"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/projects",
-                      params: projectId ? { current: projectId } : {},
-                    })
-                  }
+                  label="Projects and monos"
+                  onPress={drawer.open}
                 />
                 <View style={styles.titleBlock}>
                   {centerLayers.map((layer) => (
