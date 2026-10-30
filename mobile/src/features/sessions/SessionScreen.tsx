@@ -13,6 +13,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  ActivityIndicator,
   Platform,
   Text,
   View,
@@ -48,7 +49,7 @@ import {
   useSceneKey,
 } from "@/ui/SceneFade";
 import { GlassBlurTarget, GlassPresence, LiquidView } from "@/ui/LiquidView";
-import { useDrawerActions } from "@/ui/ScenePager";
+import { useDrawerActions, useSceneSwitching } from "@/ui/ScenePager";
 import { themedStyles, useColors } from "@/ui/theme";
 
 const HEADER_HEIGHT = 44;
@@ -319,6 +320,7 @@ export function SessionFrame({
   const [scene, setScene] = useState(pathname);
   if (scene !== pathname && !isModalRoute(pathname)) setScene(pathname);
   const covered = !native && hasNativeHeader(scene);
+  const switching = useSceneSwitching();
   // Each route's chrome, and the last route's while the header pushes it out.
   const [header, setHeader] = useState<{
     path: string;
@@ -538,6 +540,16 @@ export function SessionFrame({
                 </GlassBlurTarget>
               </ContentBlurReady>
             </ContentBlurTarget>
+
+            {/* While the drawer switches screens: over the content only, so the
+                header and composer stay, the frame's own or the native one.
+                A frame standing aside for a native header's leaves it to that
+                screen's own frame. */}
+            {switching && !covered ? (
+              <View accessibilityLabel="Loading" style={styles.switchCover}>
+                <ActivityIndicator color={colors.muted} />
+              </View>
+            ) : null}
 
             {/* Under the native header too, which is transparent over it. */}
             {covered ? null : (
@@ -857,6 +869,16 @@ function HeaderTrailing({ chrome }: { chrome: Chrome }) {
 }
 
 const useStyles = themedStyles((colors) => ({
+  switchCover: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
+  },
   scene: {
     flex: 1,
     backgroundColor: colors.background,

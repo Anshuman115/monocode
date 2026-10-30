@@ -21,7 +21,6 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 
 import { useEmptyBackground } from "@/features/background/useEmptyBackground";
-import { ProjectMascot } from "@/features/mascots/ProjectMascot";
 import { effortLabel } from "@/features/models/modelChoice";
 import {
   useForgetChoiceOnLeave,
@@ -273,17 +272,13 @@ export function ProjectScreen({
   const headerSurface = (content: ReactNode) => (
     <GlassBlurTarget value={blurTarget}>{content}</GlassBlurTarget>
   );
-  const projectAvatar = (
+  const menuButton = (
     <ProjectHeaderButton
-      label={`Projects and monos, ${project.name}`}
+      label="Projects and monos"
       onPress={drawer.open}
     >
-      <ProjectMascot
-        project={project.path}
-        name={project.mascot}
-        color={project.color}
-        size={20}
-      />
+      {/* The drawer's button, as on every screen it opens from. */}
+      <Icon name="menu" size={22} color={colors.content} />
     </ProjectHeaderButton>
   );
   const settingsButton = (
@@ -419,7 +414,7 @@ export function ProjectScreen({
                 ...(Platform.OS === "android"
                   ? {
                       headerTitleAlign: "center" as const,
-                      headerLeft: () => headerSurface(projectAvatar),
+                      headerLeft: () => headerSurface(menuButton),
                       headerRight: () => headerSurface(settingsButton),
                       headerBackVisible: false,
                     }
@@ -433,8 +428,8 @@ export function ProjectScreen({
         )
       ) : Platform.OS === "android" ? null : (
         <Stack.Toolbar placement="left">
-          {/* The project's mascot in the bar's glass, for the button. */}
-          <Stack.Toolbar.View>{projectAvatar}</Stack.Toolbar.View>
+          {/* The drawer's menu button in the bar's glass. */}
+          <Stack.Toolbar.View>{menuButton}</Stack.Toolbar.View>
         </Stack.Toolbar>
       )}
       {sessionId ? (

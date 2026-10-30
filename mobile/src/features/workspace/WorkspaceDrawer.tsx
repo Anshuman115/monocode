@@ -62,10 +62,15 @@ export function WorkspaceDrawer() {
   };
   const openMono = (id: string) => {
     if (id === activeMono) return drawer.close();
-    drawer.closeThen(() => {
-      if (onMono) router.setParams({ monoId: id });
-      else router.replace({ pathname: "/mono/[monoId]", params: { monoId: id } });
-    });
+    // Mono to Mono only swaps the conversation in the same screen, which is
+    // light enough to switch as the drawer shuts.
+    if (onMono) {
+      drawer.close();
+      return router.setParams({ monoId: id });
+    }
+    drawer.closeThen(() =>
+      router.replace({ pathname: "/mono/[monoId]", params: { monoId: id } }),
+    );
   };
   const openSettings = () => {
     drawer.close();

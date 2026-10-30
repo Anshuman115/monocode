@@ -1599,8 +1599,34 @@ impl Shell {
                                 Some(settings.account.id.clone()),
                             ))
                         }
-                        Target::Mono(_) => {
-                            Err("This conversation is still opening on desktop; try again".into())
+                        // Not open here: what its saved conversation runs with.
+                        Target::Mono(mono) => {
+                            let id = self
+                                .monos
+                                .as_ref()
+                                .and_then(|m| m.read(cx).roster.get(&mono)?.session_id)
+                                .ok_or(
+                                    "This conversation is still opening on desktop; try again",
+                                )?;
+                            let store = locked(&self.store)?;
+                            let (cwd, provider) = match self.session_summaries.get(&id) {
+                                Some(summary) => (summary.cwd.clone(), summary.provider.clone()),
+                                None => store
+                                    .sessions()?
+                                    .into_iter()
+                                    .find(|s| s.id == id)
+                                    .map(|s| (s.cwd, s.provider))
+                                    .ok_or("Session is no longer available")?,
+                            };
+                            let settings = store.agent_settings(id)?.unwrap_or_default();
+                            Ok((
+                                cwd,
+                                Kind::from_id(&provider),
+                                settings.model.clone(),
+                                mobile_settings_of(&settings),
+                                settings.access,
+                                Some(settings.account.id.clone()),
+                            ))
                         }
                     },
                 }

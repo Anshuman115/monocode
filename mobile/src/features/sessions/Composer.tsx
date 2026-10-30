@@ -44,6 +44,8 @@ const COLLAPSED = BUTTON + EDGE * 2;
 const RADIUS = COLLAPSED / 2;
 /** Expanded layout: context row on top, buttons and model along the bottom. */
 const TOP_ROW = 46;
+/** The card's top edge above the field when there is no context to show. */
+const TOP_BARE = 12;
 /** The attachments' strip, under the context row as on the desktop. */
 const THUMB = 48;
 const STRIP = THUMB + 10;
@@ -134,7 +136,9 @@ export function Composer({
   }, [blocked]);
 
   const strip = attachments.length > 0 ? STRIP : 0;
-  const expandedHeight = TOP_ROW + strip + inputHeight + BOTTOM_ROW;
+  // A Mono's chat has no project or branch to name; the card closes up.
+  const topRow = workspace || context || branch ? TOP_ROW : TOP_BARE;
+  const expandedHeight = topRow + strip + inputHeight + BOTTOM_ROW;
 
   const containerStyle = useAnimatedStyle(() => ({
     height: interpolate(progress.get(), [0, 1], [COLLAPSED, expandedHeight]),
@@ -146,7 +150,7 @@ export function Composer({
     return {
       left: interpolate(p, [0, 1], [EDGE + BUTTON + 8, 18]),
       right: interpolate(p, [0, 1], [EDGE + BUTTON + 8, 18]),
-      top: interpolate(p, [0, 1], [EDGE - 1, TOP_ROW + strip]),
+      top: interpolate(p, [0, 1], [EDGE - 1, topRow + strip]),
       bottom: interpolate(p, [0, 1], [EDGE, BOTTOM_ROW]),
     };
   });
@@ -245,18 +249,20 @@ export function Composer({
         <View />
       </LiquidView>
 
-      <Animated.View style={[styles.contextRow, expandedOnly]}>
-        <View style={styles.picker}>
-          {workspace ?? (
-            <Text style={styles.context} numberOfLines={1}>
-              {context} <Text style={styles.branch}>{branch}</Text>
-            </Text>
-          )}
-        </View>
-      </Animated.View>
+      {topRow === TOP_ROW ? (
+        <Animated.View style={[styles.contextRow, expandedOnly]}>
+          <View style={styles.picker}>
+            {workspace ?? (
+              <Text style={styles.context} numberOfLines={1}>
+                {context} <Text style={styles.branch}>{branch}</Text>
+              </Text>
+            )}
+          </View>
+        </Animated.View>
+      ) : null}
 
       {attachments.length > 0 ? (
-        <Animated.View style={[styles.strip, expandedOnly]}>
+        <Animated.View style={[styles.strip, { top: topRow }, expandedOnly]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -554,7 +560,6 @@ const useStyles = themedStyles((colors) => ({
   },
   strip: {
     position: "absolute",
-    top: TOP_ROW,
     left: 0,
     right: 0,
     height: STRIP,

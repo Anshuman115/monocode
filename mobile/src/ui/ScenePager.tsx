@@ -11,7 +11,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ActivityIndicator,
   BackHandler,
   Keyboard,
   Pressable,
@@ -81,8 +80,9 @@ function usePager() {
 type DrawerActions = {
   open: () => void;
   close: () => void;
-  /** Shuts the drawer at once over a loading cover, and only then runs
-   *  `change`, a switch to another screen, showing it once it is drawn. */
+  /** Shuts the drawer at once, its content covered while it loads (see
+   *  useSceneSwitching), and only then runs `change`, a switch to another
+   *  screen, showing it once it is drawn. */
   closeThen: (change: () => void) => void;
   /** Lets a swipe right open the drawer while a screen that wants it is in
    *  front; returns the undo. */
@@ -99,6 +99,14 @@ export function useDrawerActions() {
   const actions = use(DrawerActionsContext);
   if (!actions) throw new Error("useDrawerActions must be used inside ScenePagerHost");
   return actions;
+}
+
+/** Whether a switch from the drawer is under way, for the screen's frame to
+ *  cover its content, and only that, while it loads. */
+const SwitchingContext = createContext(false);
+
+export function useSceneSwitching() {
+  return use(SwitchingContext);
 }
 
 /** Whether the drawer is open or opening; re-renders as it opens and closes. */
@@ -433,6 +441,7 @@ export function ScenePagerHost({
   return (
     <DrawerActionsContext value={actions}>
       <DrawerOpenContext value={open}>
+        <SwitchingContext value={switching}>
         <ScenePagerContext value={pager}>
           <GestureDetector gesture={pan}>
             <View style={[styles.root, { backgroundColor: colors.drawer }]}>
@@ -447,14 +456,6 @@ export function ScenePagerHost({
                 style={[styles.scene, { backgroundColor: colors.background }, sceneStyle]}
               >
                 {children}
-                {switching ? (
-                  <View
-                    accessibilityLabel="Loading"
-                    style={[styles.cover, { backgroundColor: colors.background }]}
-                  >
-                    <ActivityIndicator color={colors.muted} />
-                  </View>
-                ) : null}
                 <Animated.View
                   pointerEvents="none"
                   style={[styles.overlay, overlayStyle]}
@@ -470,6 +471,7 @@ export function ScenePagerHost({
             </View>
           </GestureDetector>
         </ScenePagerContext>
+        </SwitchingContext>
       </DrawerOpenContext>
     </DrawerActionsContext>
   );
@@ -487,11 +489,6 @@ const styles = StyleSheet.create({
   },
   scene: {
     flex: 1,
-  },
-  cover: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    justifyContent: "center",
   },
   overlay: {
     ...StyleSheet.absoluteFill,

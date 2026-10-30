@@ -184,6 +184,10 @@ enum TranscriptTypography {
 /// Immutable once constructed on the worker. Values mirror TranscriptTurn and
 /// Markdown; scrolling only positions already measured rows.
 final class TranscriptRowModel {
+  /// A reaction's round bubble, and how far above its message's bubble it
+  /// rises: just over half its height, so it overlaps the corner.
+  static let reactionSize: CGFloat = 34
+  static let reactionLift: CGFloat = 20
   let id: String
   let kind: String
   let action: [String: Any]
@@ -259,7 +263,9 @@ final class TranscriptRowModel {
     switch kind {
     case "user":
       let compact = action["compact"] as? Bool == true
-      let y: CGFloat = compact ? 4 : 6
+      let reaction = action["reaction"] as? String
+      // A reaction sits over the bubble's top corner; the row makes room for it.
+      let y: CGFloat = (compact ? 4 : 6) + (reaction == nil ? 0 : Self.reactionLift)
       let emoji = !style.agent.isEmpty && action["emojiOnly"] as? Bool == true
       let maxWidth = max(1, style.width - 76 - (emoji ? 0 : 28))
       let body = string(
@@ -314,19 +320,29 @@ final class TranscriptRowModel {
             rect: cardRect, color: UIColor.transcriptHex(style.bubble), radius: bubbleRadius))
         if !style.agent.isEmpty && !compact { tailRadius = bubbleRadius == 21 ? 18 : 14 }
       }
-      if let reaction = action["reaction"] as? String {
-        let value = string(reaction, size: 11, line: 14, color: contentColor)
-        let measured = TranscriptTypography.measure(value, width: maxWidth, line: style.line(14))
+      if let reaction {
+        // As a Messages tapback: the emoji in a round bubble over the top-left
+        // corner, its tail two shrinking dots trailing off down and away.
+        let value = string(reaction, size: 19, line: 24, color: contentColor)
+        let measured = TranscriptTypography.measure(value, width: maxWidth, line: style.line(24))
+        let size = Self.reactionSize
+        let width = max(size, measured.width + 16)
         let badge = CGRect(
-          x: cardRect.minX - 10, y: cardRect.minY - 10, width: measured.width + 14,
-          height: max(22, measured.height + 8))
+          x: cardRect.minX - size * 0.55, y: cardRect.minY - Self.reactionLift, width: width,
+          height: size)
+        let fill = UIColor.transcriptHex(style.surfaceRaised)
+        let edge = UIColor.transcriptHex(style.stroke)
+        let dot = CGRect(x: badge.minX + 2, y: badge.maxY - 5, width: 10, height: 10)
+        let speck = CGRect(x: dot.minX - 5, y: dot.maxY + 1, width: 5, height: 5)
+        for circle in [speck, dot] {
+          surfaces.append(
+            TranscriptSurface(rect: circle, color: fill, radius: circle.width / 2, border: edge))
+        }
         surfaces.append(
-          TranscriptSurface(
-            rect: badge, color: UIColor.transcriptHex(style.surfaceRaised), radius: 8,
-            border: UIColor.transcriptHex(style.stroke)))
+          TranscriptSurface(rect: badge, color: fill, radius: size / 2, border: edge))
         add(
-          value, x: badge.minX + 7, y: badge.midY - measured.height / 2, width: measured.width,
-          height: measured.height)
+          value, x: badge.midX - measured.width / 2, y: badge.midY - measured.height / 2,
+          width: measured.width, height: measured.height)
       }
       if !compact && !emoji, let at = action["at"] as? Double {
         let time = string(

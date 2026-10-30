@@ -748,6 +748,47 @@ fn apply_edits(turn: &mut Value, patch: &Value) -> LinkResult<()> {
     Ok(())
 }
 
+/// The emoji of a reply that is only `<reaction>…</reaction>`, which a Mono
+/// sends to acknowledge a message without words.
+fn reaction(text: &str) -> Option<&str> {
+    text.trim()
+        .strip_prefix("<reaction>")
+        .and_then(|s| s.strip_suffix("</reaction>"))
+        .map(str::trim)
+        .filter(|emoji| !emoji.is_empty() && emoji.chars().count() <= 16)
+}
+
+/// Pins each reaction reply onto the message before it, as the desktop shows
+/// it, and drops the reply, even from a desktop that sends the raw tag. True
+/// when the turn's replies were all reactions.
+fn fold_reactions(items: &mut Vec<Value>) -> bool {
+    let mut reacted = false;
+    let mut replied = false;
+    let mut message: Option<usize> = None;
+    let mut kept = Vec::with_capacity(items.len());
+    for item in items.drain(..) {
+        match string(&item, "type") {
+            "user" => {
+                message = Some(kept.len());
+                kept.push(item);
+            }
+            "text" => match (reaction(string(&item, "text")), message) {
+                (Some(emoji), Some(at)) => {
+                    kept[at]["reaction"] = json!(emoji);
+                    reacted = true;
+                }
+                _ => {
+                    replied = true;
+                    kept.push(item);
+                }
+            },
+            _ => kept.push(item),
+        }
+    }
+    *items = kept;
+    reacted && !replied
+}
+
 fn string<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().unwrap_or("")
 }
@@ -766,7 +807,8 @@ fn project(
         row.action = turn["stampAt"].clone();
         rows.push(Arc::new(row));
     }
-    let items = turn["items"].as_array().cloned().unwrap_or_default();
+    let mut items = turn["items"].as_array().cloned().unwrap_or_default();
+    let reacted_only = fold_reactions(&mut items);
     for (item_index, item) in items.iter().enumerate() {
         let id = format!("{turn_id}/{}", string(item, "id"));
         match string(item, "type") {
@@ -879,7 +921,8 @@ fn project(
             _ => {}
         }
     }
-    if turn["footer"] == true {
+    // A reply that was only a reaction has nothing of its own to copy or time.
+    if turn["footer"] == true && !reacted_only {
         let mut row = Row::text(format!("{turn_id}:footer"), "footer", "");
         row.action = json!({"type":"footer","copyText":turn["copyText"],"metrics":turn["metrics"],"durationMs":turn["durationMs"],"completedAt":turn["completedAt"]});
         rows.push(Arc::new(row));
@@ -958,6 +1001,38 @@ fn from_messages(messages: &Value) -> Vec<Value> {
         }
     }
     turns
+}
+
+#[cfg(test)]
+mod reaction_tests {
+    use super::*;
+
+    #[test]
+    fn a_reaction_reply_lands_on_the_message_before_it() {
+        let mut items = vec![
+            json!({"type":"user","id":"u","text":"cool"}),
+            json!({"type":"text","id":"a","text":" <reaction>👍</reaction>\n"}),
+        ];
+        assert!(fold_reactions(&mut items));
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["reaction"], "👍");
+    }
+
+    #[test]
+    fn written_replies_and_lone_tags_stay_as_text() {
+        let mut items = vec![
+            json!({"type":"user","id":"u","text":"hi"}),
+            json!({"type":"text","id":"a","text":"<reaction>👍</reaction>"}),
+            json!({"type":"text","id":"b","text":"Here is the answer."}),
+        ];
+        assert!(!fold_reactions(&mut items));
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["reaction"], "👍");
+        // With no message before it there is nothing to pin it to.
+        let mut lone = vec![json!({"type":"text","id":"a","text":"<reaction>👍</reaction>"})];
+        assert!(!fold_reactions(&mut lone));
+        assert_eq!(lone.len(), 1);
+    }
 }
 
 #[cfg(test)]

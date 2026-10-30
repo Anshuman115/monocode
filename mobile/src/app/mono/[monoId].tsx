@@ -1,9 +1,12 @@
-import { Redirect, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useMemo } from "react";
 import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
+import { effortLabel } from "@/features/models/modelChoice";
+import { useSessionChoice } from "@/features/models/sessionChoice";
+import { useModelCatalog } from "@/features/models/useModelCatalog";
 import { useDrawerSwipe } from "@/ui/ScenePager";
 import { Composer } from "@/features/sessions/Composer";
 import { QuestionCard } from "@/features/sessions/QuestionCard";
@@ -32,6 +35,15 @@ export default function MonoScreen() {
   const mascot = mono?.mascot ?? "";
   const color = mono?.color ?? "";
   const agent = useMemo(() => ({ name, mascot, color }), [name, mascot, color]);
+  // The model it runs with, named as a session's: a pick made here, else what
+  // the desktop says the conversation runs with.
+  const { catalog } = useModelCatalog(conversationId ?? undefined, conversationId ?? undefined);
+  const { chosen } = useSessionChoice(undefined, conversationId ?? undefined);
+  const current = chosen?.pick ?? catalog?.current;
+  const entry = catalog?.models.find((model) => model.id === current?.model);
+  const model = chosen?.name ?? entry?.name ?? current?.model ?? mono?.model ?? "";
+  const harness = current?.harness ?? mono?.harness;
+  const effort = current ? effortLabel(entry, current) : undefined;
   if (!mono || !conversationId) return <Redirect href="/" />;
 
   return (
@@ -47,10 +59,18 @@ export default function MonoScreen() {
           ) : null}
           <Composer
             key={mono.id}
-            context={mono.name}
+            // The header names the Mono already, and it has no branch.
+            context=""
             branch=""
-            model={mono.model ?? ""}
-            harness={mono.harness}
+            model={model}
+            effort={effort}
+            harness={harness}
+            onModelPress={() =>
+              router.push({
+                pathname: "/models",
+                params: { projectId: "", sessionId: conversationId },
+              })
+            }
             busy={conversation.busy}
             onStop={() => stop(conversationId)}
             onSend={(text, attachments) => sendMessage(conversationId, text, attachments)}
