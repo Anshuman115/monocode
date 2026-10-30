@@ -49,21 +49,23 @@ export function WorkspaceDrawer() {
     ? projectForRoute(projects, params.projectId)?.id
     : undefined;
 
-  // The switch starts with the close, so the next screen is already there as
-  // the scene slides back. Same kind to same kind only swaps the params, so
-  // the screen and its frame stay mounted.
+  // The drawer shuts at once over a loading cover, and the next screen is
+  // built only once it is shut, so building it can't hitch the motion. Same
+  // kind to same kind only swaps the params, so the frame stays mounted.
   const openProject = (id: string) => {
-    drawer.close();
-    if (id === activeProject) return;
-    // The project route takes a pick in place; any other screen is replaced.
-    if (!pickProject(id))
-      router.replace({ pathname: "/project/[projectId]", params: { projectId: id } });
+    if (id === activeProject) return drawer.close();
+    drawer.closeThen(() => {
+      // The project route takes a pick in place; any other screen is replaced.
+      if (!pickProject(id))
+        router.replace({ pathname: "/project/[projectId]", params: { projectId: id } });
+    });
   };
   const openMono = (id: string) => {
-    drawer.close();
-    if (id === activeMono) return;
-    if (onMono) router.setParams({ monoId: id });
-    else router.replace({ pathname: "/mono/[monoId]", params: { monoId: id } });
+    if (id === activeMono) return drawer.close();
+    drawer.closeThen(() => {
+      if (onMono) router.setParams({ monoId: id });
+      else router.replace({ pathname: "/mono/[monoId]", params: { monoId: id } });
+    });
   };
   const openSettings = () => {
     drawer.close();

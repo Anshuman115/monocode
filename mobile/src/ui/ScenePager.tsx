@@ -6,10 +6,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
+  ActivityIndicator,
   BackHandler,
   Keyboard,
   Pressable,
@@ -43,6 +45,11 @@ const SPRING = {
 const SWIPE_MIN_OFFSET = 5;
 const SWIPE_MIN_DISTANCE = 60;
 const SWIPE_MIN_VELOCITY = 500;
+/** How near shut the scene is when a switch from the drawer goes ahead: the
+ *  next screen is built only once the motion is done, so it can't hitch it. */
+const SWITCH_AT = 2;
+/** Frames the next screen is given to draw under the loading cover. */
+const SWITCH_FRAMES = 2;
 /** The scene's dimming with the drawer fully open, as that drawer's overlay. */
 const OVERLAY_OPACITY = 0.5;
 /** What the current drag moves. */
@@ -74,6 +81,9 @@ function usePager() {
 type DrawerActions = {
   open: () => void;
   close: () => void;
+  /** Shuts the drawer at once over a loading cover, and only then runs
+   *  `change`, a switch to another screen, showing it once it is drawn. */
+  closeThen: (change: () => void) => void;
   /** Lets a swipe right open the drawer while a screen that wants it is in
    *  front; returns the undo. */
   allowSwipe: () => () => void;
@@ -236,10 +246,42 @@ export function ScenePagerHost({
     [isOpen, translateX, drawerWidth, onToggled],
   );
 
+  // A switch from the drawer: the cover goes up as it starts to shut, the
+  // switch waits for it to be shut, and the cover comes down once the next
+  // screen has drawn.
+  const [switching, setSwitching] = useState(false);
+  const pendingSwitch = useRef<(() => void) | null>(null);
+  const switchWaiting = useSharedValue(false);
+  const runSwitch = useCallback(() => {
+    const change = pendingSwitch.current;
+    pendingSwitch.current = null;
+    change?.();
+    afterFrames(SWITCH_FRAMES, () => {
+      // A newer switch keeps the cover up for its own screen.
+      if (!pendingSwitch.current) setSwitching(false);
+    });
+  }, []);
+  useAnimatedReaction(
+    () => switchWaiting.get() && translateX.get() <= SWITCH_AT,
+    (shut, wasShut) => {
+      if (!shut || wasShut) return;
+      switchWaiting.set(false);
+      scheduleOnRN(runSwitch);
+    },
+  );
+
   const actions = useMemo<DrawerActions>(
     () => ({
       open: () => animateTo(true),
       close: () => animateTo(false),
+      closeThen: (change) => {
+        pendingSwitch.current = change;
+        setSwitching(true);
+        animateTo(false);
+        // Already shut: the cover still draws before the switch.
+        if (translateX.get() <= SWITCH_AT) afterFrames(1, runSwitch);
+        else switchWaiting.set(true);
+      },
       allowSwipe: () => {
         swipes.set(swipes.get() + 1);
         setSwipeCount((count) => count + 1);
@@ -249,7 +291,7 @@ export function ScenePagerHost({
         };
       },
     }),
-    [animateTo, swipes],
+    [animateTo, swipes, translateX, switchWaiting, runSwitch],
   );
 
   // Android's back shuts the drawer before it leaves the screen.
@@ -405,6 +447,14 @@ export function ScenePagerHost({
                 style={[styles.scene, { backgroundColor: colors.background }, sceneStyle]}
               >
                 {children}
+                {switching ? (
+                  <View
+                    accessibilityLabel="Loading"
+                    style={[styles.cover, { backgroundColor: colors.background }]}
+                  >
+                    <ActivityIndicator color={colors.muted} />
+                  </View>
+                ) : null}
                 <Animated.View
                   pointerEvents="none"
                   style={[styles.overlay, overlayStyle]}
@@ -438,8 +488,18 @@ const styles = StyleSheet.create({
   scene: {
     flex: 1,
   },
+  cover: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   overlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "#000",
   },
 });
+
+/** Runs `then` once `frames` more frames have been drawn. */
+function afterFrames(frames: number, then: () => void) {
+  requestAnimationFrame(() => (frames <= 1 ? then() : afterFrames(frames - 1, then)));
+}
