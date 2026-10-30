@@ -62,6 +62,8 @@ struct TranscriptSurface {
   let color: UIColor
   let radius: CGFloat
   var border: UIColor? = nil
+  /// Liquid Glass where the system has it (iOS 26), else `color`.
+  var glass = false
   var corners: CACornerMask = [
     .layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner,
   ]
@@ -387,22 +389,35 @@ final class TranscriptRowModel {
       if !style.agent.isEmpty {
         let name = live ? style.agent : action["label"] as? String ?? style.agent
         let value = string(
-          name, size: 14, line: 20, color: contentColor.withAlphaComponent(0.8), medium: true)
+          name, size: 15, line: 20, color: contentColor.withAlphaComponent(0.85), medium: true)
+        // The Mono's badge over its reply: its mascot and name on a glass
+        // capsule, as the app's own buttons.
+        let mascot: CGFloat = 20
+        let pad: CGFloat = 10
         let size = TranscriptTypography.measure(
-          value, width: max(1, (live ? available * 0.45 : available) - 40), line: style.line(20))
-        let rect = CGRect(x: 20, y: 4, width: size.width + 40, height: size.height + 4)
+          value, width: max(1, (live ? available * 0.45 : available) - mascot - pad * 3),
+          line: style.line(20))
+        let rect = CGRect(
+          x: 20, y: 4, width: pad + mascot + 8 + size.width + pad + 4,
+          height: max(34, size.height + 14))
         surfaces.append(
           TranscriptSurface(
-            rect: rect, color: contentColor.withAlphaComponent(0.07), radius: rect.height / 2))
-        mascotRect = CGRect(x: 28, y: rect.midY - 7, width: 14, height: 14)
-        add(value, x: 48, y: 6, width: size.width, height: size.height, lines: 1)
+            rect: rect, color: contentColor.withAlphaComponent(0.07), radius: rect.height / 2,
+            glass: true))
+        mascotRect = CGRect(
+          x: rect.minX + pad, y: rect.midY - mascot / 2, width: mascot, height: mascot)
+        let textY = rect.midY - size.height / 2
+        add(
+          value, x: rect.minX + pad + mascot + 8, y: textY, width: size.width,
+          height: size.height, lines: 1)
         if live {
           add(
             string("·", size: 14, line: 20, color: contentColor.withAlphaComponent(0.25)),
-            x: rect.maxX + 6, y: 6, width: 5, height: style.line(20))
+            x: rect.maxX + 6, y: rect.midY - style.line(20) / 2, width: 5, height: style.line(20))
           liveLabel = TranscriptLiveLabel(
             rect: CGRect(
-              x: rect.maxX + 17, y: 6, width: max(1, style.width - rect.maxX - 37), height: style.line(20)),
+              x: rect.maxX + 17, y: rect.midY - style.line(20) / 2,
+              width: max(1, style.width - rect.maxX - 37), height: style.line(20)),
             text: action["label"] as? String ?? "Thinking…", font: .systemFont(ofSize: 14 * s),
             color: contentColor.withAlphaComponent(0.5), shimmer: true, duration: 1.6)
         }
@@ -498,6 +513,18 @@ final class TranscriptRowModel {
         TranscriptHit(
           rect: rect, action: ["type": "error", "notice": action], label: title + ". View details"))
       height = h + 16
+    case "divider":
+      // Only a Mono's chat breaks its replies; elsewhere the row takes no room.
+      if style.agent.isEmpty {
+        height = 0
+      } else {
+        marks.append(
+          TranscriptMark(
+            rect: CGRect(x: base, y: 4, width: 144, height: 18),
+            image: TranscriptArtwork.shared.monoDivider,
+            tint: contentColor.withAlphaComponent(0.4)))
+        height = 4 + 18
+      }
     case "footer":
       let metrics = action["metrics"] as? [String: Any] ?? [:]
       let hasMetrics =

@@ -1,5 +1,5 @@
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
 
@@ -8,6 +8,8 @@ import { effortLabel } from "@/features/models/modelChoice";
 import { useSessionChoice } from "@/features/models/sessionChoice";
 import { useModelCatalog } from "@/features/models/useModelCatalog";
 import { useDrawerSwipe } from "@/ui/ScenePager";
+import { useConnection } from "@/features/connection/ConnectionProvider";
+import { rememberPlace } from "@/features/workspace/lastPlace";
 import { Composer } from "@/features/sessions/Composer";
 import { QuestionCard } from "@/features/sessions/QuestionCard";
 import { EmptySession } from "@/features/sessions/EmptySession";
@@ -30,6 +32,12 @@ export default function MonoScreen() {
   const mono = monos.find((m) => m.id === monoId);
   const conversationId = mono ? monoConversationId(mono.id) : null;
   const conversation = useConversation(conversationId);
+  // Where the app opens next time.
+  const desktop = useConnection().pairing?.desktop.fingerprint;
+  const placeId = mono?.id;
+  useEffect(() => {
+    if (placeId) rememberPlace(desktop, { kind: "mono", id: placeId });
+  }, [desktop, placeId]);
   // Stable, so the memoized turns keep their rows across polls.
   const name = mono?.name ?? "";
   const mascot = mono?.mascot ?? "";

@@ -285,6 +285,31 @@ final class TranscriptRowView: UIView, UIScrollViewDelegate {
   private let decoration = TranscriptDecorationCanvas()
   private let horizontal = UIScrollView()
   private var surfaces: [UIView] = []
+
+  /// Shows Liquid Glass inside a surface's view where the surface asks for it
+  /// and the system has it, else hides any left from a reused row. True when
+  /// glass is shown, so the view drops its own fill.
+  private func glass(_ surface: TranscriptSurface, in view: UIView) -> Bool {
+    let existing = view.subviews.first { $0 is UIVisualEffectView } as? UIVisualEffectView
+    guard surface.glass, #available(iOS 26.0, *) else {
+      existing?.isHidden = true
+      return false
+    }
+    let effect =
+      existing
+      ?? {
+        let effect = UIVisualEffectView(effect: UIGlassEffect())
+        effect.isUserInteractionEnabled = false
+        effect.clipsToBounds = true
+        effect.layer.cornerCurve = .continuous
+        view.addSubview(effect)
+        return effect
+      }()
+    effect.isHidden = false
+    effect.frame = view.bounds
+    effect.layer.cornerRadius = surface.radius
+    return true
+  }
   private let label = UILabel()
   /// Shimmer.tsx: a band of light slides through the text, masked by it.
   private let shimmer = CALayer()
@@ -368,7 +393,7 @@ final class TranscriptRowView: UIView, UIScrollViewDelegate {
       let view = surfaces[index]
       view.isHidden = false
       view.frame = surface.rect
-      view.backgroundColor = surface.color
+      view.backgroundColor = glass(surface, in: view) ? .clear : surface.color
       view.layer.cornerRadius = surface.radius
       view.layer.maskedCorners = surface.corners
       view.layer.borderColor = surface.border?.cgColor

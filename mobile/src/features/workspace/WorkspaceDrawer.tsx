@@ -4,6 +4,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
+import { plainText } from "@/features/sessions/markdownParser";
 import { ProjectMascot } from "@/features/mascots/ProjectMascot";
 import { MONOCODE_MARK } from "@/ui/brand";
 import { CircleButton } from "@/ui/CircleButton";
@@ -26,6 +27,13 @@ const FADE = 16;
  *  (12 of PIXEL_GRID's 16 units) and a project's all of it, so a project's
  *  mascot is drawn smaller to stand the same height. */
 const ICON_SLOT = 24;
+/** The list's inset, each row's, and the gap from icon to label: the header
+ *  uses them too, so its mark and name line up with the rows'. */
+const LIST_INSET = 10;
+const ROW_INSET = 12;
+const ROW_GAP = 12;
+/** The Monocode mark, a touch larger than the mascots, centred on their slot. */
+const MARK_SIZE = 28;
 const PROJECT_MASCOT = ICON_SLOT * 0.75;
 
 /**
@@ -195,10 +203,14 @@ const MonoRow = memo(function MonoRow({
   );
 });
 
-/** The first line's worth of a message, its line breaks and markdown runs of
- *  spaces folded. */
+/** The start of a message as one plain line: its markdown read for its
+ *  words, so **bold** shows as bold rather than its asterisks. Only as much
+ *  as one line can show is read. */
 function oneLine(text: string) {
-  return text.replace(/\s+/g, " ").trim();
+  // A reply that is only a reaction, as the chat shows it, by its emoji.
+  const reaction = text.trim().match(/^<reaction>\s*(.{1,16}?)\s*<\/reaction>$/su);
+  if (reaction) return `Reacted ${reaction[1]}`;
+  return plainText(text.slice(0, 600));
 }
 
 /** A project, under its mascot. */
@@ -242,7 +254,7 @@ const useStyles = themedStyles((colors) => ({
     backgroundColor: colors.drawer,
   },
   list: {
-    paddingHorizontal: 10,
+    paddingHorizontal: LIST_INSET,
   },
   header: {
     position: "absolute",
@@ -251,12 +263,13 @@ const useStyles = themedStyles((colors) => ({
     height: HEADER_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 22,
+    gap: ROW_GAP,
+    paddingHorizontal: LIST_INSET + ROW_INSET,
   },
   mark: {
-    width: 28,
-    height: 28,
+    width: MARK_SIZE,
+    height: MARK_SIZE,
+    marginHorizontal: (ICON_SLOT - MARK_SIZE) / 2,
   },
   brandName: {
     color: colors.content,
@@ -278,9 +291,9 @@ const useStyles = themedStyles((colors) => ({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: ROW_GAP,
     minHeight: 48,
-    paddingHorizontal: 12,
+    paddingHorizontal: ROW_INSET,
     paddingVertical: 6,
     borderRadius: radii.row,
     borderCurve: "continuous",

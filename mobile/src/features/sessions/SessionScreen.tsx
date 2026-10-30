@@ -320,7 +320,6 @@ export function SessionFrame({
   const [scene, setScene] = useState(pathname);
   if (scene !== pathname && !isModalRoute(pathname)) setScene(pathname);
   const covered = !native && hasNativeHeader(scene);
-  const switching = useSceneSwitching();
   // Each route's chrome, and the last route's while the header pushes it out.
   const [header, setHeader] = useState<{
     path: string;
@@ -341,11 +340,25 @@ export function SessionFrame({
   const push = useSharedValue(HEADER_PUSH_TOTAL);
   const [pushed, setPushed] = useState<string | null>(null);
   const headerPath = header?.path;
+  // A switch from the drawer has no push: the header is simply the next
+  // screen's, in place, as the drawer shuts over a still frame.
+  const switching = useSceneSwitching();
+  const switchingNow = useRef(switching);
+  // Before the push's own effect below, which reads it on the same commit.
   useLayoutEffect(() => {
-    if (headerPath) push.set(0);
+    switchingNow.current = switching;
+  });
+  const instant = useRef(false);
+  useLayoutEffect(() => {
+    if (!headerPath) return;
+    instant.current = switchingNow.current;
+    if (!instant.current) return push.set(0);
+    push.set(HEADER_PUSH_TOTAL);
+    setPushed(headerPath);
+    setHeader((prev) => prev && { ...prev, previous: null });
   }, [headerPath, push]);
   useEffect(() => {
-    if (!headerPath) return;
+    if (!headerPath || instant.current) return;
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         setPushed(headerPath);

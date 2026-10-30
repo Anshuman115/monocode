@@ -819,6 +819,11 @@ fn project(
                 rows.push(Arc::new(row));
             }
             "text" => {
+                // Two replies in a row in one turn: the desktop's Mono chat
+                // breaks them with its pixel divider (drawn on Mono screens only).
+                if item_index > 0 && string(&items[item_index - 1], "type") == "text" {
+                    rows.push(Arc::new(Row::text(format!("{id}:divider"), "divider", "")));
+                }
                 let from = rows.len();
                 markdown_rows(
                     &id,
@@ -1016,6 +1021,21 @@ mod reaction_tests {
         assert!(fold_reactions(&mut items));
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["reaction"], "👍");
+    }
+
+    #[test]
+    fn back_to_back_replies_get_a_divider_between_them() {
+        let turn = json!({"id":"t","items":[
+            {"type":"user","id":"u","text":"go"},
+            {"type":"text","id":"a","text":"First."},
+            {"type":"text","id":"b","text":"Second."},
+        ]});
+        let rows = project(&turn, &mut HashMap::new(), &HashMap::new(), false);
+        let kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
+        let divider = kinds.iter().position(|kind| *kind == "divider").unwrap();
+        // After the first reply, before the second; none after the message.
+        assert_eq!(kinds.iter().filter(|kind| **kind == "divider").count(), 1);
+        assert!(divider > 1 && divider < kinds.len() - 1);
     }
 
     #[test]
