@@ -96,6 +96,9 @@ struct Saved {
     /// The store cursor for turns above `rows`: a long Mono loads only its
     /// newest page.
     history: Option<i64>,
+    /// The Mono's name, so its saved turns are drawn as Mono turns, as they
+    /// are once its chat opens, and keep their heights when it does.
+    mono: Option<String>,
 }
 
 /// How an older page's turns are drawn, as the conversation's own are.
@@ -814,10 +817,7 @@ impl Shell {
             None => {
                 let load = self.load_saved(&target, cx);
                 cx.spawn(async move |this, cx| {
-                    match load
-                        .await
-                        .and_then(|saved| page(&saved_snapshot(&saved, None)))
-                    {
+                    match load.await.and_then(|saved| page(&saved_snapshot(&saved))) {
                         Ok(Read::Done(value)) => request.reply(Ok(value)),
                         Ok(Read::Page(cursor)) => {
                             let _ = this.update(cx, |this, cx| {
@@ -844,17 +844,20 @@ impl Shell {
         limit: usize,
         cx: &mut Context<Self>,
     ) {
-        let session = match target {
-            Target::Session(id) => Some(*id),
-            Target::Mono(mono) => self
-                .monos
-                .as_ref()
-                .and_then(|m| m.read(cx).roster.get(mono).and_then(|m| m.session_id)),
+        let (session, name) = match target {
+            Target::Session(id) => (Some(*id), None),
+            Target::Mono(mono) => {
+                let found = self.monos.as_ref().and_then(|m| {
+                    let mono = m.read(cx).roster.get(mono)?;
+                    Some((mono.session_id, mono.label()))
+                });
+                (found.as_ref().and_then(|f| f.0), found.map(|f| f.1))
+            }
         };
         let Some(session) = session else {
             return request.reply(Ok(json!({"turns": [], "older": false})));
         };
-        // Drawn as the loaded turns are: as the open chat's, else as saved.
+        // Drawn as the loaded turns are, from the open chat or the summary.
         let look = self
             .with_live_snapshot(target, cx, |s| PageLook {
                 mono: s.mono.clone(),
@@ -865,7 +868,7 @@ impl Shell {
             .unwrap_or_else(|| {
                 let summary = self.session_summaries.get(&session);
                 PageLook {
-                    mono: None,
+                    mono: name,
                     cwd: summary.map(|s| s.cwd.clone()).unwrap_or_default(),
                     harness: summary.map(|s| s.provider.clone()).unwrap_or_default(),
                     model: None,
@@ -945,6 +948,7 @@ impl Shell {
                     model: None,
                     cwd: String::new(),
                     history: None,
+                    mono,
                 }));
             };
             let store = locked(&store)?;
@@ -960,7 +964,6 @@ impl Shell {
                     .map(|s| (s.provider, s.cwd))
                     .ok_or("Session is no longer available")?,
             };
-            let _ = mono;
             Ok(Arc::new(Saved {
                 rows,
                 turns: settings.turns,
@@ -968,6 +971,7 @@ impl Shell {
                 model: settings.model,
                 cwd,
                 history,
+                mono,
             }))
         })
     }
@@ -1065,7 +1069,7 @@ impl Shell {
             let built = match self.with_live_snapshot(&target, cx, frame) {
                 Some(built) => built,
                 None => match watch.saved.clone() {
-                    Some(saved) => frame(&saved_snapshot(&saved, None)),
+                    Some(saved) => frame(&saved_snapshot(&saved)),
                     None => {
                         self.load_mobile_watch(&id, cx);
                         continue;
@@ -1890,7 +1894,7 @@ fn older_page(
     }
 }
 
-fn saved_snapshot<'a>(saved: &'a Saved, mono: Option<String>) -> Snapshot<'a> {
+fn saved_snapshot(saved: &Saved) -> Snapshot<'_> {
     Snapshot {
         rows: &saved.rows,
         turns: &saved.turns,
@@ -1899,7 +1903,7 @@ fn saved_snapshot<'a>(saved: &'a Saved, mono: Option<String>) -> Snapshot<'a> {
         model: saved.model.clone(),
         busy: false,
         waiting: None,
-        mono,
+        mono: saved.mono.clone(),
         pending: Vec::new(),
         question: Value::Null,
         history: saved.history,

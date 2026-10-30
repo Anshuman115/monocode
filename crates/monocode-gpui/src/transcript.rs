@@ -530,6 +530,9 @@ pub(crate) struct TranscriptView {
     base: usize,
     /// The store cursor for the turns above the loaded rows, if any.
     history_before: Option<i64>,
+    /// The store cursor for the turns just above the window, which older
+    /// pages loaded here don't move: a paired phone pages from the window.
+    window_before: Option<i64>,
     history_pager: Option<history::HistoryPager>,
     /// The last page read failed; only a scroll retries it.
     history_failed: bool,
@@ -2436,6 +2439,7 @@ impl TranscriptView {
             history_requested: false,
             base: 0,
             history_before: None,
+            window_before: None,
             history_pager: None,
             history_failed: false,
             history_search: None,
