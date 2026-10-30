@@ -93,6 +93,24 @@ struct Saved {
     harness: String,
     model: Option<String>,
     cwd: String,
+    /// The store cursor for turns above `rows`: a long Mono loads only its
+    /// newest page.
+    history: Option<i64>,
+}
+
+/// How an older page's turns are drawn, as the conversation's own are.
+struct PageLook {
+    mono: Option<String>,
+    cwd: String,
+    harness: String,
+    model: Option<String>,
+}
+
+/// A read's answer, or the store page it still needs.
+enum Read {
+    Done(Value),
+    /// The turns before the loaded rows, from the page at this cursor.
+    Page(i64),
 }
 
 struct Watch {
@@ -122,6 +140,9 @@ struct Snapshot<'a> {
     /// The question the agent waits on, as the phone's card shows it; null
     /// for none, as always for a saved conversation.
     question: Value,
+    /// The store cursor for turns above `rows`, which the phone pages in
+    /// through `conversation.older`.
+    history: Option<i64>,
 }
 impl Snapshot<'_> {
     fn source(&self) -> turns::Source<'_> {
@@ -752,33 +773,111 @@ impl Shell {
             .as_u64()
             .unwrap_or(DEFAULT_TAIL as u64) as usize)
             .clamp(1, MAX_PAGE);
-        let page = move |snapshot: &Snapshot| -> Result<Value, String> {
+        // Before a turn of an older page the phone already holds: the store
+        // has the rest.
+        if older && let Some((cursor, at)) = page_turn(&before) {
+            return self.mobile_older_page(request, &target, cursor, Some(at), limit, cx);
+        }
+        let page = move |snapshot: &Snapshot| -> Result<Read, String> {
             let source = snapshot.source();
             let ids = turns::turn_ids(&source);
             if older {
                 let (start, end, more) = watch::before(&ids, &before, limit)?;
-                return Ok(json!({"turns": turns::build(&source, start..end), "older": more}));
+                // At the top of the loaded rows; a long Mono keeps the rest in
+                // the store.
+                if start == end
+                    && let Some(cursor) = snapshot.history
+                {
+                    return Ok(Read::Page(cursor));
+                }
+                return Ok(Read::Done(json!({
+                    "turns": turns::build(&source, start..end),
+                    "older": more || snapshot.history.is_some(),
+                })));
             }
             let start = ids.len().saturating_sub(READ_TURNS);
-            Ok(json!({
+            Ok(Read::Done(json!({
                 "id": conversation,
                 "messages": turns::messages(snapshot.rows),
                 "turns": turns::build(&source, start..ids.len()),
                 "busy": snapshot.busy,
+                "older": start > 0 || snapshot.history.is_some(),
                 "question": snapshot.question,
-            }))
+            })))
         };
-        if let Some(result) = self.with_live_snapshot(&target, cx, &page) {
-            return request.reply(result);
+        match self.with_live_snapshot(&target, cx, &page) {
+            Some(Ok(Read::Done(value))) => request.reply(Ok(value)),
+            Some(Ok(Read::Page(cursor))) => {
+                self.mobile_older_page(request, &target, cursor, None, limit, cx)
+            }
+            Some(Err(error)) => request.reply(Err(error)),
+            None => {
+                let load = self.load_saved(&target, cx);
+                cx.spawn(async move |this, cx| {
+                    match load
+                        .await
+                        .and_then(|saved| page(&saved_snapshot(&saved, None)))
+                    {
+                        Ok(Read::Done(value)) => request.reply(Ok(value)),
+                        Ok(Read::Page(cursor)) => {
+                            let _ = this.update(cx, |this, cx| {
+                                this.mobile_older_page(request, &target, cursor, None, limit, cx)
+                            });
+                        }
+                        Err(error) => request.reply(Err(error)),
+                    }
+                })
+                .detach();
+            }
         }
-        let load = self.load_saved(&target, cx);
-        cx.spawn(async move |_, _| {
-            let result = load
-                .await
-                .and_then(|saved| page(&saved_snapshot(&saved, None)));
-            request.reply(result);
-        })
-        .detach();
+    }
+
+    /// Turns from the store page at `cursor`, above the loaded rows: before
+    /// its turn starting at row `before`, or with none its newest. Their IDs
+    /// name the page, so the turns the phone has keep theirs.
+    fn mobile_older_page(
+        &mut self,
+        request: Request,
+        target: &Target,
+        cursor: i64,
+        before: Option<usize>,
+        limit: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let session = match target {
+            Target::Session(id) => Some(*id),
+            Target::Mono(mono) => self
+                .monos
+                .as_ref()
+                .and_then(|m| m.read(cx).roster.get(mono).and_then(|m| m.session_id)),
+        };
+        let Some(session) = session else {
+            return request.reply(Ok(json!({"turns": [], "older": false})));
+        };
+        // Drawn as the loaded turns are: as the open chat's, else as saved.
+        let look = self
+            .with_live_snapshot(target, cx, |s| PageLook {
+                mono: s.mono.clone(),
+                cwd: s.cwd.to_owned(),
+                harness: s.harness.to_owned(),
+                model: s.model.clone(),
+            })
+            .unwrap_or_else(|| {
+                let summary = self.session_summaries.get(&session);
+                PageLook {
+                    mono: None,
+                    cwd: summary.map(|s| s.cwd.clone()).unwrap_or_default(),
+                    harness: summary.map(|s| s.provider.clone()).unwrap_or_default(),
+                    model: None,
+                }
+            });
+        let store = self.store.clone();
+        let work = cx.background_executor().spawn(async move {
+            let store = locked(&store)?;
+            older_page(&store, session, cursor, before, limit, look)
+        });
+        cx.spawn(async move |_, _| request.reply(work.await))
+            .detach();
     }
 
     /// Runs `f` on the open chat's transcript when its history is in memory.
@@ -816,6 +915,7 @@ impl Shell {
             mono,
             pending: chat.mobile_pending(cx),
             question: chat.mobile_question(cx),
+            history: chat.transcript.read(cx).older_history_cursor(),
         };
         Some(f(&snapshot))
     }
@@ -844,10 +944,12 @@ impl Shell {
                     harness: String::new(),
                     model: None,
                     cwd: String::new(),
+                    history: None,
                 }));
             };
             let store = locked(&store)?;
             let rows = store.load(id)?.rows;
+            let history = store.history_before(id)?;
             let settings = store.agent_settings(id)?.unwrap_or_default();
             let (harness, cwd) = match summary {
                 Some(summary) => (summary.provider, summary.cwd),
@@ -865,6 +967,7 @@ impl Shell {
                 harness,
                 model: settings.model,
                 cwd,
+                history,
             }))
         })
     }
@@ -954,6 +1057,8 @@ impl Shell {
                 let source = snapshot.source();
                 let ids = turns::turn_ids(&source);
                 let (start, from, older) = watch::window(&ids, from.as_deref(), tail);
+                // Turns above the loaded rows are older history too.
+                let older = older || snapshot.history.is_some();
                 let built = turns::build(&source, start..ids.len());
                 (from, older, built, snapshot.busy, snapshot.question.clone())
             };
@@ -1712,6 +1817,79 @@ fn tone_id(tone: Tone) -> &'static str {
     }
 }
 
+/// An older page's turn ID, `p{cursor}t{row}`: its page's store cursor and
+/// the row its turn starts at.
+fn page_turn(id: &str) -> Option<(i64, usize)> {
+    let (cursor, row) = id.strip_prefix('p')?.split_once('t')?;
+    Some((cursor.parse().ok()?, row.parse().ok()?))
+}
+
+/// See `Shell::mobile_older_page`. Before a page's first turn it reads the
+/// page before that one.
+fn older_page(
+    store: &monocode_core::store::Store,
+    session: i64,
+    mut cursor: i64,
+    before: Option<usize>,
+    limit: usize,
+    mut look: PageLook,
+) -> Result<Value, String> {
+    if look.harness.is_empty()
+        && let Some(saved) = store.sessions()?.into_iter().find(|s| s.id == session)
+    {
+        look.harness = saved.provider;
+        look.cwd = saved.cwd;
+    }
+    let mut page = store.load_before(session, cursor, false)?;
+    let mut before = before.map(|row| format!("t{row}"));
+    loop {
+        // The page's turns, or None when the turn asked for is its first.
+        let turns = {
+            let snapshot = Snapshot {
+                rows: &page.rows,
+                turns: &page.turns,
+                cwd: &look.cwd,
+                harness: &look.harness,
+                model: look.model.clone(),
+                busy: false,
+                waiting: None,
+                mono: look.mono.clone(),
+                pending: Vec::new(),
+                question: Value::Null,
+                history: page.before,
+            };
+            let source = snapshot.source();
+            let ids = turns::turn_ids(&source);
+            let end = match &before {
+                Some(id) => ids
+                    .iter()
+                    .position(|turn| turn == id)
+                    .ok_or("This part of the conversation is no longer available")?,
+                None => ids.len(),
+            };
+            let start = end.saturating_sub(limit);
+            (end > 0).then(|| (start, turns::build(&source, start..end)))
+        };
+        let Some((start, mut built)) = turns else {
+            // Before this page's first turn: the page above it, if any.
+            let Some(above) = page.before else {
+                return Ok(json!({"turns": [], "older": false}));
+            };
+            cursor = above;
+            page = store.load_before(session, cursor, false)?;
+            before = None;
+            continue;
+        };
+        for turn in &mut built {
+            let id = turn["id"].as_str().map(|id| format!("p{cursor}{id}"));
+            if let Some(id) = id {
+                turn["id"] = json!(id);
+            }
+        }
+        return Ok(json!({"turns": built, "older": start > 0 || page.before.is_some()}));
+    }
+}
+
 fn saved_snapshot<'a>(saved: &'a Saved, mono: Option<String>) -> Snapshot<'a> {
     Snapshot {
         rows: &saved.rows,
@@ -1724,6 +1902,7 @@ fn saved_snapshot<'a>(saved: &'a Saved, mono: Option<String>) -> Snapshot<'a> {
         mono,
         pending: Vec::new(),
         question: Value::Null,
+        history: saved.history,
     }
 }
 
@@ -1910,6 +2089,16 @@ mod tests {
         assert_eq!(project_id("/Users/me/My App"), "%2FUsers%2Fme%2FMy%20App");
         assert_eq!(project_id("C:\\code\\é"), "C%3A%5Ccode%5C%C3%A9");
         assert_eq!(project_id("a-b_c.d!~*'()"), "a-b_c.d!~*'()");
+    }
+
+    #[test]
+    fn older_page_turns_name_their_page_and_window_turns_do_not() {
+        assert_eq!(page_turn("p42t7"), Some((42, 7)));
+        assert_eq!(page_turn("p-3t0"), Some((-3, 0)));
+        // The loaded window's own turns, and anything malformed, are not pages.
+        assert_eq!(page_turn("t7"), None);
+        assert_eq!(page_turn("p42"), None);
+        assert_eq!(page_turn("pxtn"), None);
     }
 
     #[test]
