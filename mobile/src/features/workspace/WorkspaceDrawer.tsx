@@ -25,6 +25,7 @@ import { GradualBlur } from "@/ui/GradualBlur";
 import { Icon } from "@/ui/Icon";
 import { LiquidView } from "@/ui/LiquidView";
 import { isModalRoute } from "@/ui/SceneFade";
+import { AnimationsPaused } from "@/ui/AnimationsPaused";
 import { useDrawerActions, useDrawerOpen } from "@/ui/ScenePager";
 import { Shimmer } from "@/ui/Shimmer";
 import { radii, themedStyles, useColors, useScheme } from "@/ui/theme";
@@ -63,8 +64,9 @@ type Show = "both" | "monos" | "projects";
  */
 export function WorkspaceDrawer() {
   const drawer = useDrawerActions();
+  const open = useDrawerOpen();
   // The switch's loading cover, drawn while the drawer is open to be picked from.
-  useWarmDitherLoading(useDrawerOpen());
+  useWarmDitherLoading(open);
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const styles = useStyles();
@@ -166,87 +168,90 @@ export function WorkspaceDrawer() {
   const nothing = !listedMonos.length && !listedProjects.length;
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        style={StyleSheet.absoluteFill}
-        contentContainerStyle={{ paddingTop: headerBottom, paddingBottom: footerTop + FADE }}
-        scrollIndicatorInsets={{ top: headerBottom, bottom: footerTop }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      >
-        {listedMonos.length ? (
-          <View style={styles.list}>
-            <Text style={styles.sectionLabel}>Monos</Text>
-            {listedMonos.map((mono) => (
-              <MonoRow
-                key={mono.id}
-                mono={mono}
-                unread={unread.has(mono.id)}
-                active={mono.id === activeMono}
-                onPress={openMono}
-              />
-            ))}
-          </View>
-        ) : null}
-        {listedProjects.length ? (
-          <View style={[styles.list, listedMonos.length > 0 && styles.section]}>
-            <Text style={styles.sectionLabel}>Projects</Text>
-            {listedProjects.map((project) => (
-              <ProjectRow
-                key={project.id}
-                project={project}
-                active={project.id === activeProject}
-                onPress={openProject}
-              />
-            ))}
-          </View>
-        ) : null}
-        {nothing ? (
-          <Text style={styles.empty}>
-            {needle || filter !== "all" || show !== "both"
-              ? "Nothing matches."
-              : "No Monos or projects on this phone yet."}
-          </Text>
-        ) : null}
-      </ScrollView>
+    // A shut drawer's mascots hold still; they move again as it opens.
+    <AnimationsPaused value={!open}>
+      <View style={styles.container}>
+        <ScrollView
+          style={StyleSheet.absoluteFill}
+          contentContainerStyle={{ paddingTop: headerBottom, paddingBottom: footerTop + FADE }}
+          scrollIndicatorInsets={{ top: headerBottom, bottom: footerTop }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {listedMonos.length ? (
+            <View style={styles.list}>
+              <Text style={styles.sectionLabel}>Monos</Text>
+              {listedMonos.map((mono) => (
+                <MonoRow
+                  key={mono.id}
+                  mono={mono}
+                  unread={unread.has(mono.id)}
+                  active={mono.id === activeMono}
+                  onPress={openMono}
+                />
+              ))}
+            </View>
+          ) : null}
+          {listedProjects.length ? (
+            <View style={[styles.list, listedMonos.length > 0 && styles.section]}>
+              <Text style={styles.sectionLabel}>Projects</Text>
+              {listedProjects.map((project) => (
+                <ProjectRow
+                  key={project.id}
+                  project={project}
+                  active={project.id === activeProject}
+                  onPress={openProject}
+                />
+              ))}
+            </View>
+          ) : null}
+          {nothing ? (
+            <Text style={styles.empty}>
+              {needle || filter !== "all" || show !== "both"
+                ? "Nothing matches."
+                : "No Monos or projects on this phone yet."}
+            </Text>
+          ) : null}
+        </ScrollView>
 
-      <GradualBlur edge="top" height={headerBottom + FADE} color={colors.drawer} />
-      <GradualBlur edge="bottom" height={footerTop + FADE} color={colors.drawer} />
+        <GradualBlur edge="top" height={headerBottom + FADE} color={colors.drawer} />
+        <GradualBlur edge="bottom" height={footerTop + FADE} color={colors.drawer} />
 
-      <View style={[styles.header, { top: headerTop }]}>
-        <Image
-          source={MONOCODE_MARK}
-          style={[styles.mark, { tintColor: colors.content }]}
-          accessibilityIgnoresInvertColors
-        />
-        <View style={styles.headerActions}>
-          <FilterMenu filter={filter} onFilter={setFilter} show={show} onShow={setShow} />
-          {/* The older desktop app can't make a Mono from the phone. */}
-          {tools ? <CircleButton icon="add" label="New Mono" onPress={() => void createMono()} /> : null}
-        </View>
-      </View>
-
-      <Animated.View style={[styles.foot, { bottom: footerBottom }, lift]}>
-        <View style={styles.footer}>
-        <CircleButton icon="settings" label="Settings" onPress={openSettings} size={FOOTER_HEIGHT} />
-        <LiquidView borderRadius={FOOTER_HEIGHT / 2} style={styles.searchFrame} innerStyle={styles.search}>
-          <Icon name="search" size={18} color={colors.muted} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search"
-            placeholderTextColor={colors.muted}
-            keyboardAppearance={useScheme()}
-            returnKeyType="search"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-            style={styles.searchInput}
+        <View style={[styles.header, { top: headerTop }]}>
+          <Image
+            source={MONOCODE_MARK}
+            style={[styles.mark, { tintColor: colors.content }]}
+            accessibilityIgnoresInvertColors
           />
-        </LiquidView>
+          <View style={styles.headerActions}>
+            <FilterMenu filter={filter} onFilter={setFilter} show={show} onShow={setShow} />
+            {/* The older desktop app can't make a Mono from the phone. */}
+            {tools ? <CircleButton icon="add" label="New Mono" onPress={() => void createMono()} /> : null}
+          </View>
         </View>
-      </Animated.View>
-    </View>
+
+        <Animated.View style={[styles.foot, { bottom: footerBottom }, lift]}>
+          <View style={styles.footer}>
+          <CircleButton icon="settings" label="Settings" onPress={openSettings} size={FOOTER_HEIGHT} />
+          <LiquidView borderRadius={FOOTER_HEIGHT / 2} style={styles.searchFrame} innerStyle={styles.search}>
+            <Icon name="search" size={18} color={colors.muted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search"
+              placeholderTextColor={colors.muted}
+              keyboardAppearance={useScheme()}
+              returnKeyType="search"
+              autoCorrect={false}
+              clearButtonMode="while-editing"
+              style={styles.searchInput}
+            />
+          </LiquidView>
+          </View>
+        </Animated.View>
+      </View>
+    </AnimationsPaused>
   );
 }
 
