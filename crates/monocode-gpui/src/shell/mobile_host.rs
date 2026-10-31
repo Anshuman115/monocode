@@ -714,6 +714,7 @@ impl Shell {
             "models.list" => self.mobile_models(request, cx),
             "accounts.usage" => self.mobile_usage(request, cx),
             "mono.document" => self.mobile_document(request, cx),
+            "mono.profile" | "mono.update" => self.mobile_mono(request, cx),
             "project.fileHighlight" => {
                 let job = string(&request.params, "job").unwrap_or_default();
                 let from = request.params["from"].as_u64().unwrap_or(0) as usize;
@@ -1834,6 +1835,26 @@ impl Shell {
             }))
         })
         .detach();
+    }
+
+    /// A Mono's details for the phone's profile, or a change to its look.
+    fn mobile_mono(&mut self, request: Request, cx: &mut Context<Self>) {
+        let id = string(&request.params, "monoId").unwrap_or_default();
+        let Some(monos) = self.monos.clone() else {
+            return request.reply(Err("Mono is no longer available".into()));
+        };
+        let result = if request.method == "mono.update" {
+            let result = monos.update(cx, |monos, cx| monos.mobile_update(&id, &request.params, cx));
+            // The phone's drawer and header show the new look at once.
+            if result.is_ok() {
+                self.publish_mobile_catalog(cx);
+            }
+            result
+        } else {
+            let views = self.mono_session_views(cx);
+            monos.update(cx, |monos, cx| monos.mobile_profile(&id, &views, cx))
+        };
+        request.reply(result);
     }
 
     fn mobile_usage(&mut self, request: Request, cx: &mut Context<Self>) {

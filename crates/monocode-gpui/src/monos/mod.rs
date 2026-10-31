@@ -11,6 +11,7 @@ mod floating;
 mod host;
 mod html;
 mod memory_ui;
+mod mobile;
 mod notifications;
 mod overview;
 mod panel_stack;

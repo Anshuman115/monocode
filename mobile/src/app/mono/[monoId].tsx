@@ -91,6 +91,9 @@ export default function MonoScreen() {
       pill={{
         icon: <PixelMascot name={mono.mascot} color={mono.color} status={mono.status} size={28} />,
         label: mono.name,
+        // Its profile: the desktop's details, and its look to edit.
+        onPress: () =>
+          router.push({ pathname: "/mono-profile/[monoId]", params: { monoId: mono.id } }),
       }}
       // Settings on the right, as on a project.
       action={{ icon: "settings", label: "Settings", onPress: () => router.push("/settings") }}

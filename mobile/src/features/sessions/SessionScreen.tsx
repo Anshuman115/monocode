@@ -206,7 +206,7 @@ export type Chrome = {
   subtitle?: string;
   /** Glass pill in the header, e.g. a mono's mascot and name, or a session's
    * title over its project and branch. Wins over `title`. */
-  pill?: { icon?: ReactNode; label: string; subtitle?: string };
+  pill?: { icon?: ReactNode; label: string; subtitle?: string; onPress?: () => void };
   /** Any element for the header's centre, e.g. a view switch. Wins over `pill` and `title`. */
   center?: ReactNode;
   /** Screens with the same key share the header's centre and the line under
@@ -824,6 +824,9 @@ function HeaderTitle({ chrome }: { chrome: Chrome }) {
       <LiquidView
         style={styles.pillFrame}
         innerStyle={[styles.pill, !chrome.pill.icon && styles.pillTextOnly]}
+        onPress={chrome.pill.onPress}
+        accessibilityLabel={chrome.pill.onPress ? chrome.pill.label : undefined}
+        pressedScale={chrome.pill.onPress ? 1.04 : undefined}
       >
         {chrome.pill.icon}
         <View style={styles.pillText}>
