@@ -1833,7 +1833,8 @@ impl Shell {
         // A visual runs here and goes as its rendered tree, which the phone
         // draws with the same dither; its source stays on the desktop.
         let reply = |document: monocode_core::mono::Document| {
-            let mut value = json!({"title": document.title, "kind": document.kind, "body": document.body});
+            let mut value =
+                json!({"title": document.title, "kind": document.kind, "body": document.body});
             if document.kind == "visual" {
                 match visual_tree(&document.body) {
                     Ok(tree) => value["tree"] = tree,
@@ -1874,7 +1875,11 @@ impl Shell {
         } else if matches!(request.method.as_str(), "mono.reset" | "mono.delete") {
             let reset = request.method == "mono.reset";
             let result = monos.update(cx, |monos, cx| {
-                if reset { monos.mobile_reset(&id, cx) } else { monos.mobile_delete(&id, cx) }
+                if reset {
+                    monos.mobile_reset(&id, cx)
+                } else {
+                    monos.mobile_delete(&id, cx)
+                }
             });
             if result.is_ok() {
                 self.publish_mobile_catalog(cx);
@@ -1896,7 +1901,13 @@ impl Shell {
                     .read(cx)
                     .roster
                     .get(&id)
-                    .map(|mono| mono.projects.iter().filter(|p| project_id(p) == remove).cloned().collect())
+                    .map(|mono| {
+                        mono.projects
+                            .iter()
+                            .filter(|p| project_id(p) == remove)
+                            .cloned()
+                            .collect()
+                    })
                     .unwrap_or_default();
                 params["removePaths"] = json!(paths);
             }

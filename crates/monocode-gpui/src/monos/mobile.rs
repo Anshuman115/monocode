@@ -20,7 +20,11 @@ impl Monos {
         views: &[MonoSession],
         cx: &mut Context<Self>,
     ) -> Result<Value, String> {
-        let mono = self.roster.get(id).cloned().ok_or("Mono is no longer available")?;
+        let mono = self
+            .roster
+            .get(id)
+            .cloned()
+            .ok_or("Mono is no longer available")?;
         let now = now_ms();
         let today = Local::now().date_naive();
         let mine: Vec<&MonoSession> = views
@@ -41,7 +45,9 @@ impl Monos {
         // The dashboard's live line, word for word.
         let status = match (state.as_str(), busy.first()) {
             ("needs-you", _) => "Waiting for your input".to_string(),
-            (_, Some(v)) if busy.len() > 1 => format!("Working on {} +{} more", v.title, busy.len() - 1),
+            (_, Some(v)) if busy.len() > 1 => {
+                format!("Working on {} +{} more", v.title, busy.len() - 1)
+            }
             (_, Some(v)) => format!("Working on {}", v.title),
             ("working", None) => "Thinking…".to_string(),
             _ => match mine.iter().map(|v| v.updated_at).max().filter(|t| *t > 0) {
@@ -59,7 +65,12 @@ impl Monos {
         };
         let ran_today: usize = habits
             .iter()
-            .map(|h| h.runs.iter().filter(|r| local_day(r.at) == Some(today)).count())
+            .map(|h| {
+                h.runs
+                    .iter()
+                    .filter(|r| local_day(r.at) == Some(today))
+                    .count()
+            })
             .sum();
         let still_today = habits
             .iter()
@@ -76,7 +87,11 @@ impl Monos {
             None => {
                 let day = DateTime::from_timestamp_millis(habit.next_run_at as i64)
                     .map(|t| {
-                        let format = if local_day(habit.next_run_at) == Some(today) { "%H:%M" } else { "%a" };
+                        let format = if local_day(habit.next_run_at) == Some(today) {
+                            "%H:%M"
+                        } else {
+                            "%a"
+                        };
                         t.with_timezone(&Local).format(format).to_string()
                     })
                     .unwrap_or_default();
@@ -150,13 +165,21 @@ impl Monos {
     }
 
     /// The phone's Reset conversation or Delete Mono, confirmed there.
-    pub(crate) fn mobile_reset(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Value, String> {
+    pub(crate) fn mobile_reset(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
         self.roster.get(id).ok_or("Mono is no longer available")?;
         self.clear_conversation(id, cx);
         cx.notify();
         Ok(Value::Null)
     }
-    pub(crate) fn mobile_delete(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Value, String> {
+    pub(crate) fn mobile_delete(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
         self.roster.get(id).ok_or("Mono is no longer available")?;
         self.remove_mono(id, cx);
         cx.notify();
@@ -166,8 +189,16 @@ impl Monos {
     /// The name, mascot and colour from the phone, kept as the desktop's
     /// editor keeps them: a name of at most 40 characters (empty falls back
     /// to the mascot's), a known mascot, a colour as `#rrggbb`.
-    pub(crate) fn mobile_update(&mut self, id: &str, params: &Value, cx: &mut Context<Self>) -> Result<Value, String> {
-        let mono = self.roster.get_mut(id).ok_or("Mono is no longer available")?;
+    pub(crate) fn mobile_update(
+        &mut self,
+        id: &str,
+        params: &Value,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let mono = self
+            .roster
+            .get_mut(id)
+            .ok_or("Mono is no longer available")?;
         if let Some(name) = params["name"].as_str() {
             mono.name = name.trim().chars().take(40).collect();
         }
@@ -188,7 +219,8 @@ impl Monos {
             mono.projects.push(path.into());
         }
         if let Some(paths) = params["removePaths"].as_array() {
-            mono.projects.retain(|p| !paths.iter().any(|r| r.as_str() == Some(p.as_str())));
+            mono.projects
+                .retain(|p| !paths.iter().any(|r| r.as_str() == Some(p.as_str())));
         }
         mono.normalize();
         self.configure_chat(id, cx);

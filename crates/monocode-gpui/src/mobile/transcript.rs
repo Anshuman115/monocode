@@ -332,7 +332,9 @@ fn notice(rows: &[Row], at: usize, end: usize) -> Option<Value> {
             if let Some(document) = &document
                 && let Some(tree) = visual_tree(&document.source)
             {
-                return Some(json!({"type": "visual", "id": id, "title": document.title, "tree": tree}));
+                return Some(
+                    json!({"type": "visual", "id": id, "title": document.title, "tree": tree}),
+                );
             }
             let title = document
                 .map(|document| document.title)
@@ -813,7 +815,11 @@ fn mono_turn(source: &Source, turn: &Turn, live: bool, name: &str) -> Value {
         put(&mut header, "durationMs", duration);
         // While it works, its status trails the turn, under anything it has
         // already posted, as a messaging app's typing line.
-        let at = if live { items.len() } else { first_work.unwrap_or(items.len()) };
+        let at = if live {
+            items.len()
+        } else {
+            first_work.unwrap_or(items.len())
+        };
         items.insert(at, Value::Object(header));
     }
     compact(&mut items);
@@ -1243,7 +1249,10 @@ mod tests {
         assert_eq!(turns[0]["items"][2]["text"], "Checking your calendar");
         assert_eq!(turns[0]["items"][3]["text"], "You are free after 3.");
         assert_eq!(turns[0]["stampAt"], 1_000);
-        assert_eq!(turns[0]["copyText"], "Checking your calendar\n\nYou are free after 3.");
+        assert_eq!(
+            turns[0]["copyText"],
+            "Checking your calendar\n\nYou are free after 3."
+        );
         // A reply that is only a reaction leaves the message on its own.
         assert_eq!(types(&turns[1]), ["user"]);
         assert_eq!(turns[1]["items"][0]["reaction"], "🙌");
@@ -1261,7 +1270,11 @@ mod tests {
         let rows = [
             sent("user", "Any PRs?", 1_000),
             row("assistant", "I'll check the latest PRs."),
-            tool("Bash", json!({"command": "gh pr list"}), ToolState::Completed),
+            tool(
+                "Bash",
+                json!({"command": "gh pr list"}),
+                ToolState::Completed,
+            ),
             row("assistant", "Started a background check."),
         ];
         let infos = HashMap::new();

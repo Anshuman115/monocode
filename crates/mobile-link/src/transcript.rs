@@ -989,7 +989,11 @@ fn project(
     }
     // When the reply landed, shown beside its last bubble on a slide aside.
     if turn["completedAt"].is_number() {
-        if let Some(row) = rows.iter_mut().rev().find(|r| r.presentation["replyLast"] == true) {
+        if let Some(row) = rows
+            .iter_mut()
+            .rev()
+            .find(|r| r.presentation["replyLast"] == true)
+        {
             Arc::make_mut(row).presentation["at"] = turn["completedAt"].clone();
         }
     }
