@@ -9,7 +9,7 @@ import { PixelMascot } from "@/features/mascots/PixelMascot";
 import { useMonoModel } from "@/features/models/useMonoModel";
 import { useDrawerActions, useDrawerSwipe } from "@/ui/ScenePager";
 import { Timed } from "@/ui/Timed";
-import { useConnection } from "@/features/connection/ConnectionProvider";
+import { useConnection, useMonoTools } from "@/features/connection/ConnectionProvider";
 import { rememberPlace } from "@/features/workspace/lastPlace";
 import { markMonoSeen, markMonoUnread } from "@/features/workspace/monoSeen";
 import { Composer } from "@/features/sessions/Composer";
@@ -40,6 +40,8 @@ export default function MonoScreen() {
   const conversation = useConversation(conversationId);
   // Where the app opens next time.
   const { command, refresh } = useConnection();
+  // The older desktop app has no profile, reset or delete for a Mono.
+  const tools = useMonoTools();
   const desktop = useConnection().pairing?.desktop.fingerprint;
   const placeId = mono?.id;
   useEffect(() => {
@@ -103,12 +105,15 @@ export default function MonoScreen() {
         icon: <PixelMascot name={mono.mascot} color={mono.color} status={mono.status} size={28} />,
         label: mono.name,
         // Its profile: the desktop's details, and its look to edit.
-        onPress: () =>
-          router.push({ pathname: "/mono-profile/[monoId]", params: { monoId: mono.id } }),
+        onPress: tools
+          ? () => router.push({ pathname: "/mono-profile/[monoId]", params: { monoId: mono.id } })
+          : undefined,
       }}
+      // Without them, settings on the right, as on a project.
+      action={tools ? undefined : { icon: "settings", label: "Settings", onPress: () => router.push("/settings") }}
       // Its details, a fresh start or deleting it, from ⋯ on the right.
       trailing={
-        <MonoMenu
+        tools ? <MonoMenu
           onDetails={() =>
             router.push({ pathname: "/mono-profile/[monoId]", params: { monoId: mono.id } })
           }
@@ -141,7 +146,7 @@ export default function MonoScreen() {
               ],
             )
           }
-        />
+        /> : undefined
       }
       composer={
         <AccentOverride value={chatAccent}>

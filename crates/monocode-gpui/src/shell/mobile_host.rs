@@ -600,7 +600,10 @@ impl Shell {
                 })
                 .collect();
             Ok::<_, String>((
-                json!({"projects": projects, "monos": monos, "sessions": sessions}),
+                // `monoTools`: this desktop answers the phone's Mono profile,
+                // editing, reset, delete and create; the older app doesn't,
+                // and its phones hide them.
+                json!({"projects": projects, "monos": monos, "sessions": sessions, "monoTools": true}),
                 ids,
                 previews,
             ))

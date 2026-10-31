@@ -35,6 +35,9 @@ export type Catalog = {
   monos: Mono[];
   sessions: SessionSummary[];
   addresses?: Desktop["addresses"];
+  /** The desktop answers Mono profiles, editing, reset, delete and create;
+   *  the older desktop app sends no such flag. */
+  monoTools?: boolean;
 };
 const EMPTY: Catalog = { projects: [], monos: [], sessions: [] };
 const PAIRING = "monocode.mobile.pairing";
@@ -330,4 +333,10 @@ function deviceName() {
   return (
     Constants.deviceName?.trim() || (Platform.OS === "ios" ? "iPhone" : "Phone")
   );
+}
+
+/** Whether the desktop can show and change a Mono's profile, reset or delete
+ *  it, and make new ones; where it can't, the phone leaves them out. */
+export function useMonoTools() {
+  return useConnection().catalog.monoTools === true;
 }

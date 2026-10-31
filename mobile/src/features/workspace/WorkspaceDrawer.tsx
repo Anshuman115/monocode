@@ -13,7 +13,7 @@ import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View 
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useConnection } from "@/features/connection/ConnectionProvider";
+import { useConnection, useMonoTools } from "@/features/connection/ConnectionProvider";
 import { PixelMascot } from "@/features/mascots/PixelMascot";
 import { ProjectMascot } from "@/features/mascots/ProjectMascot";
 import { plainText } from "@/features/sessions/markdownParser";
@@ -70,6 +70,7 @@ export function WorkspaceDrawer() {
   const styles = useStyles();
   const { projects, monos: roster } = useWorkspace();
   const { command, refresh, selection, select, pairing } = useConnection();
+  const tools = useMonoTools();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [show, setShow] = useState<Show>("both");
@@ -221,7 +222,8 @@ export function WorkspaceDrawer() {
         />
         <View style={styles.headerActions}>
           <FilterMenu filter={filter} onFilter={setFilter} show={show} onShow={setShow} />
-          <CircleButton icon="add" label="New Mono" onPress={() => void createMono()} />
+          {/* The older desktop app can't make a Mono from the phone. */}
+          {tools ? <CircleButton icon="add" label="New Mono" onPress={() => void createMono()} /> : null}
         </View>
       </View>
 
