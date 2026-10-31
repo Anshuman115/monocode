@@ -35,6 +35,7 @@ import { useColors } from "@/ui/theme";
 import { usePushStarted } from "@/ui/usePushedIn";
 
 import { EmptySession } from "./EmptySession";
+import { useOpenLaunchedSession } from "./LaunchedSessionCard";
 import { FileOpener } from "./Markdown";
 import { SessionErrorSheet } from "./SessionErrorSheet";
 import { useJumpToEnd, useSessionLayout } from "./SessionScreen";
@@ -44,8 +45,12 @@ import { useReportSessionError, type SessionErrorNotice } from "./sessionError";
 
 type Handle = { scrollToEnd: () => Promise<void> };
 type Action = {
-  type: "copy" | "metrics" | "error" | "link";
+  type: "copy" | "metrics" | "error" | "link" | "session";
   url?: string;
+  /** A session a Mono started, from its card. */
+  sessionId?: string;
+  projectId?: string;
+  title?: string;
   copyText?: string;
   metrics?: TurnMetrics;
   durationMs?: number;
@@ -89,6 +94,7 @@ export function NativeTranscript({
   const focused = useIsFocused();
   const started = usePushStarted(pushed);
   const openFile = use(FileOpener);
+  const openSession = useOpenLaunchedSession();
   const jump = useJumpToEnd();
   const view = useRef<Handle>(null);
   const [notice, setNotice] = useState<SessionErrorNotice | null>(null);
@@ -163,6 +169,8 @@ export function NativeTranscript({
         void Clipboard.setStringAsync(action.copyText)
           .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
           .catch(() => {});
+      } else if (action.type === "session" && action.sessionId && action.projectId) {
+        openSession(action.projectId, action.sessionId, action.title);
       } else if (action.type === "link" && action.url) {
         if (action.url.startsWith("monocode-file:"))
           openFile?.(action.url.slice("monocode-file:".length));
@@ -170,7 +178,7 @@ export function NativeTranscript({
           void Linking.openURL(action.url).catch(() => {});
       }
     },
-    [openFile, showError],
+    [openFile, openSession, showError],
   );
   useEffect(() => {
     if (!jump || !focused) return;

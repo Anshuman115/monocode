@@ -85,14 +85,20 @@ import { usePushedIn, usePushStarted } from "@/ui/usePushedIn";
  * button on the right settings; a session's
  * right has its changes and a menu of its actions instead. A session, or
  * one just started, is pushed over it as a screen of its own: its chat under
- * the stack's native header (see the session route).
+ * the stack's native header (see the session route). With `sheet`, a session
+ * is presented over a Mono's chat instead, and closes rather than goes back.
  */
 export function ProjectScreen({
   project,
   sessionId,
+  sheet = false,
+  title,
 }: {
   project: Project;
   sessionId: string | undefined;
+  sheet?: boolean;
+  /** Its title until the session is in the catalog, which may leave it out. */
+  title?: string;
 }) {
   const { startSession, sendMessage, stop } = useWorkspace();
   const [openAfterStarting] = useOpenSessionAfterStarting();
@@ -297,8 +303,9 @@ export function ProjectScreen({
 
   const sessionTitle = sessionId ? (
     <SessionTitle
-      title={session?.title ?? "Session"}
+      title={session?.title ?? title ?? "Session"}
       subtitle={[project.name, branch].filter(Boolean).join(" · ")}
+      onClose={sheet ? () => router.back() : undefined}
     />
   ) : null;
   const sessionToolbar = sessionId ? (
@@ -413,7 +420,7 @@ export function ProjectScreen({
                   headerTitleAlign: "left",
                   headerRight: () => headerSurface(sessionToolbar),
                 }
-              : { headerTitle: "", headerBackVisible: true }
+              : { headerTitle: "", headerBackVisible: !sheet }
             : {
                 headerTitle: () => <ProjectSwitch pages={pages} />,
                 ...(Platform.OS === "android"

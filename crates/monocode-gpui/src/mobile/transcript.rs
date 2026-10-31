@@ -40,6 +40,9 @@ pub(crate) struct Source<'a> {
     /// Approvals and questions the live chat waits on. Rows never record
     /// them, so they come from the conversation and end the latest turn.
     pub pending: &'a [Pending],
+    /// The sessions a Mono started, as the phone's cards show them, by
+    /// session: where each runs and how it stands. Only these get cards.
+    pub launches: &'a HashMap<i64, Value>,
 }
 
 /// An approval or question waiting on the desktop.
@@ -632,6 +635,24 @@ fn mono_turn(source: &Source, turn: &Turn, live: bool, name: &str) -> Value {
                 items.push(notice);
             }
         }
+        // LaunchedSessionCard: the sessions the run started, under its
+        // reply once it settles, as the desktop's chat shows them.
+        if !run_live {
+            let sessions: Vec<Value> =
+                desk::run_launches(rows, run.prompt, run.end, |id| {
+                    source.launches.contains_key(&id)
+                })
+                .into_iter()
+                .filter_map(|id| source.launches.get(&id).cloned())
+                .collect();
+            if !sessions.is_empty() {
+                items.push(json!({
+                    "type": "sessions",
+                    "id": format!("l{}", run.prompt),
+                    "sessions": sessions,
+                }));
+            }
+        }
     }
     let has_prose = turn.runs.iter().any(|run| {
         messages_in(rows, run.key, run.end).any(|(at, end)| {
@@ -781,6 +802,7 @@ mod tests {
             waiting: None,
             mono: None,
             pending: &[],
+            launches: Box::leak(Box::default()),
         }
     }
     fn all(source: &Source) -> Vec<Value> {
@@ -1092,5 +1114,43 @@ mod tests {
         let turn = &all(&live)[0];
         assert_eq!(types(turn), ["user", "header"]);
         assert_eq!(turn["items"][1]["label"], "Reading file…");
+    }
+
+    #[test]
+    fn a_monos_launched_sessions_land_on_cards_under_its_reply() {
+        let rows = [
+            sent("user", "Fix the composer", 1_000),
+            tool(
+                "Bash",
+                json!({"command": "monocode app sessions.start --json {}"}),
+                ToolState::Completed,
+            ),
+            row("assistant", "Started a session on it."),
+        ];
+        let mut call: ToolCall = serde_json::from_str(&rows[1].text).unwrap();
+        call.output = r#"{"ok":true,"result":{"sessionId":7,"accepted":true}}"#.into();
+        let rows = [
+            rows[0].clone(),
+            row("tool", &serde_json::to_string(&call).unwrap()),
+            rows[2].clone(),
+        ];
+        let infos = HashMap::new();
+        let card = json!({"id": "s-7", "projectId": "%2Frepo", "project": "repo",
+            "title": "Fix the composer", "harness": "codex", "state": "working"});
+        let launches = HashMap::from([(7, card.clone())]);
+        let mut mono = source(&rows, &infos, false);
+        mono.mono = Some("Ada");
+        mono.launches = &launches;
+        let turn = &all(&mono)[0];
+        assert_eq!(types(turn), ["user", "header", "text", "sessions"]);
+        assert_eq!(turn["items"][3]["sessions"], json!([card]));
+
+        // Not while the run is still going, and never for an unknown session.
+        let mut live = source(&rows, &infos, true);
+        live.mono = Some("Ada");
+        live.launches = &launches;
+        assert!(!types(&all(&live)[0]).contains(&"sessions"));
+        mono.launches = Box::leak(Box::default());
+        assert!(!types(&all(&mono)[0]).contains(&"sessions"));
     }
 }

@@ -17,6 +17,7 @@ import { Icon, type IconName } from "@/ui/Icon";
 import { Shimmer } from "@/ui/Shimmer";
 import { withAlpha, themedStyles, useColors } from "@/ui/theme";
 
+import { LaunchedSessions } from "./LaunchedSessionCard";
 import { Markdown } from "./Markdown";
 import { ProviderLogo } from "./ProviderLogo";
 import { sessionErrorContent, type SessionErrorNotice } from "./sessionError";
@@ -107,6 +108,8 @@ export const TranscriptTurn = memo(function TranscriptTurn({
                 <Reply text={item.text} streaming={!!item.streaming} />
               </View>
             );
+          case "sessions":
+            return <LaunchedSessions key={item.id} sessions={item.sessions} />;
           case "notice":
             return item.error ? (
               <ErrorNotice key={item.id} item={item} onPress={() => onError(item)} />

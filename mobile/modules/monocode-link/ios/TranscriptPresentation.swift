@@ -525,6 +525,75 @@ final class TranscriptRowModel {
             tint: contentColor.withAlphaComponent(0.4)))
         height = 4 + 18
       }
+    case "launch":
+      // A session the Mono started, as the desktop's card under its reply:
+      // how it stands, its title, and the project it runs in on a pill. A tap
+      // opens it over the chat.
+      let state = action["state"] as? String ?? "done"
+      let icons: [String: (String, UIColor)] = [
+        "working": ("terminal", contentColor.withAlphaComponent(0.55)),
+        "input": ("chat", UIColor.transcriptHex("#fbbf24")),
+        "draft": ("edit", contentColor.withAlphaComponent(0.45)),
+        "failed": ("minus", UIColor.transcriptHex(style.error)),
+        "stopped": ("minus", contentColor.withAlphaComponent(0.45)),
+        "done": ("check", UIColor.transcriptHex("#34d399").withAlphaComponent(0.9)),
+      ]
+      let (icon, tint) = icons[state] ?? icons["done"]!
+      let pad: CGFloat = 12
+      let iconSize: CGFloat = 16
+      let pillPad: CGFloat = 8
+      let providerSize: CGFloat = 14
+      let project = string(
+        action["project"] as? String ?? "", size: 12, line: 16,
+        color: contentColor.withAlphaComponent(0.65))
+      let projectSize = TranscriptTypography.measure(
+        project, width: available * 0.45 - pillPad * 2 - providerSize - 4, line: style.line(16))
+      let pillWidth = pillPad * 2 + providerSize + 4 + projectSize.width
+      let title = string(plain, size: 14, line: 20, color: contentColor)
+      let titleRoom = max(1, available - pad - iconSize - 10 - 10 - pillWidth - 6)
+      let titleWidth = min(
+        titleRoom,
+        TranscriptTypography.measure(title, width: 1_000_000, line: style.line(20)).width)
+      let h = max(40, style.line(20) + 16)
+      let rect = CGRect(
+        x: base, y: top, width: pad + iconSize + 10 + titleWidth + 10 + pillWidth + 6, height: h)
+      surfaces.append(
+        TranscriptSurface(
+          rect: rect, color: contentColor.withAlphaComponent(0.03), radius: 12,
+          border: UIColor.transcriptHex(style.stroke)))
+      marks.append(
+        TranscriptMark(
+          rect: CGRect(
+            x: rect.minX + pad, y: rect.midY - iconSize / 2, width: iconSize, height: iconSize),
+          image: TranscriptArtwork.shared.image("icon:" + icon), tint: tint))
+      let titleRect = CGRect(
+        x: rect.minX + pad + iconSize + 10, y: rect.midY - style.line(20) / 2, width: titleWidth,
+        height: style.line(20))
+      if state == "working" {
+        liveLabel = TranscriptLiveLabel(
+          rect: titleRect, text: plain, font: .systemFont(ofSize: 14 * s), color: contentColor,
+          shimmer: true, duration: 1.6)
+      } else {
+        add(
+          title, x: titleRect.minX, y: titleRect.minY, width: titleRect.width,
+          height: titleRect.height, lines: 1)
+      }
+      let pillHeight = max(22, style.line(16) + 6)
+      let pill = CGRect(
+        x: rect.maxX - 6 - pillWidth, y: rect.midY - pillHeight / 2, width: pillWidth,
+        height: pillHeight)
+      surfaces.append(
+        TranscriptSurface(
+          rect: pill, color: contentColor.withAlphaComponent(0.05), radius: pillHeight / 2,
+          border: UIColor.transcriptHex(style.stroke)))
+      mark(
+        "provider:" + (action["harness"] as? String ?? ""), x: pill.minX + pillPad,
+        y: pill.midY - providerSize / 2, size: providerSize, alpha: 0.65)
+      add(
+        project, x: pill.minX + pillPad + providerSize + 4, y: pill.midY - projectSize.height / 2,
+        width: projectSize.width, height: projectSize.height, lines: 1)
+      hits.append(TranscriptHit(rect: rect, action: action, label: "Open session " + plain))
+      height = rect.maxY + bottom + 4
     case "footer":
       let metrics = action["metrics"] as? [String: Any] ?? [:]
       let hasMetrics =

@@ -584,22 +584,27 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate {
     displayRows()
     publishViewport()
     updateAway()
-    // Only a Mono's chat follows its reply down, as Transcript.tsx.
-    if initialized && scroll.isDragging && !style.agent.isEmpty
-      && scroll.contentSize.height - bounds.height - scroll.contentOffset.y < 70
-    {
-      following = true
-    }
     if initialized && scroll.contentOffset.y < top + 120, frameData?.older == true, !loadingOlder {
       loadingOlder = true
       session?.command(["type": "older"])
     }
   }
-  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+  /// Only a Mono's chat follows its reply down, as Transcript.tsx, and only
+  /// once the reader comes to rest at the end. A drag that merely starts
+  /// there is reading up, so older turns landing above keep its place.
+  private func settled() {
+    if !style.agent.isEmpty
+      && scroll.contentSize.height - bounds.height - scroll.contentOffset.y < 70
+    {
+      following = true
+    }
     if following { startFollowingAnimation() }
   }
+  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    settled()
+  }
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-    if following && !decelerate { startFollowingAnimation() }
+    if !decelerate { settled() }
   }
 
   private func keyboardChanged(_ notification: Notification) {

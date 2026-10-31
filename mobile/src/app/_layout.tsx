@@ -74,6 +74,14 @@ const screenOptions = (colors: Palette) => ({
     animation: "default",
     gestureEnabled: true,
   } satisfies NativeStackNavigationOptions,
+  // A Mono's session over its chat: a session's header, presented as a
+  // modal the way a file opens.
+  sessionSheet: {
+    ...nativeHeader(colors),
+    presentation: "modal",
+    animation: "default",
+    gestureEnabled: true,
+  } satisfies NativeStackNavigationOptions,
   // Full-screen modals with their own stacks and headers.
   modal: {
     presentation: "modal",
@@ -161,6 +169,7 @@ function LinkedWorkspace() {
               name="project/[projectId]/session/[sessionId]"
               options={screens.session}
             />
+            <Stack.Screen name="session" options={screens.sessionSheet} />
             <Stack.Screen name="projects" options={screens.modal} />
             <Stack.Screen name="settings" options={screens.modal} />
             <Stack.Screen name="models" options={screens.modal} />

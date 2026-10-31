@@ -417,7 +417,8 @@ impl Transcript {
                     .unwrap_or_else(|| from_messages(&command["messages"]));
                 self.busy = command["busy"].as_bool().unwrap_or(false);
                 self.set_question(&command["question"]);
-                self.older = false;
+                // A read says whether turns precede its window, as a watch does.
+                self.older = command["older"].as_bool().unwrap_or(false);
                 self.error = None;
                 self.ready = true;
                 self.confirm_pending();
@@ -923,6 +924,26 @@ fn project(
                     }
                 }
             }
+            "sessions" => {
+                // Sessions a Mono started: a card each, under the reply after
+                // the launch. A tap opens the session over the Mono's chat.
+                let sessions = item["sessions"].as_array().cloned().unwrap_or_default();
+                for (index, session) in sessions.iter().enumerate() {
+                    let mut row = Row::text(
+                        format!("{id}/{}", string(session, "id")),
+                        "launch",
+                        string(session, "title"),
+                    );
+                    row.action = session.clone();
+                    row.action["sessionId"] = session["id"].clone();
+                    row.action["type"] = json!("session");
+                    row.presentation = json!({
+                        "top": if index == 0 { 4 } else { 0 },
+                        "bottom": if index + 1 == sessions.len() { 8 } else { 0 },
+                    });
+                    rows.push(Arc::new(row));
+                }
+            }
             _ => {}
         }
     }
@@ -1036,6 +1057,26 @@ mod reaction_tests {
         // After the first reply, before the second; none after the message.
         assert_eq!(kinds.iter().filter(|kind| **kind == "divider").count(), 1);
         assert!(divider > 1 && divider < kinds.len() - 1);
+    }
+
+    #[test]
+    fn a_monos_launched_sessions_become_cards_that_open_them() {
+        let turn = json!({"id":"t","items":[
+            {"type":"user","id":"u","text":"go"},
+            {"type":"text","id":"a","text":"On it."},
+            {"type":"sessions","id":"a:launches","sessions":[
+                {"id":"app-1","projectId":"p","project":"repo","title":"Fix","harness":"codex","state":"working"},
+                {"id":"app-2","projectId":"p","project":"repo","title":"Test","harness":"claude","state":"done"},
+            ]},
+        ]});
+        let rows = project(&turn, &mut HashMap::new(), &HashMap::new(), false);
+        let cards: Vec<_> = rows.iter().filter(|row| row.kind == "launch").collect();
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0].id, "t/a:launches/app-1");
+        assert_eq!(cards[0].action["type"], "session");
+        assert_eq!(cards[0].action["sessionId"], "app-1");
+        assert_eq!(cards[0].action["projectId"], "p");
+        assert_eq!(cards[1].runs[0].text, "Test");
     }
 
     #[test]

@@ -99,11 +99,14 @@ struct Saved {
     /// The Mono's name, so its saved turns are drawn as Mono turns, as they
     /// are once its chat opens, and keep their heights when it does.
     mono: Option<String>,
+    /// The cards of the sessions the Mono started, as they stood on reading.
+    launches: HashMap<i64, Value>,
 }
 
 /// How an older page's turns are drawn, as the conversation's own are.
 struct PageLook {
     mono: Option<String>,
+    launches: HashMap<i64, Value>,
     cwd: String,
     harness: String,
     model: Option<String>,
@@ -140,6 +143,8 @@ struct Snapshot<'a> {
     waiting: Option<&'static str>,
     mono: Option<String>,
     pending: Vec<turns::Pending>,
+    /// A Mono's launched sessions, as the phone's cards show them.
+    launches: &'a HashMap<i64, Value>,
     /// The question the agent waits on, as the phone's card shows it; null
     /// for none, as always for a saved conversation.
     question: Value,
@@ -161,6 +166,7 @@ impl Snapshot<'_> {
             waiting: self.waiting,
             mono: self.mono.as_deref(),
             pending: &self.pending,
+            launches: self.launches,
         }
     }
 }
@@ -627,6 +633,60 @@ impl Shell {
         Ok(Target::Session(session))
     }
 
+    /// The sessions a Mono started, as the cards in its chat show them on the
+    /// phone: the phone's IDs for each and the project it runs in, its title
+    /// and how it stands. None for a session's own conversation.
+    fn mobile_launches(&self, target: &Target, cx: &App) -> HashMap<i64, Value> {
+        let Target::Mono(mono) = target else {
+            return HashMap::new();
+        };
+        let Some(mono) = self.monos.as_ref().and_then(|m| m.read(cx).roster.get(mono).cloned())
+        else {
+            return HashMap::new();
+        };
+        let projects = self.mobile_projects(cx);
+        crate::monos::cards::launch_views(&mono, self, cx)
+            .into_iter()
+            .map(|(id, view)| {
+                // A worktree's session belongs to the project it was made from.
+                let cwd = view.cwd.as_str();
+                let project = projects
+                    .iter()
+                    .find(|path| {
+                        monocode_core::files::path_key(path) == monocode_core::files::path_key(cwd)
+                    })
+                    .or_else(|| {
+                        mono.projects.iter().find(|path| {
+                            projects.contains(path) && cwd.starts_with(path.as_str())
+                        })
+                    });
+                let name = match project {
+                    Some(path) => self.appearance(path).label(path),
+                    None => std::path::Path::new(cwd)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                };
+                let phone_id = self.mobile.ids.get(&id).cloned().unwrap_or_else(|| {
+                    locked(&self.store)
+                        .ok()
+                        .and_then(|store| store.persisted_session_id(id).ok())
+                        .unwrap_or_else(|| id.to_string())
+                });
+                let card = json!({
+                    "id": phone_id,
+                    "projectId": project_id(project.map_or(cwd, String::as_str)),
+                    "project": name,
+                    "title": monocode_core::session_title::display_title(&view.title, &view.harness),
+                    "harness": view.harness,
+                    // One the desktop can't find any more reads as done.
+                    "state": if view.state == "unavailable" { "done" } else { view.state },
+                });
+                (id, card)
+            })
+            .collect()
+    }
+
     fn mobile_session_id(&mut self, id: i64) -> String {
         if let Some(value) = self.mobile.ids.get(&id) {
             return value.clone();
@@ -861,6 +921,7 @@ impl Shell {
         let look = self
             .with_live_snapshot(target, cx, |s| PageLook {
                 mono: s.mono.clone(),
+                launches: s.launches.clone(),
                 cwd: s.cwd.to_owned(),
                 harness: s.harness.to_owned(),
                 model: s.model.clone(),
@@ -869,6 +930,7 @@ impl Shell {
                 let summary = self.session_summaries.get(&session);
                 PageLook {
                     mono: name,
+                    launches: self.mobile_launches(target, cx),
                     cwd: summary.map(|s| s.cwd.clone()).unwrap_or_default(),
                     harness: summary.map(|s| s.provider.clone()).unwrap_or_default(),
                     model: None,
@@ -898,6 +960,7 @@ impl Shell {
                 (manager.open_chat(id)?, name)
             }
         };
+        let launches = self.mobile_launches(target, cx);
         let chat = view.read(cx);
         if !chat.history_loaded() {
             return None;
@@ -917,6 +980,7 @@ impl Shell {
             waiting,
             mono,
             pending: chat.mobile_pending(cx),
+            launches: &launches,
             question: chat.mobile_question(cx),
             history: chat.transcript.read(cx).older_history_cursor(),
         };
@@ -937,6 +1001,7 @@ impl Shell {
             }
         };
         let summary = id.and_then(|id| self.session_summaries.get(&id).cloned());
+        let launches = self.mobile_launches(target, cx);
         let store = self.store.clone();
         cx.background_executor().spawn(async move {
             let Some(id) = id else {
@@ -949,6 +1014,7 @@ impl Shell {
                     cwd: String::new(),
                     history: None,
                     mono,
+                    launches,
                 }));
             };
             let store = locked(&store)?;
@@ -972,6 +1038,7 @@ impl Shell {
                 cwd,
                 history,
                 mono,
+                launches,
             }))
         })
     }
@@ -1885,6 +1952,7 @@ fn older_page(
                 waiting: None,
                 mono: look.mono.clone(),
                 pending: Vec::new(),
+                launches: &look.launches,
                 question: Value::Null,
                 history: page.before,
             };
@@ -1931,6 +1999,7 @@ fn saved_snapshot(saved: &Saved) -> Snapshot<'_> {
         waiting: None,
         mono: saved.mono.clone(),
         pending: Vec::new(),
+        launches: &saved.launches,
         question: Value::Null,
         history: saved.history,
     }
