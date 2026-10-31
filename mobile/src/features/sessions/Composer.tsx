@@ -51,6 +51,8 @@ const THUMB = 48;
 const STRIP = THUMB + 10;
 const BOTTOM_ROW = BUTTON + EDGE * 2;
 const INPUT_MIN = 64;
+/** A compact field's least height once it has its own row: two lines. */
+const INPUT_MIN_COMPACT = 60;
 const INPUT_MAX = 160;
 /** Inset from the screen edges: roomier as a pill, wider as a card. */
 const MARGIN_COLLAPSED = 20;
@@ -81,6 +83,7 @@ export function Composer({
   onModelPress,
   workspace,
   notice,
+  compact = false,
 }: {
   /** Where this runs: the project, or the mono. */
   context: string;
@@ -98,6 +101,12 @@ export function Composer({
   workspace?: ReactNode;
   /** The session's latest error, in place of the field until tapped away. */
   notice?: { text: string; dismiss: () => void } | null;
+  /**
+   * One line, as a Mono's chat has it: no model or context, and the pill
+   * stays a pill until the draft outgrows it. Then the field takes its own
+   * row above add and send.
+   */
+  compact?: boolean;
 }) {
   const scheme = useScheme();
   const colors = useColors();
@@ -115,6 +124,10 @@ export function Composer({
   const canSend = (text.trim().length > 0 || attachments.length > 0) && !sending;
   // A draft, in words or files, keeps the card open.
   const hasText = text.length > 0 || attachments.length > 0;
+  // A compact draft past the pill's one line, measured at the pill's width so
+  // the wider row it moves to can't fold it straight back.
+  const [wraps, setWraps] = useState(false);
+  const opens = compact ? wraps || attachments.length > 0 : hasText;
 
   // Focus lives on the UI thread rather than in React state. The keyboard
   // starts moving as the field focuses, and a React commit in that same frame
@@ -126,9 +139,9 @@ export function Composer({
   const progress = useSharedValue(0);
   const morph = (expand: boolean) => progress.set(withTiming(expand ? 1 : 0, MORPH));
   useEffect(() => {
-    if (hasText) progress.set(withTiming(1, MORPH));
-    else if (!focused.get()) progress.set(withTiming(0, MORPH));
-  }, [hasText, focused, progress]);
+    if (opens) progress.set(withTiming(1, MORPH));
+    else if (compact || !focused.get()) progress.set(withTiming(0, MORPH));
+  }, [opens, compact, focused, progress]);
 
   // Lets go of the keyboard as the field gives way.
   useEffect(() => {
@@ -137,12 +150,14 @@ export function Composer({
 
   const strip = attachments.length > 0 ? STRIP : 0;
   // A Mono's chat has no project or branch to name; the card closes up.
-  const topRow = workspace || context || branch ? TOP_ROW : TOP_BARE;
+  const topRow = !compact && (workspace || context || branch) ? TOP_ROW : TOP_BARE;
+  // A compact card keeps the pill's inset, so the pill's line measures true.
+  const marginExpanded = compact ? MARGIN_COLLAPSED : MARGIN_EXPANDED;
   const expandedHeight = topRow + strip + inputHeight + BOTTOM_ROW;
 
   const containerStyle = useAnimatedStyle(() => ({
     height: interpolate(progress.get(), [0, 1], [COLLAPSED, expandedHeight]),
-    marginHorizontal: interpolate(progress.get(), [0, 1], [MARGIN_COLLAPSED, MARGIN_EXPANDED]),
+    marginHorizontal: interpolate(progress.get(), [0, 1], [MARGIN_COLLAPSED, marginExpanded]),
   }));
   // The field slides from between the pill's buttons to its own band in the card.
   const inputStyle = useAnimatedStyle(() => {
@@ -294,15 +309,18 @@ export function Composer({
           }}
           onFocus={() => {
             focused.set(true);
-            morph(true);
+            if (!compact) morph(true);
           }}
           onBlur={() => {
             focused.set(false);
-            if (!hasText) morph(false);
+            if (!opens) morph(false);
           }}
           onContentSizeChange={(event) =>
             setInputHeight(
-              Math.min(INPUT_MAX, Math.max(INPUT_MIN, event.nativeEvent.contentSize.height + 12)),
+              Math.min(
+                INPUT_MAX,
+                Math.max(compact ? INPUT_MIN_COMPACT : INPUT_MIN, event.nativeEvent.contentSize.height + 12),
+              ),
             )
           }
           placeholder={busy ? BUSY_PLACEHOLDER : COMPOSER_PLACEHOLDER}
@@ -361,6 +379,19 @@ export function Composer({
         />
       </Animated.View>
 
+      {compact ? (
+        // Lays the draft out at the pill field's width, unseen, to tell when it wraps.
+        <Text
+          aria-hidden
+          pointerEvents="none"
+          style={[styles.input, styles.measure]}
+          onTextLayout={(event) => setWraps(event.nativeEvent.lines.length > 1)}
+        >
+          {text || " "}
+        </Text>
+      ) : null}
+
+      {compact ? null : (
       <Animated.View
         style={[styles.modelChip, expandedOnly]}
       >
@@ -379,6 +410,7 @@ export function Composer({
           <Icon name="chevronDown" size={14} color={colors.muted} />
         </Pressable>
       </Animated.View>
+      )}
 
       <Animated.View
         pointerEvents={blocked ? "none" : "auto"}
@@ -615,6 +647,14 @@ const useStyles = themedStyles((colors) => ({
     fontSize: 17,
     lineHeight: 22,
     textAlignVertical: "top",
+  },
+  measure: {
+    position: "absolute",
+    top: 0,
+    left: EDGE + BUTTON + 8,
+    right: EDGE + BUTTON + 8,
+    flex: 0,
+    opacity: 0,
   },
   button: {
     position: "absolute",

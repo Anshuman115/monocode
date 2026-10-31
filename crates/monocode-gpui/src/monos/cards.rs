@@ -384,8 +384,7 @@ pub(crate) fn launch_views(
     // Saved summaries keep cards current without opening their providers.
     let summaries = owner.mono_session_views(cx);
     // LaunchedSessionCard: each launch's live state, for the chat's cards.
-    mono
-        .launches
+    mono.launches
         .iter()
         .map(|launch| {
             let session = owner.mono_session_entity(launch.session_id);

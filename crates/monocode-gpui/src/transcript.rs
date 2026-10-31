@@ -381,10 +381,7 @@ pub(crate) fn run_launches(
                 found.push(id);
             }
         } else if source[at].role == "tool" {
-            let text: String = source[at..next]
-                .iter()
-                .map(|r| r.text.as_str())
-                .collect();
+            let text: String = source[at..next].iter().map(|r| r.text.as_str()).collect();
             if let Ok(tool) = serde_json::from_str::<ToolCall>(&text)
                 && tool.state == ToolState::Completed
                 && let Ok(input) = serde_json::from_str::<serde_json::Value>(&tool.input)
@@ -407,9 +404,7 @@ pub(crate) fn run_launches(
                         && let Some(id) = value["result"]["sessionId"]
                             .as_i64()
                             .or_else(|| {
-                                monocode_core::mono::work::session_handle(
-                                    &value["result"]["id"],
-                                )
+                                monocode_core::mono::work::session_handle(&value["result"]["id"])
                             })
                             .or_else(|| {
                                 (value["result"]["submitted"] == true)
@@ -1795,7 +1790,9 @@ impl TranscriptView {
     }
     /// monoSpawnedSessions: sessions a run's `sessions.start` calls accepted.
     fn run_launches(&self, turn: usize, end: usize) -> Vec<i64> {
-        run_launches(&self.source, turn, end, |id| self.launches.contains_key(&id))
+        run_launches(&self.source, turn, end, |id| {
+            self.launches.contains_key(&id)
+        })
     }
     /// The live state of the sessions this Mono launched, for their cards.
     pub(crate) fn set_launches(

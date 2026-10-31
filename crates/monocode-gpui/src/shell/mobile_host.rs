@@ -640,7 +640,10 @@ impl Shell {
         let Target::Mono(mono) = target else {
             return HashMap::new();
         };
-        let Some(mono) = self.monos.as_ref().and_then(|m| m.read(cx).roster.get(mono).cloned())
+        let Some(mono) = self
+            .monos
+            .as_ref()
+            .and_then(|m| m.read(cx).roster.get(mono).cloned())
         else {
             return HashMap::new();
         };
@@ -710,6 +713,7 @@ impl Shell {
             "conversation.read" | "conversation.older" => self.mobile_read(request, cx),
             "models.list" => self.mobile_models(request, cx),
             "accounts.usage" => self.mobile_usage(request, cx),
+            "mono.document" => self.mobile_document(request, cx),
             "project.fileHighlight" => {
                 let job = string(&request.params, "job").unwrap_or_default();
                 let from = request.params["from"].as_u64().unwrap_or(0) as usize;
@@ -1800,6 +1804,38 @@ impl Shell {
 
     /// The desktop footer's usage windows for a provider's accounts, from the
     /// same cache; only an explicit refresh probes again.
+    /// A document a Mono wrote, for the phone's reader: only one a Mono's
+    /// chat lists, read from the store when the roster has no body for it.
+    fn mobile_document(&mut self, request: Request, cx: &mut Context<Self>) {
+        let id = string(&request.params, "documentId").unwrap_or_default();
+        let listed = self.monos.as_ref().and_then(|monos| {
+            monos.read(cx).roster.monos.iter().find_map(|mono| {
+                let document = mono.documents.iter().find(|d| d.id == id);
+                (document.is_some() || mono.desktop_document_ids.contains(&id))
+                    .then(|| document.cloned())
+            })
+        });
+        let Some(document) = listed else {
+            return request.reply(Err("This document is no longer available".into()));
+        };
+        let reply = |document: monocode_core::mono::Document| json!({"title": document.title, "kind": document.kind, "body": document.body});
+        if let Some(document) = document.filter(|d| !d.body.is_empty()) {
+            return request.reply(Ok(reply(document)));
+        }
+        let store = self.store.clone();
+        let work = cx
+            .background_executor()
+            .spawn(async move { locked(&store)?.mono_document(&id) });
+        cx.spawn(async move |_, _| {
+            request.reply(work.await.and_then(|document| {
+                document
+                    .map(reply)
+                    .ok_or_else(|| "This document is no longer available".into())
+            }))
+        })
+        .detach();
+    }
+
     fn mobile_usage(&mut self, request: Request, cx: &mut Context<Self>) {
         let kind = match request.params["provider"].as_str() {
             Some("claude") => Kind::Claude,

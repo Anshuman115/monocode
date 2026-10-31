@@ -18,6 +18,7 @@ import { Shimmer } from "@/ui/Shimmer";
 import { withAlpha, themedStyles, useColors } from "@/ui/theme";
 
 import { LaunchedSessions } from "./LaunchedSessionCard";
+import { DocumentCard, MonoChoices } from "./MonoCards";
 import { Markdown } from "./Markdown";
 import { ProviderLogo } from "./ProviderLogo";
 import { sessionErrorContent, type SessionErrorNotice } from "./sessionError";
@@ -110,6 +111,10 @@ export const TranscriptTurn = memo(function TranscriptTurn({
             );
           case "sessions":
             return <LaunchedSessions key={item.id} sessions={item.sessions} />;
+          case "choices":
+            return <MonoChoices key={item.id} options={item.options} chosen={item.chosen} />;
+          case "document":
+            return <DocumentCard key={item.id} document={item} />;
           case "notice":
             return item.error ? (
               <ErrorNotice key={item.id} item={item} onPress={() => onError(item)} />

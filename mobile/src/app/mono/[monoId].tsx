@@ -1,5 +1,5 @@
 import { Redirect, router, useIsFocused, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
 
@@ -13,6 +13,7 @@ import { useConnection } from "@/features/connection/ConnectionProvider";
 import { rememberPlace } from "@/features/workspace/lastPlace";
 import { markMonoSeen } from "@/features/workspace/monoSeen";
 import { Composer } from "@/features/sessions/Composer";
+import { MonoChoose } from "@/features/sessions/MonoCards";
 import { QuestionCard } from "@/features/sessions/QuestionCard";
 import { EmptySession } from "@/features/sessions/EmptySession";
 import { SessionScreen } from "@/features/sessions/SessionScreen";
@@ -59,6 +60,10 @@ export default function MonoScreen() {
   const model = chosen?.name ?? entry?.name ?? current?.model ?? mono?.model ?? "";
   const harness = current?.harness ?? mono?.harness;
   const effort = current ? effortLabel(entry, current) : undefined;
+  const choose = useCallback(
+    (text: string) => (conversationId ? sendMessage(conversationId, text) : Promise.resolve()),
+    [conversationId, sendMessage],
+  );
   if (!mono || !conversationId) return <Redirect href="/" />;
 
   return (
@@ -77,7 +82,8 @@ export default function MonoScreen() {
           ) : null}
           <Composer
             key={mono.id}
-            // The header names the Mono already, and it has no branch.
+            // One line: the header names the Mono, and its model lives in settings.
+            compact
             context=""
             branch=""
             model={model}
@@ -97,9 +103,12 @@ export default function MonoScreen() {
       }
     >
       <ConnectionNotice error={conversation.error} />
-      {hasNativeTranscript
-        ? <NativeTranscript key={mono.id} conversationId={conversationId} agent={agent} />
-        : <MonoTranscript key={mono.id} conversationId={conversationId} agent={agent} />}
+      {/* A suggested reply it offers is sent as the user's message. */}
+      <MonoChoose value={choose}>
+        {hasNativeTranscript
+          ? <NativeTranscript key={mono.id} conversationId={conversationId} agent={agent} />
+          : <MonoTranscript key={mono.id} conversationId={conversationId} agent={agent} />}
+      </MonoChoose>
     </SessionScreen>
     </Timed>
   );

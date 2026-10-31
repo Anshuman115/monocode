@@ -924,6 +924,31 @@ fn project(
                     }
                 }
             }
+            "choices" => {
+                // Suggested replies, a card each. A tap sends one; once a
+                // reply follows, the one sent is checked and the rest dim.
+                let options = item["options"].as_array().cloned().unwrap_or_default();
+                let chosen = item["chosen"].as_str().map(str::trim);
+                for (index, option) in options.iter().enumerate() {
+                    let text = option.as_str().unwrap_or("");
+                    let mut row = Row::text(format!("{id}/{index}"), "choice", text);
+                    row.action = json!({"type":"choice","text":text});
+                    row.presentation = json!({
+                        "answered": chosen.is_some(),
+                        "checked": chosen == Some(text.trim()),
+                        "top": if index == 0 { 4 } else { 0 },
+                        "bottom": if index + 1 == options.len() { 8 } else { 0 },
+                    });
+                    rows.push(Arc::new(row));
+                }
+            }
+            "document" => {
+                // A document the Mono wrote: a tap opens it in the reader.
+                let mut row = Row::text(id, "document", string(item, "title"));
+                row.action = item.clone();
+                row.presentation = json!({"top": 4, "bottom": 8});
+                rows.push(Arc::new(row));
+            }
             "sessions" => {
                 // Sessions a Mono started: a card each, under the reply after
                 // the launch. A tap opens the session over the Mono's chat.
@@ -1077,6 +1102,28 @@ mod reaction_tests {
         assert_eq!(cards[0].action["sessionId"], "app-1");
         assert_eq!(cards[0].action["projectId"], "p");
         assert_eq!(cards[1].runs[0].text, "Test");
+    }
+
+    #[test]
+    fn a_monos_choices_and_documents_become_cards() {
+        let turn = json!({"id":"t","items":[
+            {"type":"user","id":"u","text":"next?"},
+            {"type":"choices","id":"c","options":["Review it","Wait"],"chosen":"Review it"},
+            {"type":"document","id":"d","documentId":"doc","title":"Report","kind":"document"},
+        ]});
+        let rows = project(&turn, &mut HashMap::new(), &HashMap::new(), false);
+        let choices: Vec<_> = rows.iter().filter(|row| row.kind == "choice").collect();
+        assert_eq!(choices.len(), 2);
+        assert_eq!(
+            choices[0].action,
+            json!({"type":"choice","text":"Review it"})
+        );
+        assert_eq!(choices[0].presentation["checked"], true);
+        assert_eq!(choices[1].presentation["checked"], false);
+        assert_eq!(choices[1].presentation["answered"], true);
+        let document = rows.iter().find(|row| row.kind == "document").unwrap();
+        assert_eq!(document.action["documentId"], "doc");
+        assert_eq!(document.runs[0].text, "Report");
     }
 
     #[test]

@@ -239,6 +239,69 @@ fn compact(items: &mut [Value]) {
     }
 }
 
+/// A card the Mono put in its chat, as the phone shows it: suggested replies,
+/// checked once one is sent, or a document. Other cards stay on the desktop.
+fn mono_card(rows: &[Row], at: usize, end: usize) -> Option<Value> {
+    let value: Value = serde_json::from_str(&joined(&rows[at..end])).ok()?;
+    match value["type"].as_str()? {
+        "choices" => {
+            let options: Vec<&str> = value["options"]
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            if options.is_empty() {
+                return None;
+            }
+            let mut item =
+                object(json!({"type": "choices", "id": format!("r{at}"), "options": options}));
+            // The reply sent after it answers it, as on the desktop.
+            let reply = messages_in(rows, end, rows.len())
+                .find(|&(at, _)| rows[at].role == "user")
+                .map(|(at, end)| joined(&rows[at..end]));
+            put(&mut item, "chosen", reply);
+            Some(Value::Object(item))
+        }
+        "document" => document_item(&value, &format!("r{at}")),
+        _ => None,
+    }
+}
+/// ArtifactCard: a document the Mono wrote, opened in the phone's reader.
+fn document_item(value: &Value, id: &str) -> Option<Value> {
+    Some(json!({
+        "type": "document",
+        "id": id,
+        "documentId": value["documentId"].as_str()?,
+        "title": value["title"].as_str().unwrap_or("Document"),
+        "kind": value["kind"].as_str().unwrap_or("document"),
+    }))
+}
+/// The documents a run wrote, under its reply once it settles, each once at
+/// its latest title, as the desktop's chat lists them.
+fn run_documents(rows: &[Row], run: Run) -> Vec<Value> {
+    let mut documents: Vec<Value> = Vec::new();
+    for row in &rows[run.prompt..run.end] {
+        if row.role == "mono-document"
+            && let Ok(value) = serde_json::from_str::<Value>(&row.text)
+        {
+            match documents
+                .iter_mut()
+                .find(|old| old["documentId"] == value["documentId"])
+            {
+                Some(old) => *old = value,
+                None => documents.push(value),
+            }
+        }
+    }
+    documents
+        .iter()
+        .filter_map(|value| {
+            let id = format!("doc:{}", value["documentId"].as_str()?);
+            document_item(value, &id)
+        })
+        .collect()
+}
+
 fn notice(rows: &[Row], at: usize, end: usize) -> Option<Value> {
     let text = joined(&rows[at..end]);
     let id = format!("r{at}");
@@ -631,20 +694,24 @@ fn mono_turn(source: &Source, turn: &Turn, live: bool, name: &str) -> Value {
                 }
                 copy.push(text.replace("\r\n", "\n").trim().to_owned());
                 items.push(Value::Object(item));
+            } else if matches!(role, "mono-card" | "mono-note") {
+                items.extend(mono_card(rows, at, end));
             } else if let Some(notice) = notice(rows, at, end) {
                 items.push(notice);
             }
         }
+        if !run_live {
+            items.extend(run_documents(rows, run));
+        }
         // LaunchedSessionCard: the sessions the run started, under its
         // reply once it settles, as the desktop's chat shows them.
         if !run_live {
-            let sessions: Vec<Value> =
-                desk::run_launches(rows, run.prompt, run.end, |id| {
-                    source.launches.contains_key(&id)
-                })
-                .into_iter()
-                .filter_map(|id| source.launches.get(&id).cloned())
-                .collect();
+            let sessions: Vec<Value> = desk::run_launches(rows, run.prompt, run.end, |id| {
+                source.launches.contains_key(&id)
+            })
+            .into_iter()
+            .filter_map(|id| source.launches.get(&id).cloned())
+            .collect();
             if !sessions.is_empty() {
                 items.push(json!({
                     "type": "sessions",
@@ -1152,5 +1219,45 @@ mod tests {
         assert!(!types(&all(&live)[0]).contains(&"sessions"));
         mono.launches = Box::leak(Box::default());
         assert!(!types(&all(&mono)[0]).contains(&"sessions"));
+    }
+
+    #[test]
+    fn a_monos_choices_and_documents_come_as_cards() {
+        let rows = [
+            sent("user", "What next?", 1_000),
+            row("assistant", "Pick one."),
+            row(
+                "mono-card",
+                r#"{"id":"c","type":"choices","options":["Review it","Wait"]}"#,
+            ),
+            row(
+                "mono-document",
+                r#"{"id":"d1","type":"document","documentId":"doc","title":"Draft","kind":"document"}"#,
+            ),
+            row(
+                "mono-document",
+                r#"{"id":"d2","type":"document","documentId":"doc","title":"Report","kind":"document"}"#,
+            ),
+            sent("user", "Review it", 2_000),
+        ];
+        let infos = HashMap::new();
+        let mut mono = source(&rows, &infos, false);
+        mono.mono = Some("Ada");
+        let turns = all(&mono);
+        assert_eq!(
+            types(&turns[0]),
+            ["user", "header", "text", "choices", "document"]
+        );
+        let items = &turns[0]["items"];
+        assert_eq!(items[3]["options"], json!(["Review it", "Wait"]));
+        assert_eq!(items[3]["chosen"], "Review it");
+        // A document written twice is listed once, at its latest title.
+        assert_eq!(items[4]["documentId"], "doc");
+        assert_eq!(items[4]["title"], "Report");
+
+        // Unanswered until a reply follows.
+        let mut open = source(&rows[..5], &infos, false);
+        open.mono = Some("Ada");
+        assert!(all(&open)[0]["items"][3].get("chosen").is_none());
     }
 }

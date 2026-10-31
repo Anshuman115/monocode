@@ -36,6 +36,7 @@ import { usePushStarted } from "@/ui/usePushedIn";
 
 import { EmptySession } from "./EmptySession";
 import { useOpenLaunchedSession } from "./LaunchedSessionCard";
+import { openDocument, useMonoChoose } from "./MonoCards";
 import { FileOpener } from "./Markdown";
 import { SessionErrorSheet } from "./SessionErrorSheet";
 import { useJumpToEnd, useSessionLayout } from "./SessionScreen";
@@ -45,12 +46,15 @@ import { useReportSessionError, type SessionErrorNotice } from "./sessionError";
 
 type Handle = { scrollToEnd: () => Promise<void> };
 type Action = {
-  type: "copy" | "metrics" | "error" | "link" | "session";
+  type: "copy" | "metrics" | "error" | "link" | "session" | "choice" | "document";
   url?: string;
   /** A session a Mono started, from its card. */
   sessionId?: string;
   projectId?: string;
   title?: string;
+  /** A suggested reply picked from a Mono's choices. */
+  text?: string;
+  documentId?: string;
   copyText?: string;
   metrics?: TurnMetrics;
   durationMs?: number;
@@ -95,6 +99,7 @@ export function NativeTranscript({
   const started = usePushStarted(pushed);
   const openFile = use(FileOpener);
   const openSession = useOpenLaunchedSession();
+  const choose = useMonoChoose();
   const jump = useJumpToEnd();
   const view = useRef<Handle>(null);
   const [notice, setNotice] = useState<SessionErrorNotice | null>(null);
@@ -169,6 +174,10 @@ export function NativeTranscript({
         void Clipboard.setStringAsync(action.copyText)
           .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
           .catch(() => {});
+      } else if (action.type === "choice" && action.text) {
+        choose?.(action.text);
+      } else if (action.type === "document" && action.documentId) {
+        openDocument(action.documentId, action.title);
       } else if (action.type === "session" && action.sessionId && action.projectId) {
         openSession(action.projectId, action.sessionId, action.title);
       } else if (action.type === "link" && action.url) {
@@ -178,7 +187,7 @@ export function NativeTranscript({
           void Linking.openURL(action.url).catch(() => {});
       }
     },
-    [openFile, openSession, showError],
+    [choose, openFile, openSession, showError],
   );
   useEffect(() => {
     if (!jump || !focused) return;

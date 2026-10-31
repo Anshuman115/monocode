@@ -160,6 +160,7 @@ function LinkedWorkspace() {
               as a plain slot did. */}
           <Stack screenOptions={{ headerShown: false, animation: "none" }}>
             <Stack.Screen name="file" options={screens.code} />
+            <Stack.Screen name="document" options={screens.code} />
             <Stack.Screen name="diff" options={screens.code} />
             <Stack.Screen
               name="project/[projectId]/index"

@@ -525,6 +525,62 @@ final class TranscriptRowModel {
             tint: contentColor.withAlphaComponent(0.4)))
         height = 4 + 18
       }
+    case "choice":
+      // A suggested reply, as the desktop's: a ring, checked once it is the
+      // reply sent; the others step back. Only an unanswered one takes a tap.
+      let answered = presentation["answered"] as? Bool == true
+      let checked = presentation["checked"] as? Bool == true
+      let alpha: CGFloat = answered && !checked ? 0.45 : 1
+      let ring: CGFloat = 16
+      let label = string(plain, size: 14, line: 20, color: contentColor.withAlphaComponent(alpha))
+      let size = TranscriptTypography.measure(
+        label, width: max(1, available * 0.8 - 10 - ring - 10 - 12), line: style.line(20))
+      let rect = CGRect(
+        x: base, y: top, width: 10 + ring + 10 + size.width + 12, height: size.height + 12)
+      surfaces.append(
+        TranscriptSurface(
+          rect: rect, color: .clear, radius: 12,
+          border: contentColor.withAlphaComponent((checked ? 0.2 : 0.1) * alpha)))
+      let mark = CGRect(x: rect.minX + 10, y: rect.midY - ring / 2, width: ring, height: ring)
+      if checked {
+        surfaces.append(
+          TranscriptSurface(rect: mark, color: UIColor.transcriptHex("#34d399"), radius: ring / 2))
+        marks.append(
+          TranscriptMark(
+            rect: mark.insetBy(dx: 2.5, dy: 2.5), image: TranscriptArtwork.shared.image("icon:check"),
+            tint: UIColor.transcriptHex("#062e22")))
+      } else {
+        surfaces.append(
+          TranscriptSurface(
+            rect: mark, color: .clear, radius: ring / 2,
+            border: contentColor.withAlphaComponent(0.35 * alpha)))
+      }
+      add(label, x: mark.maxX + 10, y: rect.minY + 6, width: size.width, height: size.height)
+      if !answered { hits.append(TranscriptHit(rect: rect, action: action, label: plain)) }
+      height = rect.maxY + bottom + 6
+    case "document":
+      // ArtifactCard: the document's mark and title; a tap opens the reader.
+      let visual = ["html", "visual"].contains(action["kind"] as? String ?? "")
+      let title = string(plain, size: 14, line: 20, color: contentColor)
+      let titleWidth = min(
+        max(1, available - 12 - 16 - 10 - 14),
+        TranscriptTypography.measure(title, width: 1_000_000, line: style.line(20)).width)
+      let rect = CGRect(
+        x: base, y: top, width: 12 + 16 + 10 + titleWidth + 14, height: max(38, style.line(20) + 16))
+      surfaces.append(
+        TranscriptSurface(
+          rect: rect, color: contentColor.withAlphaComponent(0.03), radius: 12,
+          border: UIColor.transcriptHex(style.stroke)))
+      mark(
+        visual ? "icon:metrics" : "icon:edit", x: rect.minX + 12, y: rect.midY - 8, size: 16,
+        alpha: 0.55)
+      add(
+        title, x: rect.minX + 38, y: rect.midY - style.line(20) / 2, width: titleWidth,
+        height: style.line(20), lines: 1)
+      hits.append(
+        TranscriptHit(
+          rect: rect, action: action, label: "Open \(visual ? "visual" : "document") " + plain))
+      height = rect.maxY + bottom
     case "launch":
       // A session the Mono started, as the desktop's card under its reply:
       // how it stands, its title, and the project it runs in on a pill. A tap
