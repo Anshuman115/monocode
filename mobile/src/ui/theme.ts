@@ -243,6 +243,19 @@ export function themedStyles<T extends StyleSheet.NamedStyles<T>>(
   };
 }
 
+/** `#rrggbb` blended `amount` of the way towards `to`, as `#rrggbb`. */
+export function mix(hex: string, to: string, amount: number) {
+  const a = parseInt(hex.slice(1), 16);
+  const b = parseInt(to.slice(1), 16);
+  const channel = (shift: number) => {
+    const from = (a >> shift) & 255;
+    return Math.round(from + (((b >> shift) & 255) - from) * amount)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${channel(16)}${channel(8)}${channel(0)}`;
+}
+
 /** `#rrggbb` to `rgba()` at the given alpha. */
 export function withAlpha(hex: string, alpha: number) {
   const n = parseInt(hex.slice(1), 16);

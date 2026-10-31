@@ -156,7 +156,15 @@ pub(crate) fn build(source: &Source, range: std::ops::Range<usize>) -> Vec<Value
     let start = range.start.min(end);
     (start..end)
         .map(|index| {
-            let live = source.busy && index + 1 == turns.len();
+            // A run that has finished stays settled while the desktop is busy
+            // taking the next message in, before that message has a row; else
+            // its reply would fold back into the live status for a moment.
+            let finished = turns[index]
+                .runs
+                .last()
+                .and_then(|&run| info(source, run))
+                .is_some_and(|info| info.completed_at.is_some());
+            let live = source.busy && index + 1 == turns.len() && !finished;
             let mut turn = if let Some(name) = source.mono {
                 mono_turn(source, &turns[index], live, name)
             } else {
@@ -676,14 +684,24 @@ fn mono_turn(source: &Source, turn: &Turn, live: bool, name: &str) -> Value {
                 if !readable(&rows[at..end]) {
                     continue;
                 }
-                // groupMonoTurnItems: prose said while working stays in the
-                // activity trail, as does all of it while the run is live.
-                let hidden = run_live
-                    || rows[at + 1..run.end].iter().any(|r| {
-                        r.first
-                            && (matches!(r.role.as_str(), "tool" | "reasoning")
-                                || (internal && r.role == "assistant"))
-                    });
+                // groupMonoTurnItems (mono_prose_hidden on the desktop): a
+                // direct reply keeps its opening sentence once it's whole;
+                // other prose said while working stays in the activity
+                // trail, as does all of it while the run is live.
+                let opening = !internal
+                    && rows[run.key..at]
+                        .iter()
+                        .all(|r| !r.first || r.role == "reasoning");
+                let hidden = if opening {
+                    run_live && end == rows.len()
+                } else {
+                    run_live
+                        || rows[at + 1..run.end].iter().any(|r| {
+                            r.first
+                                && (matches!(r.role.as_str(), "tool" | "reasoning")
+                                    || (internal && r.role == "assistant"))
+                        })
+                };
                 if hidden {
                     continue;
                 }
@@ -760,7 +778,10 @@ fn mono_turn(source: &Source, turn: &Turn, live: bool, name: &str) -> Value {
         }));
         put(&mut header, "startedAt", started);
         put(&mut header, "durationMs", duration);
-        items.insert(first_work.unwrap_or(items.len()), Value::Object(header));
+        // While it works, its status trails the turn, under anything it has
+        // already posted, as a messaging app's typing line.
+        let at = if live { items.len() } else { first_work.unwrap_or(items.len()) };
+        items.insert(at, Value::Object(header));
     }
     compact(&mut items);
 
@@ -909,6 +930,25 @@ mod tests {
             .iter()
             .map(|item| item["type"].as_str().unwrap())
             .collect()
+    }
+
+    #[test]
+    fn a_finished_reply_stays_while_the_next_message_is_on_its_way() {
+        let rows = [sent("user", "Hi", 1_000), row("assistant", "Hello!")];
+        let mut infos = HashMap::new();
+        infos.insert(
+            1,
+            TurnInfo {
+                started_at: Some(1_000),
+                completed_at: Some(2_000),
+                ..TurnInfo::default()
+            },
+        );
+        let mut mono = source(&rows, &infos, true);
+        mono.mono = Some("Ada");
+        let turn = &all(&mono)[0];
+        assert_eq!(types(turn), ["user", "header", "text"]);
+        assert_eq!(turn["items"][1]["live"], false);
     }
 
     #[test]
@@ -1148,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn mono_turns_sign_their_header_and_hide_working_prose() {
+    fn mono_turns_sign_their_header_and_keep_their_opening_sentence() {
         let rows = [
             sent("user", "Plan my day", 1_000),
             row("assistant", "Checking your calendar"),
@@ -1166,11 +1206,12 @@ mod tests {
         mono.mono = Some("Ada");
         let turns = all(&mono);
         assert_eq!(turns.len(), 2);
-        assert_eq!(types(&turns[0]), ["user", "header", "text"]);
+        assert_eq!(types(&turns[0]), ["user", "header", "text", "text"]);
         assert_eq!(turns[0]["items"][1]["label"], "Ada");
-        assert_eq!(turns[0]["items"][2]["text"], "You are free after 3.");
+        assert_eq!(turns[0]["items"][2]["text"], "Checking your calendar");
+        assert_eq!(turns[0]["items"][3]["text"], "You are free after 3.");
         assert_eq!(turns[0]["stampAt"], 1_000);
-        assert_eq!(turns[0]["copyText"], "You are free after 3.");
+        assert_eq!(turns[0]["copyText"], "Checking your calendar\n\nYou are free after 3.");
         // A reply that is only a reaction leaves the message on its own.
         assert_eq!(types(&turns[1]), ["user"]);
         assert_eq!(turns[1]["items"][0]["reaction"], "🙌");
@@ -1179,8 +1220,30 @@ mod tests {
         let mut live = source(&rows[..3], &infos, true);
         live.mono = Some("Ada");
         let turn = &all(&live)[0];
-        assert_eq!(types(turn), ["user", "header"]);
-        assert_eq!(turn["items"][1]["label"], "Reading file…");
+        assert_eq!(types(turn), ["user", "text", "header"]);
+        assert_eq!(turn["items"][2]["label"], "Reading file…");
+    }
+
+    #[test]
+    fn a_monos_opening_sentence_stays_above_the_work_that_follows_it() {
+        let rows = [
+            sent("user", "Any PRs?", 1_000),
+            row("assistant", "I'll check the latest PRs."),
+            tool("Bash", json!({"command": "gh pr list"}), ToolState::Completed),
+            row("assistant", "Started a background check."),
+        ];
+        let infos = HashMap::new();
+        let mut mono = source(&rows, &infos, false);
+        mono.mono = Some("Ada");
+        let turn = &all(&mono)[0];
+        assert_eq!(types(turn), ["user", "header", "text", "text"]);
+        assert_eq!(turn["items"][2]["text"], "I'll check the latest PRs.");
+
+        // While it works: the opening shows, its status trails under it.
+        let mut live = source(&rows[..3], &infos, true);
+        live.mono = Some("Ada");
+        let turn = &all(&live)[0];
+        assert_eq!(types(turn), ["user", "text", "header"]);
     }
 
     #[test]

@@ -817,6 +817,9 @@ fn project(
                 let mut row = Row::text(id.clone(), "user", string(item, "text"));
                 row.action = item.clone();
                 row.action["nativeExpanded"] = json!(expanded.get(&id).copied().unwrap_or(false));
+                // Stacked under another of the user's messages, it sits close.
+                row.presentation["afterUser"] =
+                    json!(item_index > 0 && string(&items[item_index - 1], "type") == "user");
                 rows.push(Arc::new(row));
             }
             "text" => {
@@ -933,20 +936,16 @@ fn project(
                 }
             }
             "choices" => {
-                // Suggested replies, a card each. A tap sends one; once a
-                // reply follows, the one sent is checked and the rest dim.
-                let options = item["options"].as_array().cloned().unwrap_or_default();
-                let chosen = item["chosen"].as_str().map(str::trim);
-                for (index, option) in options.iter().enumerate() {
-                    let text = option.as_str().unwrap_or("");
-                    let mut row = Row::text(format!("{id}/{index}"), "choice", text);
-                    row.action = json!({"type":"choice","text":text});
-                    row.presentation = json!({
-                        "answered": chosen.is_some(),
-                        "checked": chosen == Some(text.trim()),
-                        "top": if index == 0 { 4 } else { 0 },
-                        "bottom": if index + 1 == options.len() { 8 } else { 0 },
-                    });
+                // Suggested replies, lettered in one card. A tap sends one;
+                // once a reply follows, the one sent stays and the rest dim.
+                let options: Vec<&str> = item["options"]
+                    .as_array()
+                    .map(|options| options.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                if !options.is_empty() {
+                    let mut row = Row::text(id, "choices", &options.join("\n"));
+                    row.action = json!({"options": options, "chosen": item["chosen"]});
+                    row.presentation = json!({"top": 4, "bottom": 8});
                     rows.push(Arc::new(row));
                 }
             }
@@ -978,14 +977,6 @@ fn project(
                 }
             }
             _ => {}
-        }
-    }
-    // Whether the turn has nothing under its status line yet; a Mono's chat
-    // shows that line only until its reply takes the place.
-    for index in 0..rows.len() {
-        if rows[index].kind == "fold" {
-            let alone = rows.len() == index + 1;
-            Arc::make_mut(&mut rows[index]).presentation["alone"] = json!(alone);
         }
     }
     // When the reply landed, shown beside its last bubble on a slide aside.
@@ -1134,15 +1125,12 @@ mod reaction_tests {
             {"type":"document","id":"d","documentId":"doc","title":"Report","kind":"document"},
         ]});
         let rows = project(&turn, &mut HashMap::new(), &HashMap::new(), false);
-        let choices: Vec<_> = rows.iter().filter(|row| row.kind == "choice").collect();
-        assert_eq!(choices.len(), 2);
+        let choices: Vec<_> = rows.iter().filter(|row| row.kind == "choices").collect();
+        assert_eq!(choices.len(), 1);
         assert_eq!(
             choices[0].action,
-            json!({"type":"choice","text":"Review it"})
+            json!({"options":["Review it","Wait"],"chosen":"Review it"})
         );
-        assert_eq!(choices[0].presentation["checked"], true);
-        assert_eq!(choices[1].presentation["checked"], false);
-        assert_eq!(choices[1].presentation["answered"], true);
         let document = rows.iter().find(|row| row.kind == "document").unwrap();
         assert_eq!(document.action["documentId"], "doc");
         assert_eq!(document.runs[0].text, "Report");

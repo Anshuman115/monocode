@@ -52,8 +52,12 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
   private var displayLink: CADisplayLink?
   private let displayTarget = TranscriptDisplayTarget()
   private var lastTick: CFTimeInterval = 0
+  /// The follow's speed, kept as its target moves (a message sent, a line
+  /// streamed in) so the transcript glides on rather than lurching again.
+  private var followVelocity: CGFloat = 0
   /// How far a leftward drag has slid a Mono chat aside to show its times, as
-  /// Messages does: the user's bubbles move, the times come in at the edge.
+  /// Messages does: the whole transcript moves, the times come in with it and
+  /// then hold at the edge.
   private var reveal: CGFloat = 0
   private static let revealWidth: CGFloat = 64
   private let slide = UIPanGestureRecognizer()
@@ -154,8 +158,9 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     case .changed:
       let drag = max(0, -pan.translation(in: scroll).x)
       let limit = Self.revealWidth
-      // Past the times it gives like a rubber band.
-      reveal = drag <= limit ? drag : limit + (drag - limit) / 3
+      // Past the times it gives like a rubber band, and only so far.
+      let over = drag - limit
+      reveal = over <= 0 ? drag : limit + 24 * (1 - 1 / (over / 60 + 1))
       layoutReveal()
     default:
       reveal = 0
@@ -169,11 +174,12 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       }
     }
   }
-  /// Slides the user's rows by `reveal` and lays each visible time at the edge.
+  /// Slides every row by `reveal` and lays each visible time at the edge: it
+  /// comes in with the rows, then holds once fully out.
   private func layoutReveal() {
     for (id, row) in visible {
       guard let model = row.model else { continue }
-      row.frame.origin.x = model.kind == "user" ? -reveal : 0
+      row.frame.origin.x = -reveal
       guard let time = model.time, row.superview === scroll else { continue }
       let label =
         times[id]
@@ -190,7 +196,8 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
           return label
         }()
       label.frame.origin = CGPoint(
-        x: bounds.width - reveal + 8, y: row.frame.minY + time.y - label.bounds.height / 2)
+        x: bounds.width - min(reveal, Self.revealWidth) + 8,
+        y: row.frame.minY + time.y - label.bounds.height / 2)
       label.alpha = min(1, reveal / Self.revealWidth)
     }
     for (id, label) in times where visible[id] == nil {
@@ -227,13 +234,21 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     style.fileLinks = input["fileLinks"] as? Bool ?? false
     style.stroke = input["stroke"] as? String ?? style.stroke
     style.surfaceRaised = input["surfaceRaised"] as? String ?? style.surfaceRaised
-    for key in ["content", "muted", "accent", "bubble", "surface", "error", "rail", "agent"] {
+    if let rects = input["agentRects"],
+      let data = try? JSONSerialization.data(withJSONObject: rects)
+    {
+      style.agentRects = (try? JSONDecoder().decode([TranscriptPixel].self, from: data)) ?? []
+    }
+    for key in [
+      "content", "muted", "accent", "bubble", "bubbleText", "surface", "error", "rail", "agent",
+    ] {
       guard let value = input[key] as? String else { continue }
       switch key {
       case "content": style.content = value
       case "muted": style.muted = value
       case "accent": style.accent = value
       case "bubble": style.bubble = value
+      case "bubbleText": style.bubbleText = value
       case "surface": style.surface = value
       case "error": style.error = value
       case "rail": style.rail = value
@@ -362,6 +377,8 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       }
     #endif
     let firstLive = frame.status["ready"] as? Bool == true && old?.status["ready"] as? Bool != true
+    // Older turns came in above: what's on screen keeps its place exactly.
+    let olderArrived = old != nil && frame.firstTurnID != old?.firstTurnID
     frameData = frame
     if changed { horizontalOffsets = horizontalOffsets.filter { frame.groupWidths[$0.key] != nil } }
     if loadingOlder,
@@ -401,9 +418,8 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       scroll.alpha = 0
       UIView.animate(withDuration: 0.25) { self.scroll.alpha = 1 }
     } else if newPrompt {
-      stopFollowingAnimation()
       startFollowingAnimation()
-    } else if changed && !following, let anchorID,
+    } else if changed && (!following || olderArrived), let anchorID,
       let index = frame.rows.firstIndex(where: { $0.id == anchorID })
     {
       // Bounds preserves UIKit's deceleration while content above moves.
@@ -420,6 +436,12 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     }
     publishViewport()
     updateAway()
+    // A chat that doesn't fill the screen yet reads further back on its own,
+    // so opening one never waits on a scroll to show the rest.
+    if initialized && frame.older && !loadingOlder && frame.height < bounds.height * 1.5 {
+      loadingOlder = true
+      session?.command(["type": "older"])
+    }
   }
 
   /// Rows under a fold slide while what it holds is clipped open or shut, and
@@ -605,19 +627,27 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     let target = targetOffset()
     let dt = min(0.05, lastTick == 0 ? link.duration : link.timestamp - lastTick)
     lastTick = link.timestamp
-    let distance = target - scroll.contentOffset.y
-    if abs(distance) < 0.5 {
+    // A critically damped spring, stepped exactly: it eases in from rest,
+    // settles without overshoot, and keeps its speed when the target moves.
+    let omega: CGFloat = 18
+    let x = scroll.contentOffset.y - target
+    let v = followVelocity
+    let decay = exp(-omega * dt)
+    let next = (x + (v + omega * x) * dt) * decay
+    followVelocity = (v - omega * (v + omega * x) * dt) * decay
+    if abs(next) < 0.5 && abs(followVelocity) < 20 {
       scroll.contentOffset.y = target
       trace("follow done")
       stopFollowingAnimation()
       return
     }
-    scroll.contentOffset.y += distance * (1 - exp(-20 * dt))
+    scroll.contentOffset.y = target + next
   }
   private func stopFollowingAnimation() {
     displayLink?.invalidate()
     displayLink = nil
     lastTick = 0
+    followVelocity = 0
   }
 
   /// Returns, rather than reuses, rows that left the screen when `holding`.
@@ -632,6 +662,10 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     }
     let from = frame.index(at: max(0, scroll.contentOffset.y - top - 120))
     let to = frame.index(at: scroll.contentOffset.y + bounds.height - top + 120)
+    // Only the answer under the latest message writes itself in; anything
+    // above it was shown already and comes back as it was.
+    let answer =
+      frame.lastUserID.flatMap { id in frame.rows.lastIndex { $0.id == id } }.map { $0 + 1 } ?? 0
     var keep = Set<String>()
     for index in from...max(from, to) {
       let model = frame.rows[index]
@@ -644,11 +678,11 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       }
       let y = top + frame.offsets[index]
       row.frame = CGRect(
-        x: model.kind == "user" ? -reveal : 0,
+        x: -reveal,
         y: row.superview === fold ? y - (fold?.frame.minY ?? 0) : y, width: bounds.width,
         height: model.height)
       row.configure(
-        model, layout: prepared, animate: animate,
+        model, layout: prepared, animate: animate && index >= answer,
         horizontalWidth: model.group.flatMap { frame.groupWidths[$0] } ?? 0,
         horizontalOffset: model.group.flatMap { horizontalOffsets[$0] } ?? 0)
       row.cadence = cadence

@@ -1,6 +1,14 @@
 import CoreText
 import UIKit
 
+struct TranscriptPixel: Equatable, Decodable {
+  let x: CGFloat
+  let y: CGFloat
+  let w: CGFloat
+  let h: CGFloat
+  let fill: String
+}
+
 /// The same provider, Hugeicons and Material file artwork as the React UI.
 /// Decoded once on the layout worker; visible views only draw cached images.
 final class TranscriptArtwork {

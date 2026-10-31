@@ -30,7 +30,8 @@ import {
   type NativeTranscriptStatus,
 } from "@/features/workspace/WorkspaceProvider";
 import type { TurnMetrics } from "@/features/workspace/types";
-import { useColors } from "@/ui/theme";
+import { pixelLayers } from "@/features/mascots/pixelMascots";
+import { mix, useColors, useScheme, useTheme } from "@/ui/theme";
 import { usePushStarted } from "@/ui/usePushedIn";
 
 import { EmptySession } from "./EmptySession";
@@ -92,6 +93,8 @@ export function NativeTranscript({
   const { pending, onStatus } = useNativeTranscript(conversationId);
   const layout = useSessionLayout();
   const colors = useColors();
+  const scheme = useScheme();
+  const theme = useTheme();
   const { fontScale, scale: pixelRatio } = useWindowDimensions();
   const [collapsed] = useCollapsedToolCalls();
   const focused = useIsFocused();
@@ -124,7 +127,19 @@ export function NativeTranscript({
         content: colors.content,
         muted: colors.muted,
         accent: colors.accent,
-        bubble: colors.bubble,
+        // A Mono's chat sets the user's bubbles apart: Classic in ink (black
+        // on light, off-white on dark), the tinted themes in their accent,
+        // dimmed into the background so it doesn't glare.
+        bubble: !agent
+          ? colors.bubble
+          : theme === "mono"
+            ? scheme === "dark" ? "#ececec" : "#111111"
+            : mix(colors.accent, colors.background, scheme === "dark" ? 0.4 : 0.1),
+        bubbleText: !agent
+          ? colors.content
+          : theme === "mono"
+            ? scheme === "dark" ? "#111111" : "#ffffff"
+            : scheme === "dark" ? colors.content : "#ffffff",
         surface: colors.surface,
         surfaceRaised: colors.surfaceRaised,
         stroke: colors.stroke,
@@ -134,11 +149,18 @@ export function NativeTranscript({
         error: colors.deletions,
         rail: colors.rail,
         agent: agent?.name ?? "",
+        // The mascot drawn beside a working Mono's status.
+        agentRects: agent
+          ? (() => {
+              const layers = pixelLayers(agent.mascot, agent.color);
+              return [...layers.body, ...layers.open];
+            })()
+          : [],
         scale: fontScale,
         pixelRatio,
         collapsed,
       }),
-    [colors, agent, openFile, fontScale, pixelRatio, collapsed],
+    [colors, scheme, theme, agent, openFile, fontScale, pixelRatio, collapsed],
   );
   const showError = useCallback((value: SessionErrorNotice) => {
     Keyboard.dismiss();

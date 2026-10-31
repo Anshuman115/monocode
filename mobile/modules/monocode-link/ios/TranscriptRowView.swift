@@ -208,6 +208,15 @@ private final class TranscriptDecorationCanvas: UIView {
         ? image?.withTintColor(mark.tint, renderingMode: .alwaysOriginal) : image)?.draw(
           in: mark.rect)
     }
+    if let rect = model.mascotRect {
+      for pixel in model.style.agentRects {
+        UIColor.transcriptHex(pixel.fill).setFill()
+        context.fill(
+          CGRect(
+            x: rect.minX + pixel.x * rect.width / 16, y: rect.minY + pixel.y * rect.height / 16,
+            width: pixel.w * rect.width / 16, height: pixel.h * rect.height / 16))
+      }
+    }
   }
 }
 

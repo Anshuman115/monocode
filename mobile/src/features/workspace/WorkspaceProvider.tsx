@@ -441,7 +441,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setPending((previous) => ({
       ...previous,
       [conversationId]: {
-        turn: { id, items: [userItem(id, text, at, attachments)] },
+        turn: {
+          id,
+          items: [
+            userItem(id, text, at, attachments),
+            // A Mono's chat shows it thinking at once, as the desktop's turn
+            // will, so taking that turn over moves nothing on screen.
+            ...(conversationId.startsWith("mono:")
+              ? [{ type: "header" as const, id: `${id}:header`, live: true, label: "Thinking…", entries: [] }]
+              : []),
+          ],
+        },
         userCount,
         ...(hasNativeTranscript && nativeLastUsers.current[conversationId]
           ? { afterUserId: nativeLastUsers.current[conversationId]! } : {}),
