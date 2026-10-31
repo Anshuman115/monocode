@@ -59,8 +59,9 @@ const SWITCH_FRAMES = 2;
 const OVERLAY_OPACITY = { dark: 0.5, light: 0 } as const;
 /** The shadow the scene casts on the drawer as it moves aside: a soft band
  *  along its left edge, drawn once and moved with the scene, as a live
- *  shadow on a full-screen view is redrawn each frame and hitches. */
-const EDGE_SHADOW = { width: 18, dark: "rgba(0,0,0,0.35)", light: "rgba(0,0,0,0.10)" } as const;
+ *  shadow on a full-screen view is redrawn each frame and hitches. None in
+ *  dark mode, where it reads as a smudge rather than depth. */
+const EDGE_SHADOW = { width: 18, dark: "transparent", light: "rgba(0,0,0,0.10)" } as const;
 /** What the current drag moves. */
 const NONE = 0;
 const PAGES = 1;

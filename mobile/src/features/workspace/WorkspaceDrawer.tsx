@@ -37,8 +37,6 @@ import { useWorkspace } from "./WorkspaceProvider";
 
 /** As the composer's pill, so the drawer's foot lines up with a chat's. */
 const FOOTER_HEIGHT = 50;
-/** The project chips' strip, fixed over the search. */
-const CHIPS_HEIGHT = 38;
 /** How far past the header and footer the blur keeps fading. */
 const FADE = 16;
 /** The Monocode mark in the header. */
@@ -52,13 +50,15 @@ const ROW_INSET = 10;
 const ROW_GAP = 14;
 
 type Filter = "all" | "unread" | "working";
+/** Which kinds the list shows. */
+type Show = "both" | "monos" | "projects";
 
 /**
  * The phone's counterpart of the desktop's rail, laid out as a messaging
  * app's chat list: the Monocode mark, the filter and a new Mono up top, level
  * with a screen's header; the Monos with their latest line and when; and at
- * the foot, fixed, the projects as a strip of chips over settings and search,
- * level with a screen's composer. Picking one switches the screen under it as the
+ * Projects under their own label, and at the foot settings and search, level
+ * with a screen's composer. Picking one switches the screen under it as the
  * drawer shuts.
  */
 export function WorkspaceDrawer() {
@@ -72,6 +72,7 @@ export function WorkspaceDrawer() {
   const { command, refresh, selection, select, pairing } = useConnection();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [show, setShow] = useState<Show>("both");
   const [creating, setCreating] = useState(false);
   const unread = useUnreadMonos(pairing?.desktop.fingerprint, roster);
   const pathname = usePathname();
@@ -101,7 +102,8 @@ export function WorkspaceDrawer() {
   const shownProjects = projects.filter(
     (project) =>
       (!needle || project.name.toLowerCase().includes(needle)) &&
-      (filter !== "working" || project.busy),
+      // A project has no replies to read, so only "All" and "Working now" keep it.
+      (filter === "all" || (filter === "working" && project.busy)),
   );
 
   // The drawer shuts at once over a loading cover, and the next screen is
@@ -151,18 +153,16 @@ export function WorkspaceDrawer() {
     }
   };
 
-  // Without Monos the projects are the list, as the drawer had them; with
-  // them, a strip of chips at the foot.
-  const projectList = roster.length === 0;
-  const chips = !projectList && shownProjects.length > 0;
+  // Each kind under its label, as the filter lets it show.
+  const listedMonos = show === "projects" ? [] : monos;
+  const listedProjects = show === "monos" ? [] : shownProjects;
   const headerTop = insets.top + HEADER_GAP;
   const headerBottom = headerTop + HEADER_HEIGHT + 12;
   const footerBottom = Math.max(insets.bottom, 12);
-  const chipsBottom = footerBottom + FOOTER_HEIGHT + 12;
-  const footerTop = (chips ? chipsBottom + CHIPS_HEIGHT : footerBottom + FOOTER_HEIGHT) + 12;
+  const footerTop = footerBottom + FOOTER_HEIGHT + 12;
   // The search rides the keyboard, resting just above it.
   const lift = useKeyboardLift(footerBottom - 10);
-  const nothing = !monos.length && !shownProjects.length;
+  const nothing = !listedMonos.length && !listedProjects.length;
 
   return (
     <View style={styles.container}>
@@ -174,30 +174,36 @@ export function WorkspaceDrawer() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <View style={styles.list}>
-          {projectList
-            ? shownProjects.map((project) => (
-                <ProjectRow
-                  key={project.id}
-                  project={project}
-                  active={project.id === activeProject}
-                  onPress={openProject}
-                />
-              ))
-            : null}
-          {monos.map((mono) => (
-            <MonoRow
-              key={mono.id}
-              mono={mono}
-              unread={unread.has(mono.id)}
-              active={mono.id === activeMono}
-              onPress={openMono}
-            />
-          ))}
-        </View>
+        {listedMonos.length ? (
+          <View style={styles.list}>
+            <Text style={styles.sectionLabel}>Monos</Text>
+            {listedMonos.map((mono) => (
+              <MonoRow
+                key={mono.id}
+                mono={mono}
+                unread={unread.has(mono.id)}
+                active={mono.id === activeMono}
+                onPress={openMono}
+              />
+            ))}
+          </View>
+        ) : null}
+        {listedProjects.length ? (
+          <View style={[styles.list, listedMonos.length > 0 && styles.section]}>
+            <Text style={styles.sectionLabel}>Projects</Text>
+            {listedProjects.map((project) => (
+              <ProjectRow
+                key={project.id}
+                project={project}
+                active={project.id === activeProject}
+                onPress={openProject}
+              />
+            ))}
+          </View>
+        ) : null}
         {nothing ? (
           <Text style={styles.empty}>
-            {needle || filter !== "all"
+            {needle || filter !== "all" || show !== "both"
               ? "Nothing matches."
               : "No Monos or projects on this phone yet."}
           </Text>
@@ -214,31 +220,12 @@ export function WorkspaceDrawer() {
           accessibilityIgnoresInvertColors
         />
         <View style={styles.headerActions}>
-          <FilterMenu value={filter} onChange={setFilter} />
+          <FilterMenu filter={filter} onFilter={setFilter} show={show} onShow={setShow} />
           <CircleButton icon="add" label="New Mono" onPress={() => void createMono()} />
         </View>
       </View>
 
       <Animated.View style={[styles.foot, { bottom: footerBottom }, lift]}>
-        {/* Projects stay put at the foot, scrolling only sideways. */}
-        {chips ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chips}
-            keyboardShouldPersistTaps="handled"
-            style={styles.chipStrip}
-          >
-            {shownProjects.map((project) => (
-              <ProjectChip
-                key={project.id}
-                project={project}
-                active={project.id === activeProject}
-                onPress={openProject}
-              />
-            ))}
-          </ScrollView>
-        ) : null}
         <View style={styles.footer}>
         <CircleButton icon="settings" label="Settings" onPress={openSettings} size={FOOTER_HEIGHT} />
         <LiquidView borderRadius={FOOTER_HEIGHT / 2} style={styles.searchFrame} innerStyle={styles.search}>
@@ -267,11 +254,27 @@ const FILTERS: { value: Filter; label: string; symbol: "tray.full" | "circlebadg
   { value: "working", label: "Working now", symbol: "bolt" },
 ];
 
-/** The round button beside a new Mono: a native menu of what to show. Lit
- *  while a filter is on. */
-function FilterMenu({ value, onChange }: { value: Filter; onChange: (value: Filter) => void }) {
+const SHOWS: { value: Show; label: string; symbol: "square.stack" | "person.2" | "folder" }[] = [
+  { value: "both", label: "Monos and projects", symbol: "square.stack" },
+  { value: "monos", label: "Monos", symbol: "person.2" },
+  { value: "projects", label: "Projects", symbol: "folder" },
+];
+
+/** The round button beside a new Mono: a native menu of which kinds to show
+ *  and which of them. Lit while either narrows the list. */
+function FilterMenu({
+  filter,
+  onFilter,
+  show,
+  onShow,
+}: {
+  filter: Filter;
+  onFilter: (value: Filter) => void;
+  show: Show;
+  onShow: (value: Show) => void;
+}) {
   const colors = useColors();
-  const on = value !== "all";
+  const on = filter !== "all" || show !== "both";
   return (
     <View>
       <LiquidView borderRadius={HEADER_HEIGHT / 2} innerStyle={filterStyles.round}>
@@ -289,8 +292,17 @@ function FilterMenu({ value, onChange }: { value: Filter; onChange: (value: Filt
           }
         >
           <Picker
-            selection={value}
-            onSelectionChange={(next) => onChange(next as Filter)}
+            selection={show}
+            onSelectionChange={(next) => onShow(next as Show)}
+            modifiers={[pickerStyle("inline")]}
+          >
+            {SHOWS.map((option) => (
+              <Label key={option.value} title={option.label} systemImage={option.symbol} modifiers={[tag(option.value)]} />
+            ))}
+          </Picker>
+          <Picker
+            selection={filter}
+            onSelectionChange={(next) => onFilter(next as Filter)}
             modifiers={[pickerStyle("inline")]}
           >
             {FILTERS.map((option) => (
@@ -392,8 +404,7 @@ function oneLine(text: string) {
   return plainText(text.slice(0, 600));
 }
 
-/** A project as a row of the list, as the drawer shows them without Monos:
- *  its mascot and name. */
+/** A project as a row of the list, under the Monos: its mascot and name. */
 const ProjectRow = memo(function ProjectRow({
   project,
   active,
@@ -422,39 +433,6 @@ const ProjectRow = memo(function ProjectRow({
         />
       </View>
       <Text style={[styles.rowLabel, styles.rowText]} numberOfLines={1}>
-        {project.name}
-      </Text>
-    </Pressable>
-  );
-});
-
-/** A project as a chip in the strip over the Monos: its mascot and name. */
-const ProjectChip = memo(function ProjectChip({
-  project,
-  active,
-  onPress,
-}: {
-  project: Project;
-  active: boolean;
-  onPress: (id: string) => void;
-}) {
-  const styles = useStyles();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={project.name}
-      accessibilityState={{ selected: active }}
-      onPress={() => onPress(project.id)}
-      style={({ pressed }) => [styles.chip, active && styles.chipActive, pressed && styles.pressed]}
-    >
-      <ProjectMascot
-        project={project.path}
-        name={project.mascot}
-        color={project.color}
-        size={18}
-        active={project.busy}
-      />
-      <Text style={[styles.chipLabel, active && styles.chipLabelActive]} numberOfLines={1}>
         {project.name}
       </Text>
     </Pressable>
@@ -491,39 +469,17 @@ const useStyles = themedStyles((colors) => ({
     position: "absolute",
     left: 0,
     right: 0,
-    gap: 12,
   },
-  chipStrip: {
-    flexGrow: 0,
+  section: {
+    marginTop: 18,
   },
-  chips: {
-    gap: 8,
-    paddingHorizontal: 16,
-  },
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    height: CHIPS_HEIGHT,
-    paddingLeft: 12,
-    paddingRight: 14,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "transparent",
-  },
-  // The project on screen, inverted: white on dark, ink on light.
-  chipActive: {
-    backgroundColor: colors.content,
-  },
-  chipLabelActive: {
-    color: colors.background,
-  },
-  chipLabel: {
-    maxWidth: 160,
-    color: colors.content,
-    fontSize: 15,
-    fontWeight: "600",
+  // Dimmed heading over each kind, inset like the rows' text.
+  sectionLabel: {
+    paddingHorizontal: ROW_INSET,
+    marginBottom: 4,
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "500",
   },
   pressed: {
     opacity: 0.6,
@@ -537,7 +493,9 @@ const useStyles = themedStyles((colors) => ({
     alignItems: "center",
     gap: ROW_GAP,
     minHeight: 64,
-    paddingHorizontal: ROW_INSET,
+    paddingLeft: ROW_INSET,
+    // Clear of the scene's edge, which the drawer meets on the right.
+    paddingRight: ROW_INSET + 12,
     paddingVertical: 10,
     borderRadius: radii.card - 6,
     borderCurve: "continuous",
