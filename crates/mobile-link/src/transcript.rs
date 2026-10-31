@@ -627,8 +627,13 @@ impl Transcript {
         }
         let mut rows: Vec<Arc<Row>> = Vec::new();
         let mut live_turns = HashSet::new();
+        let pending_id = self.pending["turn"]["id"].as_str();
+        let mut pending_from = None;
         for turn in &turns {
             let id = string(turn, "id");
+            if Some(id) == pending_id {
+                pending_from = Some(rows.len());
+            }
             live_turns.insert(id.to_owned());
             let cache = self.cache.entry(id.into()).or_default();
             if cache.source.is_null() {
@@ -648,10 +653,29 @@ impl Transcript {
             rows.extend(cache.rows.iter().cloned());
         }
         self.cache.retain(|id, _| live_turns.contains(id));
+        // A message sent while a Mono works would show above its working
+        // mascot until the desktop confirms it; carry the mascot under it at
+        // once, where that confirmation puts it. Only a Mono's has nothing
+        // folded under it to leave behind.
+        let working = pending_from.and_then(|from| {
+            rows[..from].iter().rposition(|r| {
+                r.kind == "fold" && r.action["live"] == true && r.action["expandable"] == false
+            })
+        });
+        if let Some(at) = working {
+            let row = rows.remove(at);
+            rows.push(row);
+        }
+        stack_user_rows(&mut rows);
         let order: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        // Stacking copies rows each frame; an equal copy is nothing new.
         let changed: Vec<&Row> = rows
             .iter()
-            .filter(|r| self.sent.get(&r.id).is_none_or(|old| !Arc::ptr_eq(old, r)))
+            .filter(|r| {
+                self.sent
+                    .get(&r.id)
+                    .is_none_or(|old| !Arc::ptr_eq(old, r) && **old != ***r)
+            })
             .map(|r| r.as_ref())
             .collect();
         let latest_error = self
@@ -788,6 +812,22 @@ fn fold_reactions(items: &mut Vec<Value>) -> bool {
     }
     *items = kept;
     reacted && !replied
+}
+
+/// Messages sent back to back are turns of their own; each still sits close
+/// under the one before, as two in one turn do.
+fn stack_user_rows(rows: &mut [Arc<Row>]) {
+    for at in 1..rows.len() {
+        if rows[at].kind != "user" || rows[at - 1].kind != "user" {
+            continue;
+        }
+        if rows[at].presentation["afterUser"] != true {
+            Arc::make_mut(&mut rows[at]).presentation["afterUser"] = json!(true);
+        }
+        if rows[at - 1].presentation["beforeUser"] != true {
+            Arc::make_mut(&mut rows[at - 1]).presentation["beforeUser"] = json!(true);
+        }
+    }
 }
 
 fn string<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -1344,6 +1384,30 @@ mod tests {
         let frame = t.update(json!({"type":"replace","turns":[]})).unwrap();
         assert_eq!(frame["order"], json!([]));
         assert!(t.cache.is_empty());
+    }
+    #[test]
+    fn a_message_sent_while_a_mono_works_takes_its_mascot_and_stacks_under_the_last() {
+        let working = json!({"id":"1","items":[
+            {"id":"u","type":"user","text":"Hey"},
+            {"id":"h","type":"header","live":true,"label":"Thinking…","entries":[]},
+        ]});
+        let mut t = Transcript::new(vec![working], true);
+        let frame = t
+            .update(
+                json!({"type":"pending","pending":{"afterUserId":"1/u","userCount":1,
+                "turn":{"id":"pending:1","items":[{"id":"u","type":"user","text":"You there"}]}}}),
+            )
+            .unwrap();
+        assert_eq!(frame["order"], json!(["1/u", "pending:1/u", "1/h"]));
+        let rows = frame["rows"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap();
+        assert_eq!(row("1/u")["presentation"]["beforeUser"], true);
+        assert_eq!(row("pending:1/u")["presentation"]["afterUser"], true);
+        // The next frame resends none of the stacked copies.
+        let again = t
+            .update(json!({"type":"frames","frames":[{"order":["1"],"turns":[]}]}))
+            .unwrap();
+        assert_eq!(again["rows"], json!([]));
     }
     #[test]
     fn a_reopened_window_confirms_by_last_user_id_even_when_its_count_shrinks() {

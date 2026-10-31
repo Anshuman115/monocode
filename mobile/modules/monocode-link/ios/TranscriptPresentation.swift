@@ -412,7 +412,10 @@ final class TranscriptRowModel {
           height: size.height)
         cursor += 4 + size.height
       }
-      height = cursor + (compact ? 0 : 16)
+      // A Mono's chat leaves no room under a message another of the user's
+      // stacks under.
+      let stacked = !style.agent.isEmpty && presentation["beforeUser"] as? Bool == true
+      height = cursor + (compact || stacked ? 0 : 16)
     case "stamp":
       let at = row["action"] as? Double ?? 0
       let date = Date(timeIntervalSince1970: (row["action"] as? Double ?? 0) / 1000)
