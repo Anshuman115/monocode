@@ -4,7 +4,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
 import { ProjectMascot } from "@/features/mascots/ProjectMascot";
-import { openDocument } from "@/features/sessions/MonoCards";
+import { useMonoModel } from "@/features/models/useMonoModel";
+import { ProviderLogo } from "@/features/sessions/ProviderLogo";
 import { SettingsPage, SettingsRow } from "@/features/settings/SettingsUI";
 import { useMonoProfile, type MonoProfile } from "@/features/workspace/monoProfile";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
@@ -12,23 +13,33 @@ import { Icon } from "@/ui/Icon";
 import { radii, themedStyles, useColors, withAlpha } from "@/ui/theme";
 
 // A Mono's profile, as the desktop's details sidebar has it without its
-// Changes: who it is, with Edit under, then its day, its contributions, what
-// it does next, the documents it wrote and the projects it works in.
+// Changes: who it is and the model it runs on, with Edit under, then its day,
+// its contributions, what it does next, the documents it wrote and the
+// projects it works in.
 export default function MonoProfileScreen() {
   const { monoId } = useLocalSearchParams<{ monoId: string }>();
-  const { monos, projects } = useWorkspace();
+  const { monos, allProjects } = useWorkspace();
   const mono = monos.find((m) => m.id === monoId);
   const { profile, error, refreshing, refresh } = useMonoProfile(monoId);
+  const { model, harness, effort } = useMonoModel(mono);
   const styles = useStyles();
   const colors = useColors();
   if (!mono) return null;
-  const assigned = projects.filter((project) => mono.projectIds.includes(project.id));
+  const assigned = allProjects.filter((project) => mono.projectIds.includes(project.id));
   return (
     <SettingsPage onRefresh={refresh} refreshing={refreshing}>
       <View style={styles.identity}>
         <PixelMascot name={mono.mascot} color={mono.color} status={mono.status} size={88} />
         <Text style={styles.name} numberOfLines={1}>{mono.name}</Text>
-        {profile ? <Text style={styles.status} numberOfLines={2}>{profile.status}</Text> : null}
+        {model ? (
+          <View style={styles.model}>
+            {harness ? <ProviderLogo harness={harness} size={15} /> : null}
+            <Text style={styles.status} numberOfLines={1}>
+              {model}
+              {effort ? <Text style={styles.effort}> {effort}</Text> : null}
+            </Text>
+          </View>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           onPress={() => router.push({ pathname: "/mono-profile/[monoId]/edit", params: { monoId } })}
@@ -39,7 +50,7 @@ export default function MonoProfileScreen() {
       </View>
 
       {profile ? (
-        <Overview profile={profile} name={mono.name} />
+        <Overview profile={profile} name={mono.name} monoId={monoId} />
       ) : error ? (
         <Text style={styles.note}>{error}</Text>
       ) : (
@@ -48,29 +59,42 @@ export default function MonoProfileScreen() {
 
       <Text style={styles.heading}>Projects</Text>
       <View style={styles.card}>
-        {assigned.length ? (
-          assigned.map((project, index) => (
-            <Fragment key={project.id}>
-              {index > 0 ? <View style={styles.divider} /> : null}
-              <SettingsRow
-                icon={<ProjectMascot project={project.id} color={project.color} name={project.mascot} />}
-                label={project.name}
-                showChevron={false}
-              />
-            </Fragment>
-          ))
-        ) : (
-          <Text style={styles.empty}>Not assigned to a project. It works from your home folder.</Text>
-        )}
+        {assigned.map((project) => (
+          <Fragment key={project.id}>
+            <SettingsRow
+              icon={<ProjectMascot project={project.id} color={project.color} name={project.mascot} />}
+              label={project.name}
+              showChevron={false}
+            />
+            <View style={styles.divider} />
+          </Fragment>
+        ))}
+        {/* Last in the list: picks which of the desktop's projects it works in. */}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push({ pathname: "/mono-profile/[monoId]/projects", params: { monoId } })}
+          style={({ pressed }) => [styles.addRow, pressed && styles.pressed]}
+        >
+          <View style={styles.addIcon}>
+            <Icon name="add" size={18} color={colors.accent} />
+          </View>
+          <Text style={styles.addLabel}>{assigned.length ? "Assign projects" : "Assign a project"}</Text>
+        </Pressable>
       </View>
+      {assigned.length ? null : (
+        <Text style={styles.note}>Without a project it works from your home folder.</Text>
+      )}
     </SettingsPage>
   );
 }
 
-function Overview({ profile, name }: { profile: MonoProfile; name: string }) {
+function Overview({ profile, name, monoId }: { profile: MonoProfile; name: string; monoId: string }) {
   const styles = useStyles();
   const colors = useColors();
   const { today, contributions } = profile;
+  // A habit or document opens beside the profile, inside its sheet.
+  const openHabit = (habitId: string) =>
+    router.push({ pathname: "/mono-profile/[monoId]/habit", params: { monoId, habitId } });
   return (
     <>
       <Text style={styles.heading}>Today</Text>
@@ -107,20 +131,43 @@ function Overview({ profile, name }: { profile: MonoProfile; name: string }) {
           profile.upNext.map((habit, index) => (
             <Fragment key={habit.id}>
               {index > 0 ? <View style={styles.divider} /> : null}
-              <View style={styles.listRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => openHabit(habit.id)}
+                style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
+              >
                 <Icon name={habit.running ? "terminal" : "automation"} size={18} color={colors.content} />
                 <View style={styles.listText}>
                   <Text style={styles.listTitle} numberOfLines={1}>{habit.name}</Text>
                   <Text style={styles.listDetail} numberOfLines={1}>{habit.schedule}</Text>
                 </View>
                 <Text style={styles.listDetail}>{habit.when}</Text>
-              </View>
+              </Pressable>
             </Fragment>
           ))
         ) : (
           <Text style={styles.empty}>Nothing scheduled. Ask {name} to put recurring work on a habit.</Text>
         )}
       </View>
+
+      {profile.habits.length ? (
+        <>
+          <Text style={styles.heading}>Habits</Text>
+          <View style={styles.card}>
+            {profile.habits.map((habit, index) => (
+              <Fragment key={habit.id}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                <SettingsRow
+                  icon="automation"
+                  label={habit.name}
+                  value={habit.enabled ? habit.schedule : "Paused"}
+                  onPress={() => openHabit(habit.id)}
+                />
+              </Fragment>
+            ))}
+          </View>
+        </>
+      ) : null}
 
       <Text style={styles.heading}>Documents</Text>
       <View style={styles.card}>
@@ -131,7 +178,12 @@ function Overview({ profile, name }: { profile: MonoProfile; name: string }) {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${document.title}`}
-                onPress={() => openDocument(document.id, document.title)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/mono-profile/[monoId]/document",
+                    params: { monoId, documentId: document.id, title: document.title },
+                  })
+                }
                 style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
               >
                 <Icon
@@ -206,10 +258,38 @@ function ago(ms: number) {
 }
 
 const useStyles = themedStyles((colors) => ({
+  // Up under the sheet's header, which has no title of its own here.
   identity: {
     alignItems: "center",
     gap: 8,
-    paddingTop: 8,
+    marginTop: -36,
+  },
+  model: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 24,
+  },
+  effort: {
+    color: colors.faint,
+  },
+  // As a settings row, so it lines up with the projects above it.
+  addRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 52,
+    paddingVertical: 8,
+  },
+  addIcon: {
+    width: 36,
+    height: 36,
+    marginRight: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addLabel: {
+    color: colors.accent,
+    fontSize: 17,
   },
   name: {
     marginTop: 6,
@@ -218,10 +298,9 @@ const useStyles = themedStyles((colors) => ({
     fontWeight: "700",
   },
   status: {
+    flexShrink: 1,
     color: colors.muted,
     fontSize: 15,
-    textAlign: "center",
-    paddingHorizontal: 24,
   },
   edit: {
     marginTop: 6,

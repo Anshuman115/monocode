@@ -27,6 +27,18 @@ export default function MonoProfileLayout() {
         }}
       />
       <Stack.Screen name="edit" options={{ title: "Edit", ...androidBackHeader("Edit") }} />
+      {/* A document and a habit title themselves once read. */}
+      <Stack.Screen name="document" options={{ title: "" }} />
+      <Stack.Screen name="habit" options={{ title: "" }} />
+      <Stack.Screen name="model" options={{ title: "Model", ...androidBackHeader("Model") }} />
+      <Stack.Screen
+        name="model-options"
+        options={{ title: "Options", ...androidBackHeader("Options") }}
+      />
+      <Stack.Screen
+        name="projects"
+        options={{ title: "Projects", ...androidBackHeader("Projects") }}
+      />
     </Stack>
   );
 }

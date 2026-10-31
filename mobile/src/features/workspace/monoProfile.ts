@@ -23,11 +23,27 @@ export type MonoProfile = {
     habitsTotal: number;
   };
   upNext: { id: string; name: string; schedule: string; when: string; running: boolean }[];
-  habits: { id: string; name: string; schedule: string; enabled: boolean }[];
+  habits: MonoHabit[];
   documents: { id: string; title: string; kind: string; summary: string; updatedAt: number }[];
   /** What its look can be: the desktop's swatches, as `#rrggbb`, and mascots. */
   colors: string[];
   mascots: string[];
+};
+
+/** A habit whole, for its page: what it's told to do, when, and how its
+ *  latest runs went, newest first. */
+export type MonoHabit = {
+  id: string;
+  name: string;
+  instructions: string;
+  schedule: string;
+  enabled: boolean;
+  when: string;
+  running: boolean;
+  lastRunAt?: number | null;
+  lastOutcome?: string | null;
+  lastError?: string | null;
+  runs: { at: number; durationMs: number; outcome: string; report?: string | null; error?: string | null }[];
 };
 
 /** The profile, read each time its screen comes into view, and on a pull. */
@@ -56,14 +72,4 @@ export function useMonoProfile(monoId: string) {
     }, [load]),
   );
   return { profile, error, refreshing, refresh: () => void load(true) };
-}
-
-/** Changes the Mono's name, mascot or colour on the desktop. */
-export function useUpdateMono(monoId: string) {
-  const { command } = useConnection();
-  return useCallback(
-    (change: { name?: string; mascot?: string; color?: string }) =>
-      command<null>("mono.update", { monoId, ...change }),
-    [command, monoId],
-  );
 }

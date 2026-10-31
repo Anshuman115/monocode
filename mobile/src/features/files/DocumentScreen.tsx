@@ -17,7 +17,16 @@ type MonoDocument = { title: string; kind: string; body: string };
  * the file sheet renders Markdown. A visual needs the desktop's renderer, so
  * it says so rather than show its source.
  */
-export function DocumentScreen({ documentId, title }: { documentId: string; title?: string }) {
+export function DocumentScreen({
+  documentId,
+  title,
+  stacked = false,
+}: {
+  documentId: string;
+  title?: string;
+  /** Pushed inside another sheet, as a Mono's profile: it goes back, not closes. */
+  stacked?: boolean;
+}) {
   const styles = useStyles();
   const colors = useColors();
   const { command } = useConnection();
@@ -49,9 +58,13 @@ export function DocumentScreen({ documentId, title }: { documentId: string; titl
               {visual ? "Visual" : "Document"}
             </CodeHeaderTitle>
           ),
-          headerLeft: () => (
-            <HeaderButton icon="close" label="Close" onPress={() => router.back()} />
-          ),
+          ...(stacked
+            ? {}
+            : {
+                headerLeft: () => (
+                  <HeaderButton icon="close" label="Close" onPress={() => router.back()} />
+                ),
+              }),
         }}
       />
       {document && visual ? (

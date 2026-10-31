@@ -113,11 +113,19 @@ impl Monos {
                 "when": when(*running, h),
                 "running": running.is_some(),
             })).collect::<Vec<_>>(),
+            // Each habit whole for its page, its latest runs first.
             "habits": habits.iter().map(|h| json!({
                 "id": h.id,
                 "name": h.name,
+                "instructions": h.instructions,
                 "schedule": h.schedule.label(),
                 "enabled": h.enabled,
+                "when": when(self.habit_running_since(h), h),
+                "running": self.habit_running_since(h).is_some(),
+                "lastRunAt": h.last_run_at,
+                "lastOutcome": h.last_outcome,
+                "lastError": h.last_error,
+                "runs": h.runs.iter().rev().take(10).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "documents": documents.iter().map(|d| json!({
                 "id": d.id,
@@ -151,6 +159,14 @@ impl Monos {
                 .filter(|c| *c <= 0xffffff)
                 .ok_or("Unknown colour")?;
         }
+        // Projects as the desktop's settings add and remove them.
+        if let Some(path) = params["addPath"].as_str() {
+            mono.projects.push(path.into());
+        }
+        if let Some(paths) = params["removePaths"].as_array() {
+            mono.projects.retain(|p| !paths.iter().any(|r| r.as_str() == Some(p.as_str())));
+        }
+        mono.normalize();
         self.configure_chat(id, cx);
         self.save(cx);
         cx.notify();

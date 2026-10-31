@@ -4,9 +4,7 @@ import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
-import { effortLabel } from "@/features/models/modelChoice";
-import { useSessionChoice } from "@/features/models/sessionChoice";
-import { useModelCatalog } from "@/features/models/useModelCatalog";
+import { useMonoModel } from "@/features/models/useMonoModel";
 import { useDrawerActions, useDrawerSwipe } from "@/ui/ScenePager";
 import { Timed } from "@/ui/Timed";
 import { useConnection } from "@/features/connection/ConnectionProvider";
@@ -70,15 +68,7 @@ export default function MonoScreen() {
   const mascot = mono?.mascot ?? "";
   const color = mono?.color ?? "";
   const agent = useMemo(() => ({ name, mascot, color }), [name, mascot, color]);
-  // The model it runs with, named as a session's: a pick made here, else what
-  // the desktop says the conversation runs with.
-  const { catalog } = useModelCatalog(conversationId ?? undefined, conversationId ?? undefined);
-  const { chosen } = useSessionChoice(undefined, conversationId ?? undefined);
-  const current = chosen?.pick ?? catalog?.current;
-  const entry = catalog?.models.find((model) => model.id === current?.model);
-  const model = chosen?.name ?? entry?.name ?? current?.model ?? mono?.model ?? "";
-  const harness = current?.harness ?? mono?.harness;
-  const effort = current ? effortLabel(entry, current) : undefined;
+  const { model, harness, effort } = useMonoModel(mono);
   const choose = useCallback(
     (text: string) => (conversationId ? sendMessage(conversationId, text) : Promise.resolve()),
     [conversationId, sendMessage],

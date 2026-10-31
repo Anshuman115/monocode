@@ -1,13 +1,15 @@
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
 import { PIXEL_MASCOT_NAMES } from "@/features/mascots/pixelMascots";
-import { SettingsPage } from "@/features/settings/SettingsUI";
-import { useUpdateMono } from "@/features/workspace/monoProfile";
-import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
+import { useMonoModel } from "@/features/models/useMonoModel";
+import { ProviderLogo } from "@/features/sessions/ProviderLogo";
+import { SettingsPage, SettingsRow } from "@/features/settings/SettingsUI";
+import { useOffline } from "@/features/connection/ConnectionNotice";
+import { useWorkspace, type MonoChange } from "@/features/workspace/WorkspaceProvider";
 import { Icon } from "@/ui/Icon";
 import { radii, themedStyles, useColors, useScheme } from "@/ui/theme";
 
@@ -17,35 +19,38 @@ const SWATCHES = [
 ];
 
 // A Mono's look: its name, then which mascot it is and in what colour, as the
-// desktop's look editor. Each change saves on the desktop as it is made; the
-// preview shows it straight away.
+// desktop's look editor. Each change shows everywhere at once and saves on the
+// desktop behind it; without the desktop there it can't be changed.
 export default function EditMonoScreen() {
   const { monoId } = useLocalSearchParams<{ monoId: string }>();
-  const mono = useWorkspace().monos.find((m) => m.id === monoId);
-  const update = useUpdateMono(monoId);
+  const { monos, editMono } = useWorkspace();
+  const mono = monos.find((m) => m.id === monoId);
+  const offline = useOffline();
+  const { model, harness } = useMonoModel(mono);
   const styles = useStyles();
   const colors = useColors();
   const scheme = useScheme();
-  // Shown at once; the desktop's copy catches up on its next catalog.
   const [name, setName] = useState(mono?.name ?? "");
-  const [mascot, setMascot] = useState(mono?.mascot ?? "ghost");
-  const [color, setColor] = useState(mono?.color ?? SWATCHES[0]);
   const saved = useRef(mono?.name ?? "");
+  const mascot = mono?.mascot ?? "ghost";
+  const color = mono?.color ?? SWATCHES[0];
 
-  const save = (change: { name?: string; mascot?: string; color?: string }) =>
-    update(change).catch((reason) =>
+  const save = (change: MonoChange) => {
+    if (!mono) return;
+    editMono(mono, change).catch((reason: unknown) =>
       Alert.alert("Couldn’t save", reason instanceof Error ? reason.message : String(reason)),
     );
+  };
   // The name saves once typing pauses, not on every key.
   useEffect(() => {
     const next = name.trim();
     if (next === saved.current) return;
     const timer = setTimeout(() => {
       saved.current = next;
-      void save({ name: next });
+      save({ name: next });
     }, 600);
     return () => clearTimeout(timer);
-    // `save` is stable enough: it only closes over `update`.
+    // `save` changes with the Mono; the name alone decides when to save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
@@ -66,12 +71,22 @@ export default function EditMonoScreen() {
           placeholderTextColor={colors.muted}
           keyboardAppearance={scheme}
           returnKeyType="done"
-          style={styles.input}
+          editable={!offline}
+          style={[styles.input, offline && styles.off]}
+        />
+      </View>
+
+      <Text style={styles.heading}>Model</Text>
+      <View style={[styles.card, offline && styles.off]} pointerEvents={offline ? "none" : "auto"}>
+        <SettingsRow
+          icon={harness ? <ProviderLogo harness={harness} size={18} /> : "sparkle"}
+          label={model || "Choose a model"}
+          onPress={() => router.push({ pathname: "/mono-profile/[monoId]/model", params: { monoId } })}
         />
       </View>
 
       <Text style={styles.heading}>Mascot</Text>
-      <View style={[styles.card, styles.grid]}>
+      <View style={[styles.card, styles.grid, offline && styles.off]} pointerEvents={offline ? "none" : "auto"}>
         {PIXEL_MASCOT_NAMES.map((name) => (
           <Pressable
             key={name}
@@ -81,8 +96,7 @@ export default function EditMonoScreen() {
             onPress={() => {
               if (name === mascot) return;
               void Haptics.selectionAsync();
-              setMascot(name);
-              void save({ mascot: name });
+              save({ mascot: name });
             }}
             style={[styles.mascot, name === mascot && { borderColor: color }]}
           >
@@ -92,7 +106,7 @@ export default function EditMonoScreen() {
       </View>
 
       <Text style={styles.heading}>Color</Text>
-      <View style={[styles.card, styles.swatches]}>
+      <View style={[styles.card, styles.swatches, offline && styles.off]} pointerEvents={offline ? "none" : "auto"}>
         {SWATCHES.map((swatch) => (
           <Pressable
             key={swatch}
@@ -103,8 +117,7 @@ export default function EditMonoScreen() {
             onPress={() => {
               if (swatch === color.toLowerCase()) return;
               void Haptics.selectionAsync();
-              setColor(swatch);
-              void save({ color: swatch });
+              save({ color: swatch });
             }}
             style={[styles.ring, swatch === color.toLowerCase() && { borderColor: swatch }]}
           >
@@ -114,11 +127,24 @@ export default function EditMonoScreen() {
           </Pressable>
         ))}
       </View>
+      {offline ? (
+        <Text style={styles.note}>Connect to your desktop to change this Mono.</Text>
+      ) : null}
     </SettingsPage>
   );
 }
 
 const useStyles = themedStyles((colors) => ({
+  off: {
+    opacity: 0.4,
+  },
+  note: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 12,
+    marginHorizontal: 16,
+  },
   preview: {
     alignItems: "center",
     paddingVertical: 8,

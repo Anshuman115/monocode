@@ -1844,7 +1844,24 @@ impl Shell {
             return request.reply(Err("Mono is no longer available".into()));
         };
         let result = if request.method == "mono.update" {
-            let result = monos.update(cx, |monos, cx| monos.mobile_update(&id, &request.params, cx));
+            // Projects come as the phone's IDs; the roster keeps paths.
+            let mut params = request.params.clone();
+            if let Some(add) = string(&request.params, "addProject") {
+                match self.mobile_project_path(&add, cx) {
+                    Ok(path) => params["addPath"] = json!(path),
+                    Err(error) => return request.reply(Err(error)),
+                }
+            }
+            if let Some(remove) = string(&request.params, "removeProject") {
+                let paths: Vec<String> = monos
+                    .read(cx)
+                    .roster
+                    .get(&id)
+                    .map(|mono| mono.projects.iter().filter(|p| project_id(p) == remove).cloned().collect())
+                    .unwrap_or_default();
+                params["removePaths"] = json!(paths);
+            }
+            let result = monos.update(cx, |monos, cx| monos.mobile_update(&id, &params, cx));
             // The phone's drawer and header show the new look at once.
             if result.is_ok() {
                 self.publish_mobile_catalog(cx);
