@@ -32,7 +32,7 @@ import {
 } from "@/features/workspace/WorkspaceProvider";
 import type { TurnMetrics } from "@/features/workspace/types";
 import { pixelLayers } from "@/features/mascots/pixelMascots";
-import { mix, useAccent, useColors, useScheme, useTheme } from "@/ui/theme";
+import { AccentOverride, mix, useAccent, useColors, useScheme, useTheme } from "@/ui/theme";
 import { usePushStarted } from "@/ui/usePushedIn";
 
 import { EmptySession } from "./EmptySession";
@@ -103,7 +103,9 @@ export function NativeTranscript({
   // Classic draws the user's Mono bubbles in ink, unless an accent is picked.
   const theme = useTheme();
   const accent = useAccent();
-  const ink = theme === "mono" && accent === "theme";
+  // ...and a Mono's chat picked a colour of its own.
+  const chatAccent = use(AccentOverride);
+  const ink = theme === "mono" && accent === "theme" && !chatAccent;
   const { fontScale, scale: pixelRatio } = useWindowDimensions();
   const [collapsed] = useCollapsedToolCalls();
   const focused = useIsFocused();

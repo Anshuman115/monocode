@@ -137,7 +137,9 @@ function Overview({ profile, name, monoId }: { profile: MonoProfile; name: strin
                 onPress={() => openHabit(habit.id)}
                 style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
               >
-                <Icon name={habit.running ? "terminal" : "automation"} size={18} color={colors.content} />
+                <View style={styles.listIcon}>
+                  <Icon name={habit.running ? "terminal" : "automation"} size={18} color={colors.content} />
+                </View>
                 <View style={styles.listText}>
                   <Text style={styles.listTitle} numberOfLines={1}>{habit.name}</Text>
                   <Text style={styles.listDetail} numberOfLines={1}>{habit.schedule}</Text>
@@ -187,11 +189,13 @@ function Overview({ profile, name, monoId }: { profile: MonoProfile; name: strin
                 }
                 style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
               >
-                <Icon
-                  name={["html", "visual"].includes(document.kind) ? "metrics" : "edit"}
-                  size={18}
-                  color={colors.content}
-                />
+                <View style={styles.listIcon}>
+                  <Icon
+                    name={["html", "visual"].includes(document.kind) ? "metrics" : "edit"}
+                    size={18}
+                    color={colors.content}
+                  />
+                </View>
                 <View style={styles.listText}>
                   <Text style={styles.listTitle} numberOfLines={1}>{document.title}</Text>
                 </View>
@@ -368,12 +372,20 @@ const useStyles = themedStyles((colors) => ({
   streak: {
     marginLeft: "auto",
   },
+  // As a settings row, so habits and documents sit like the projects do.
   listRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 11,
+    minHeight: 52,
+    paddingVertical: 8,
+    paddingRight: 8,
+  },
+  listIcon: {
+    width: 36,
+    height: 36,
+    marginRight: 4,
+    alignItems: "center",
+    justifyContent: "center",
   },
   listText: {
     flex: 1,
@@ -381,7 +393,7 @@ const useStyles = themedStyles((colors) => ({
   },
   listTitle: {
     color: colors.content,
-    fontSize: 16,
+    fontSize: 17,
   },
   listDetail: {
     color: colors.muted,

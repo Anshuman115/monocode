@@ -15,6 +15,8 @@ import { markMonoSeen, markMonoUnread } from "@/features/workspace/monoSeen";
 import { Composer } from "@/features/sessions/Composer";
 import { MonoChoose, MonoMessageActions } from "@/features/sessions/MonoCards";
 import { MonoMenu } from "@/features/sessions/MonoMenu";
+import { useMonoAccent } from "@/features/workspace/monoAccent";
+import { AccentOverride, ACCENTS, useScheme } from "@/ui/theme";
 import { QuestionCard } from "@/features/sessions/QuestionCard";
 import { EmptySession } from "@/features/sessions/EmptySession";
 import { SessionScreen } from "@/features/sessions/SessionScreen";
@@ -73,6 +75,10 @@ export default function MonoScreen() {
   const color = mono?.color ?? "";
   const agent = useMemo(() => ({ name, mascot, color }), [name, mascot, color]);
   const { model, harness, effort } = useMonoModel(mono);
+  // The colour picked for this Mono's chat, over the app's accent.
+  const monoAccent = useMonoAccent(mono?.id);
+  const scheme = useScheme();
+  const chatAccent = monoAccent === "theme" ? null : ACCENTS[monoAccent][scheme];
   const choose = useCallback(
     (text: string) => (conversationId ? sendMessage(conversationId, text) : Promise.resolve()),
     [conversationId, sendMessage],
@@ -138,7 +144,7 @@ export default function MonoScreen() {
         />
       }
       composer={
-        <>
+        <AccentOverride value={chatAccent}>
           {conversation.question ? (
             <QuestionCard conversationId={conversationId} prompt={conversation.question} />
           ) : null}
@@ -173,18 +179,20 @@ export default function MonoScreen() {
               );
             }}
           />
-        </>
+        </AccentOverride>
       }
     >
       <ConnectionNotice error={conversation.error} />
       {/* A suggested reply it offers is sent as the user's message. */}
-      <MonoChoose value={choose}>
-        <MonoMessageActions value={messageActions}>
-          {hasNativeTranscript
-            ? <NativeTranscript key={mono.id} conversationId={conversationId} agent={agent} />
-            : <MonoTranscript key={mono.id} conversationId={conversationId} agent={agent} />}
-        </MonoMessageActions>
-      </MonoChoose>
+      <AccentOverride value={chatAccent}>
+        <MonoChoose value={choose}>
+          <MonoMessageActions value={messageActions}>
+            {hasNativeTranscript
+              ? <NativeTranscript key={mono.id} conversationId={conversationId} agent={agent} />
+              : <MonoTranscript key={mono.id} conversationId={conversationId} agent={agent} />}
+          </MonoMessageActions>
+        </MonoChoose>
+      </AccentOverride>
     </SessionScreen>
     </Timed>
   );

@@ -1,5 +1,5 @@
 import Storage from "expo-sqlite/kv-store";
-import { useSyncExternalStore } from "react";
+import { createContext, use, useSyncExternalStore } from "react";
 import { StyleSheet, useColorScheme } from "react-native";
 
 export type Scheme = "light" | "dark";
@@ -276,8 +276,23 @@ export function useScheme(): Scheme {
 
 /** The palette of the scheme, theme and accent the app is drawn in. */
 export function useColors() {
-  return paletteFor(useScheme(), useTheme(), useAccent());
+  const palette = paletteFor(useScheme(), useTheme(), useAccent());
+  const over = use(AccentOverride);
+  if (!over || over === palette.accent) return palette;
+  // One object per palette and accent, so memos keyed on it hold.
+  let byAccent = overridden.get(palette);
+  if (!byAccent) overridden.set(palette, (byAccent = new Map()));
+  let shown = byAccent.get(over);
+  if (!shown) byAccent.set(over, (shown = { ...palette, accent: over }));
+  return shown;
 }
+
+/**
+ * An accent for everything inside, over the app's: a Mono's chat drawn in
+ * the colour picked for it. `#rrggbb`, or null for the app's own.
+ */
+export const AccentOverride = createContext<string | null>(null);
+const overridden = new WeakMap<Palette, Map<string, Palette>>();
 
 /**
  * A style sheet for each scheme and theme, built from its palette, as a hook

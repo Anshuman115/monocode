@@ -11,7 +11,10 @@ import { SettingsPage, SettingsRow } from "@/features/settings/SettingsUI";
 import { useOffline } from "@/features/connection/ConnectionNotice";
 import { useWorkspace, type MonoChange } from "@/features/workspace/WorkspaceProvider";
 import { Icon } from "@/ui/Icon";
-import { radii, themedStyles, useColors, useScheme } from "@/ui/theme";
+import { setMonoAccent, useMonoAccent, type MonoAccent } from "@/features/workspace/monoAccent";
+import { ACCENTS, paletteFor, radii, themedStyles, useColors, useScheme } from "@/ui/theme";
+
+const TILE_GAP = 10;
 
 /** The desktop's swatches for a Mono (COLORS_MONO). */
 const SWATCHES = [
@@ -31,6 +34,10 @@ export default function EditMonoScreen() {
   const colors = useColors();
   const scheme = useScheme();
   const [name, setName] = useState(mono?.name ?? "");
+  // The mascot grid's inner width: five square tiles to a row, sized exactly
+  // so each figure sits in the middle of a true square.
+  const [gridWidth, setGridWidth] = useState(0);
+  const tile = gridWidth > 0 ? Math.floor((gridWidth - TILE_GAP * 4) / 5) : 0;
   const saved = useRef(mono?.name ?? "");
   const mascot = mono?.mascot ?? "ghost";
   const color = mono?.color ?? SWATCHES[0];
@@ -58,7 +65,7 @@ export default function EditMonoScreen() {
   return (
     <SettingsPage>
       <View style={styles.preview}>
-        <PixelMascot name={mascot} color={color} size={88} />
+        <PixelMascot name={mascot} color={color} size={88} centered />
       </View>
 
       <Text style={styles.heading}>Name</Text>
@@ -86,8 +93,12 @@ export default function EditMonoScreen() {
       </View>
 
       <Text style={styles.heading}>Mascot</Text>
-      <View style={[styles.card, styles.grid, offline && styles.off]} pointerEvents={offline ? "none" : "auto"}>
-        {PIXEL_MASCOT_NAMES.map((name) => (
+      <View
+        style={[styles.card, styles.grid, offline && styles.off]}
+        pointerEvents={offline ? "none" : "auto"}
+        onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 24)}
+      >
+        {tile > 0 && PIXEL_MASCOT_NAMES.map((name) => (
           <Pressable
             key={name}
             accessibilityRole="radio"
@@ -98,9 +109,9 @@ export default function EditMonoScreen() {
               void Haptics.selectionAsync();
               save({ mascot: name });
             }}
-            style={[styles.mascot, name === mascot && { borderColor: color }]}
+            style={[styles.mascot, { width: tile, height: tile }, name === mascot && { borderColor: color }]}
           >
-            <PixelMascot name={name} color={color} size={36} />
+            <PixelMascot name={name} color={color} size={Math.round(tile * 0.62)} centered />
           </Pressable>
         ))}
       </View>
@@ -127,6 +138,8 @@ export default function EditMonoScreen() {
           </Pressable>
         ))}
       </View>
+
+      <ChatColor monoId={monoId} />
       {offline ? (
         <Text style={styles.note}>Connect to your desktop to change this Mono.</Text>
       ) : null}
@@ -134,7 +147,64 @@ export default function EditMonoScreen() {
   );
 }
 
+const CHAT_ACCENTS: MonoAccent[] = ["theme", ...(Object.keys(ACCENTS) as MonoAccent[])];
+
+/** The colour this Mono's chat is drawn in, over the app's accent: its
+ *  bubbles, links and send button. Kept on this phone, so it needs no desktop. */
+function ChatColor({ monoId }: { monoId: string }) {
+  const styles = useStyles();
+  const scheme = useScheme();
+  const picked = useMonoAccent(monoId);
+  return (
+    <>
+      <Text style={styles.heading}>Chat color</Text>
+      <View style={[styles.card, styles.swatches]}>
+        {CHAT_ACCENTS.map((accent) => {
+          const fill = accent === "theme" ? paletteFor(scheme).accent : ACCENTS[accent][scheme];
+          const selected = accent === picked;
+          return (
+            <Pressable
+              key={accent}
+              accessibilityRole="radio"
+              accessibilityLabel={accent === "theme" ? "App accent" : ACCENTS[accent].label}
+              accessibilityState={{ selected }}
+              hitSlop={4}
+              onPress={() => {
+                if (selected) return;
+                void Haptics.selectionAsync();
+                setMonoAccent(monoId, accent);
+              }}
+              style={[styles.ring, selected && { borderColor: fill }]}
+            >
+              <View style={[styles.dot, { backgroundColor: fill }]}>
+                {accent === "theme" ? (
+                  <View style={styles.themeMark} />
+                ) : selected ? (
+                  <Icon name="check" size={14} color="#ffffff" />
+                ) : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.note}>
+        {picked === "theme"
+          ? "This chat uses the app's accent."
+          : `This chat's bubbles and links are ${ACCENTS[picked].label.toLowerCase()}, whatever the app's accent.`}
+      </Text>
+    </>
+  );
+}
+
 const useStyles = themedStyles((colors) => ({
+  // The app's own accent: a small hollow centre, so it reads as "default".
+  themeMark: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "#ffffff",
+  },
   off: {
     opacity: 0.4,
   },
@@ -172,14 +242,11 @@ const useStyles = themedStyles((colors) => ({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
+    gap: TILE_GAP,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    rowGap: 10,
   },
   mascot: {
-    width: "18%",
-    aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
