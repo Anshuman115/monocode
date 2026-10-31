@@ -582,7 +582,14 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       // Keyboard and composer growth absorb into this space rather than moving rows.
       height = max(height, anchor + scroll.bounds.height)
     }
-    scroll.contentSize = CGSize(width: bounds.width, height: max(scroll.bounds.height, height))
+    // A Mono's chat rests a short conversation on the composer, as a messaging
+    // app's, and grows it upward: the room above is an inset, so the follow
+    // slides the rows up as messages come or the keyboard opens.
+    let lead =
+      style.agent.isEmpty ? 0 : max(0, scroll.bounds.height - top - frame.height - bottomInset)
+    if abs(scroll.contentInset.top - lead) > 0.5 { scroll.contentInset.top = lead }
+    scroll.contentSize = CGSize(
+      width: bounds.width, height: lead > 0 ? height : max(scroll.bounds.height, height))
     scroll.verticalScrollIndicatorInsets = UIEdgeInsets(
       top: top, left: 0, bottom: bottomInset, right: 0)
     if initialized && following && !scroll.isDragging && !scroll.isDecelerating {
@@ -598,7 +605,7 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     return frame.offsets[index] + Self.anchorLift
   }
   private func targetOffset() -> CGFloat {
-    let end = max(0, scroll.contentSize.height - scroll.bounds.height)
+    let end = max(-scroll.contentInset.top, scroll.contentSize.height - scroll.bounds.height)
     if pinned, let frame = frameData, let anchor = anchorOffset(frame) { return min(anchor, end) }
     return end
   }
