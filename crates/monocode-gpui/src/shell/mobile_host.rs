@@ -723,7 +723,7 @@ impl Shell {
             "models.list" => self.mobile_models(request, cx),
             "accounts.usage" => self.mobile_usage(request, cx),
             "mono.document" => self.mobile_document(request, cx),
-            "mono.profile" | "mono.update" | "mono.reset" | "mono.delete" => {
+            "mono.profile" | "mono.update" | "mono.reset" | "mono.delete" | "mono.create" => {
                 self.mobile_mono(request, cx)
             }
             "project.fileHighlight" => {
@@ -1865,7 +1865,13 @@ impl Shell {
         let Some(monos) = self.monos.clone() else {
             return request.reply(Err("Mono is no longer available".into()));
         };
-        let result = if matches!(request.method.as_str(), "mono.reset" | "mono.delete") {
+        let result = if request.method == "mono.create" {
+            let result = monos.update(cx, |monos, cx| monos.mobile_create(cx));
+            if result.is_ok() {
+                self.publish_mobile_catalog(cx);
+            }
+            result
+        } else if matches!(request.method.as_str(), "mono.reset" | "mono.delete") {
             let reset = request.method == "mono.reset";
             let result = monos.update(cx, |monos, cx| {
                 if reset { monos.mobile_reset(&id, cx) } else { monos.mobile_delete(&id, cx) }

@@ -139,6 +139,16 @@ impl Monos {
         }))
     }
 
+    /// A new Mono from the phone's drawer, with the roster's next mascot and
+    /// colour and no projects yet, its chat ready to talk to.
+    pub(crate) fn mobile_create(&mut self, cx: &mut Context<Self>) -> Result<Value, String> {
+        let id = self.roster.create(Vec::new()).id.clone();
+        self.save(cx);
+        self.ensure_chat(&id, cx);
+        cx.notify();
+        Ok(json!({ "monoId": id }))
+    }
+
     /// The phone's Reset conversation or Delete Mono, confirmed there.
     pub(crate) fn mobile_reset(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Value, String> {
         self.roster.get(id).ok_or("Mono is no longer available")?;

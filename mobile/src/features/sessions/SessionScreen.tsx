@@ -53,10 +53,11 @@ import { useDrawerActions, useSceneSwapping, useSceneSwitching } from "@/ui/Scen
 import { UnreadDot, useAnyUnreadMono } from "@/features/workspace/UnreadDot";
 import { themedStyles, useColors } from "@/ui/theme";
 
-const HEADER_HEIGHT = 44;
+export const HEADER_HEIGHT = 44;
 /** The frame's own header (a mono's) below the status bar: flush with it, so
- *  its buttons sit level with the native header's on a project. */
-const HEADER_GAP = 0;
+ *  its buttons sit level with the native header's on a project. The drawer's
+ *  header sits there too. */
+export const HEADER_GAP = 0;
 /** The scroll-to-end button above the composer. */
 const JUMP = 36;
 /** Gap between the composer and the keyboard while it is open. */
