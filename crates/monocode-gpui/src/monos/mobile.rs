@@ -139,6 +139,20 @@ impl Monos {
         }))
     }
 
+    /// The phone's Reset conversation or Delete Mono, confirmed there.
+    pub(crate) fn mobile_reset(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Value, String> {
+        self.roster.get(id).ok_or("Mono is no longer available")?;
+        self.clear_conversation(id, cx);
+        cx.notify();
+        Ok(Value::Null)
+    }
+    pub(crate) fn mobile_delete(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Value, String> {
+        self.roster.get(id).ok_or("Mono is no longer available")?;
+        self.remove_mono(id, cx);
+        cx.notify();
+        Ok(Value::Null)
+    }
+
     /// The name, mascot and colour from the phone, kept as the desktop's
     /// editor keeps them: a name of at most 40 characters (empty falls back
     /// to the mascot's), a known mascot, a colour as `#rrggbb`.

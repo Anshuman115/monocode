@@ -714,7 +714,9 @@ impl Shell {
             "models.list" => self.mobile_models(request, cx),
             "accounts.usage" => self.mobile_usage(request, cx),
             "mono.document" => self.mobile_document(request, cx),
-            "mono.profile" | "mono.update" => self.mobile_mono(request, cx),
+            "mono.profile" | "mono.update" | "mono.reset" | "mono.delete" => {
+                self.mobile_mono(request, cx)
+            }
             "project.fileHighlight" => {
                 let job = string(&request.params, "job").unwrap_or_default();
                 let from = request.params["from"].as_u64().unwrap_or(0) as usize;
@@ -1843,7 +1845,18 @@ impl Shell {
         let Some(monos) = self.monos.clone() else {
             return request.reply(Err("Mono is no longer available".into()));
         };
-        let result = if request.method == "mono.update" {
+        let result = if matches!(request.method.as_str(), "mono.reset" | "mono.delete") {
+            let reset = request.method == "mono.reset";
+            let result = monos.update(cx, |monos, cx| {
+                if reset { monos.mobile_reset(&id, cx) } else { monos.mobile_delete(&id, cx) }
+            });
+            if result.is_ok() {
+                self.publish_mobile_catalog(cx);
+                // A reset chat is a new one: phones watching it follow it now.
+                self.push_mobile_watches(cx);
+            }
+            result
+        } else if request.method == "mono.update" {
             // Projects come as the phone's IDs; the roster keeps paths.
             let mut params = request.params.clone();
             if let Some(add) = string(&request.params, "addProject") {

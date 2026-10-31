@@ -262,7 +262,7 @@ const useStyles = themedStyles((colors) => ({
   identity: {
     alignItems: "center",
     gap: 8,
-    marginTop: -36,
+    marginTop: -12,
   },
   model: {
     flexDirection: "row",
@@ -291,8 +291,9 @@ const useStyles = themedStyles((colors) => ({
     color: colors.accent,
     fontSize: 17,
   },
+  // Close under the mascot, whose sprite already leaves room around it.
   name: {
-    marginTop: 6,
+    marginTop: -6,
     color: colors.content,
     fontSize: 24,
     fontWeight: "700",

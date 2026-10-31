@@ -43,6 +43,8 @@ const APP_METHODS: &[&str] = &[
     "mono.document",
     "mono.profile",
     "mono.update",
+    "mono.reset",
+    "mono.delete",
 ];
 /// Under the phone's own wait, so it hears why rather than timing out.
 const REPLY_WAIT: Duration = Duration::from_secs(25);

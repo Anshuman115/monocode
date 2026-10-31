@@ -1,5 +1,7 @@
 import { Redirect, router, useIsFocused, useLocalSearchParams } from "expo-router";
+import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert } from "react-native";
 import { ConnectionNotice } from "@/features/connection/ConnectionNotice";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
 
@@ -12,6 +14,7 @@ import { rememberPlace } from "@/features/workspace/lastPlace";
 import { markMonoSeen, markMonoUnread } from "@/features/workspace/monoSeen";
 import { Composer } from "@/features/sessions/Composer";
 import { MonoChoose, MonoMessageActions } from "@/features/sessions/MonoCards";
+import { MonoMenu } from "@/features/sessions/MonoMenu";
 import { QuestionCard } from "@/features/sessions/QuestionCard";
 import { EmptySession } from "@/features/sessions/EmptySession";
 import { SessionScreen } from "@/features/sessions/SessionScreen";
@@ -34,6 +37,7 @@ export default function MonoScreen() {
   const conversationId = mono ? monoConversationId(mono.id) : null;
   const conversation = useConversation(conversationId);
   // Where the app opens next time.
+  const { command, refresh } = useConnection();
   const desktop = useConnection().pairing?.desktop.fingerprint;
   const placeId = mono?.id;
   useEffect(() => {
@@ -73,6 +77,17 @@ export default function MonoScreen() {
     (text: string) => (conversationId ? sendMessage(conversationId, text) : Promise.resolve()),
     [conversationId, sendMessage],
   );
+  // A reset or delete, then the catalog read again: a deleted Mono's screen
+  // leaves for the start once it's gone from there.
+  const act = async (run: () => Promise<unknown>) => {
+    try {
+      await run();
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await refresh();
+    } catch (reason) {
+      Alert.alert("Couldn’t do that", reason instanceof Error ? reason.message : String(reason));
+    }
+  };
   if (!mono || !conversationId) return <Redirect href="/" />;
 
   return (
@@ -85,8 +100,43 @@ export default function MonoScreen() {
         onPress: () =>
           router.push({ pathname: "/mono-profile/[monoId]", params: { monoId: mono.id } }),
       }}
-      // Settings on the right, as on a project.
-      action={{ icon: "settings", label: "Settings", onPress: () => router.push("/settings") }}
+      // Its details, a fresh start or deleting it, from ⋯ on the right.
+      trailing={
+        <MonoMenu
+          onDetails={() =>
+            router.push({ pathname: "/mono-profile/[monoId]", params: { monoId: mono.id } })
+          }
+          // Both clear what can't come back, so each asks first, as the desktop does.
+          onReset={() =>
+            Alert.alert(
+              "Reset conversation?",
+              `The chat with ${mono.name} will be cleared. Its soul, memory and habits stay.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Reset",
+                  style: "destructive",
+                  onPress: () => void act(() => command("mono.reset", { monoId: mono.id })),
+                },
+              ],
+            )
+          }
+          onDelete={() =>
+            Alert.alert(
+              `Delete ${mono.name}?`,
+              "Its scheduled habits stop. Sessions and notes it created stay saved.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete",
+                  style: "destructive",
+                  onPress: () => void act(() => command("mono.delete", { monoId: mono.id })),
+                },
+              ],
+            )
+          }
+        />
+      }
       composer={
         <>
           {conversation.question ? (
