@@ -42,8 +42,8 @@ const TURN_MS = 1200;
  *  spins, then the ground fades off the next screen. */
 const GROUND_IN = { duration: 150, easing: Easing.out(Easing.quad) };
 const RING_IN = { delay: 70, duration: 180, easing: Easing.out(Easing.quad) };
-const RING_OUT = { duration: 200, easing: Easing.in(Easing.quad) };
-const GROUND_OUT = { delay: 140, duration: 260, easing: Easing.inOut(Easing.quad) };
+const RING_OUT = { duration: 150, easing: Easing.in(Easing.quad) };
+const GROUND_OUT = { delay: 80, duration: 200, easing: Easing.inOut(Easing.quad) };
 /** How small the ring gets as it goes. */
 const RING_GONE_SCALE = 0.7;
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];

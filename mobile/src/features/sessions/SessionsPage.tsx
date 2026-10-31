@@ -192,7 +192,23 @@ type RowHandlers = {
   swipeOpened: (row: SwipeableMethods) => void;
 };
 
-/** A session in the list, re-rendered only when it changes. */
+/** What a row shows of its session: a fresh list read hands over new objects
+ *  for unchanged sessions, which shouldn't re-render their rows. */
+function sameRow(a: SessionSummary, b: SessionSummary) {
+  return (
+    a === b ||
+    (a.id === b.id &&
+      a.title === b.title &&
+      a.busy === b.busy &&
+      a.updatedAt === b.updatedAt &&
+      a.branch === b.branch &&
+      a.model === b.model &&
+      a.modelName === b.modelName &&
+      a.harness === b.harness)
+  );
+}
+
+/** A session in the list, re-rendered only when what it shows changes. */
 const SessionRow = memo(function SessionRow({
   session,
   removing,
@@ -217,7 +233,12 @@ const SessionRow = memo(function SessionRow({
       exiting={removing ? FadeOut.duration(REMOVE_MS * 0.6) : undefined}
     />
   );
-});
+},
+(before, after) =>
+  before.removing === after.removing &&
+  before.arriving === after.arriving &&
+  before.handlers === after.handlers &&
+  sameRow(before.session, after.session));
 
 const useStyles = themedStyles((colors) => ({
   page: {
