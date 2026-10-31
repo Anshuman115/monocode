@@ -1603,9 +1603,12 @@ impl Shell {
                     body
                 },
                 // A habit run's question is in its own session, not the
-                // Mono's chat; open that where the phone can.
+                // Mono's chat: the phone opens that if it shows the run's
+                // project, and the Mono's chat otherwise.
                 data: if habit && self.session_summaries.contains_key(&id) {
-                    self.mobile_notice_session(summary, cx)
+                    let mut data = self.mobile_notice_session(summary, cx);
+                    data["monoId"] = json!(mono);
+                    data
                 } else {
                     json!({"monoId": mono})
                 },

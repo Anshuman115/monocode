@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 
 import { useConnection } from "@/features/connection/ConnectionProvider";
+import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 import {
   NOTIFICATION_CATEGORIES,
   useNotificationPreferences,
@@ -28,6 +29,8 @@ Notifications.setNotificationHandler({
 
 type Seen = Pick<SessionSummary, "busy" | "waiting">;
 type Data = { projectId: string; sessionId: string };
+/** Further and further apart, for a push token that didn't come. */
+const RETRY_MS = [5_000, 15_000, 45_000];
 /** Where a pushed notification opens: a session, or a Mono's chat. */
 type Target = Partial<Data> & { monoId?: string };
 const SESSION_CHANNEL = "sessions";
@@ -68,9 +71,16 @@ export function SessionNotifications() {
   // system settings, where notifications may have been turned on or off.
   const [permissionCheck, setPermissionCheck] = useState(0);
   const command = useRef(connection.command);
+  // The projects this phone shows, for where a tap can open a session.
+  const { projects: shown } = useWorkspace();
+  const shownIds = useRef(new Set<string>());
   useEffect(() => {
     command.current = connection.command;
+    shownIds.current = new Set(shown.map((project) => project.id));
   });
+  // Whether the desktop holds this phone's token; until it does, the phone
+  // goes on posting its own alerts.
+  const registered = useRef(false);
 
   // Ask after pairing, only when alerts are enabled and the OS allows asking.
   useEffect(() => {
@@ -125,12 +135,23 @@ export function SessionNotifications() {
         token,
         disabled: disabled ? disabled.split(",") : [],
       });
+      registered.current = token !== null;
     };
-    void register().catch((reason) =>
-      console.warn("Could not register for push notifications", reason),
-    );
+    // A token can fail to come, say while offline: try again a few times.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = (tries: number) =>
+      void register().catch((reason) => {
+        if (cancelled) return;
+        if (tries < RETRY_MS.length) {
+          timer = setTimeout(() => attempt(tries + 1), RETRY_MS[tries]);
+        } else {
+          console.warn("Could not register for push notifications", reason);
+        }
+      });
+    attempt(0);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [push, connection.connected, disabled, permissionCheck]);
 
@@ -150,7 +171,8 @@ export function SessionNotifications() {
     if (!before) return;
     // In front of the user, the app itself shows what changed; the desktop
     // that pushes sends the rest.
-    if (AppState.currentState === "active" || push) return;
+    if (AppState.currentState === "active" || (push && registered.current))
+      return;
     const preferences = current.current;
     const projects = connection.catalog.projects;
     for (const session of sessions) {
@@ -192,7 +214,13 @@ export function SessionNotifications() {
     const data = response.notification.request.content.data as
       Target | undefined;
     void Notifications.clearLastNotificationResponseAsync();
-    if (data?.monoId) {
+    // A Mono's habit run names both: its session if this phone shows the
+    // project, else the Mono's chat.
+    const session =
+      !!data?.projectId &&
+      !!data.sessionId &&
+      (!data.monoId || shownIds.current.has(data.projectId));
+    if (data?.monoId && !session) {
       router.push({ pathname: "/mono/[monoId]", params: { monoId: data.monoId } });
       return;
     }

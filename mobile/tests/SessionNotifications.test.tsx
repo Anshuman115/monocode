@@ -63,6 +63,9 @@ vi.mock("@/features/connection/ConnectionProvider", () => ({
     command: state.command,
   }),
 }));
+vi.mock("@/features/workspace/WorkspaceProvider", () => ({
+  useWorkspace: () => ({ projects: [{ id: "project" }] }),
+}));
 vi.mock("@/features/settings/notifications", () => ({
   NOTIFICATION_CATEGORIES: [{ id: "agentFinished" }, { id: "monoMessages" }],
   useNotificationPreferences: () => ({ enabled: () => state.enabled }),
@@ -182,7 +185,7 @@ it("registers its push token and turned-off categories with a desktop that pushe
   });
 });
 
-it("tells a pushing desktop it can't notify without permission, and posts nothing itself", async () => {
+it("tells a pushing desktop it can't notify without permission", async () => {
   state.push = true;
   state.os = "ios";
   state.settings = { status: "denied", canAskAgain: false, granted: false };
@@ -193,7 +196,6 @@ it("tells a pushing desktop it can't notify without permission, and posts nothin
   await render();
   expect(state.pushToken).not.toHaveBeenCalled();
   expect(state.command).toHaveBeenCalledWith("device.push", { token: null, disabled: [] });
-  expect(state.schedule).not.toHaveBeenCalled();
 });
 
 it("keeps local alerts on Android, which has no push credentials yet", async () => {
@@ -206,4 +208,33 @@ it("keeps local alerts on Android, which has no push credentials yet", async () 
   await render();
   expect(state.command).not.toHaveBeenCalled();
   expect(state.schedule).toHaveBeenCalledOnce();
+});
+
+it("retries a push token that failed to come, and posts its own alerts meanwhile", async () => {
+  vi.useFakeTimers();
+  try {
+    state.os = "ios";
+    state.push = true;
+    state.settings = { status: "granted", canAskAgain: true, granted: true };
+    let offline = true;
+    state.pushToken.mockImplementation(async () => {
+      if (offline) throw new Error("offline");
+      return { data: "ExponentPushToken[phone]" };
+    });
+    state.sessions = [{ id: "session", projectId: "project", busy: true, waiting: null }];
+    await render();
+    expect(state.command).not.toHaveBeenCalled();
+    state.appState = "background";
+    state.sessions = [{ ...state.sessions[0], busy: false }];
+    await render();
+    expect(state.schedule).toHaveBeenCalledOnce();
+    offline = false;
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(state.command).toHaveBeenCalledWith("device.push", {
+      token: "ExponentPushToken[phone]",
+      disabled: [],
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 });
