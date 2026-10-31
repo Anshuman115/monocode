@@ -148,41 +148,10 @@ private final class TranscriptDecorationCanvas: UIView {
       for index in 0..<quoteDepth {
         context.fill(
           CGRect(
-            x: (model.folded ? 42 : 20) + CGFloat(p["listDepth"] as? Int ?? 0) * 22 + CGFloat(index)
+            x: model.contentBase + CGFloat(p["listDepth"] as? Int ?? 0) * 22 + CGFloat(index)
               * 14,
             y: top, width: 2, height: model.height - top - (p["bottom"] as? CGFloat ?? 0)))
       }
-    }
-    if model.tailRadius > 0 {
-      let r = model.tailRadius
-      let size = r * 4 / 3
-      context.saveGState()
-      context.translateBy(x: model.cardRect.maxX, y: model.cardRect.maxY + r / 3 - size)
-      context.scaleBy(x: -size / 24, y: size / 24)
-      let path = UIBezierPath()
-      path.move(to: CGPoint(x: 9, y: 15.6))
-      path.addCurve(
-        to: CGPoint(x: 9.05, y: 18.6), controlPoint1: CGPoint(x: 9.05, y: 16.3),
-        controlPoint2: CGPoint(x: 9.05, y: 17.4))
-      path.addCurve(
-        to: CGPoint(x: 7.4, y: 22.6), controlPoint1: CGPoint(x: 9.05, y: 20),
-        controlPoint2: CGPoint(x: 8.3, y: 21.4))
-      path.addQuadCurve(to: CGPoint(x: 7.8, y: 23.5), controlPoint: CGPoint(x: 6.9, y: 23.4))
-      path.addCurve(
-        to: CGPoint(x: 13.2, y: 21.5), controlPoint1: CGPoint(x: 9.6, y: 23.3),
-        controlPoint2: CGPoint(x: 11.6, y: 22.3))
-      path.addCurve(
-        to: CGPoint(x: 17.2, y: 18.8), controlPoint1: CGPoint(x: 15, y: 20.5),
-        controlPoint2: CGPoint(x: 16.2, y: 19.6))
-      path.addCurve(
-        to: CGPoint(x: 19.6, y: 18), controlPoint1: CGPoint(x: 17.9, y: 18.25),
-        controlPoint2: CGPoint(x: 18.6, y: 18))
-      path.addLine(to: CGPoint(x: 18, y: 18))
-      path.addQuadCurve(to: CGPoint(x: 9, y: 15.6), controlPoint: CGPoint(x: 13.1, y: 18))
-      path.close()
-      UIColor.transcriptHex(model.style.bubble).setFill()
-      path.fill()
-      context.restoreGState()
     }
     if model.kind == "table" {
       let rect = model.horizontalRect
@@ -238,15 +207,6 @@ private final class TranscriptDecorationCanvas: UIView {
       (image?.renderingMode == .alwaysTemplate
         ? image?.withTintColor(mark.tint, renderingMode: .alwaysOriginal) : image)?.draw(
           in: mark.rect)
-    }
-    if let rect = model.mascotRect {
-      for pixel in model.style.agentRects {
-        UIColor.transcriptHex(pixel.fill).setFill()
-        context.fill(
-          CGRect(
-            x: rect.minX + pixel.x * rect.width / 16, y: rect.minY + pixel.y * rect.height / 16,
-            width: pixel.w * rect.width / 16, height: pixel.h * rect.height / 16))
-      }
     }
   }
 }

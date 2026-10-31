@@ -1,14 +1,6 @@
 import CoreText
 import UIKit
 
-struct TranscriptPixel: Equatable, Decodable {
-  let x: CGFloat
-  let y: CGFloat
-  let w: CGFloat
-  let h: CGFloat
-  let fill: String
-}
-
 /// The same provider, Hugeicons and Material file artwork as the React UI.
 /// Decoded once on the layout worker; visible views only draw cached images.
 final class TranscriptArtwork {
@@ -34,34 +26,6 @@ final class TranscriptArtwork {
     monochrome = Set(json["monochromeProviders"] as? [String] ?? [])
     cache.totalCostLimit = 3 * 1024 * 1024
   }
-  /// The Mono chat's break between two replies, as the desktop draws it
-  /// (crates/monocode-gpui/src/transcript/mono_divider.rs): six sharp teeth of
-  /// 3pt cells, thinned by the charts' 4x4 Bayer pattern at 75%. A template,
-  /// tinted by its row.
-  lazy var monoDivider: UIImage = {
-    let cell: CGFloat = 3
-    let size = CGSize(width: 144, height: 18)
-    let bayer: [CGFloat] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
-    let image = UIGraphicsImageRenderer(size: size).image { context in
-      UIColor.black.setFill()
-      for row in 0..<Int(size.height / cell) {
-        for col in 0..<Int(size.width / cell) {
-          let x = (CGFloat(col) + 0.5) * cell
-          let y = (CGFloat(row) + 0.5) * cell
-          let phase = (x / (cell * 8)).truncatingRemainder(dividingBy: 1)
-          let tooth = abs(phase * 2 - 1)
-          let line = cell + tooth * (size.height - cell * 2)
-          let inked = 0.75 > (bayer[(row & 3) * 4 + (col & 3)] + 0.5) / 16
-          if abs(y - line) <= cell && inked {
-            context.fill(
-              CGRect(x: CGFloat(col) * cell, y: CGFloat(row) * cell, width: cell, height: cell))
-          }
-        }
-      }
-    }
-    return image.withRenderingMode(.alwaysTemplate)
-  }()
-
   func image(_ name: String) -> UIImage? {
     let key = name as NSString
     if let image = cache.object(forKey: key) { return image }

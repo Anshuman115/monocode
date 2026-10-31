@@ -24,7 +24,6 @@ import { withTiming } from "react-native-reanimated";
 
 import { useConnection } from "@/features/connection/ConnectionProvider";
 import { hasNativeTranscript } from "@/features/connection/nativeLink";
-import { pixelLayers } from "@/features/mascots/pixelMascots";
 import { useCollapsedToolCalls } from "@/features/settings/toolCalls";
 import {
   useNativeTranscript,
@@ -73,7 +72,7 @@ type Props = ViewProps & {
   keyboardOffset: number;
   onStatus: (event: NativeSyntheticEvent<NativeTranscriptStatus>) => void;
   onAction: (event: NativeSyntheticEvent<Action>) => void;
-  onScrollState: (event: NativeSyntheticEvent<{ away: boolean }>) => void;
+  onScrollState: (event: NativeSyntheticEvent<{ away: boolean; log?: string }>) => void;
 };
 const NativeView = hasNativeTranscript
   ? requireNativeView<Props>("MonocodeLink")
@@ -135,12 +134,6 @@ export function NativeTranscript({
         error: colors.deletions,
         rail: colors.rail,
         agent: agent?.name ?? "",
-        agentRects: agent
-          ? (() => {
-              const layers = pixelLayers(agent.mascot, agent.color);
-              return [...layers.body, ...layers.open];
-            })()
-          : [],
         scale: fontScale,
         pixelRatio,
         collapsed,
@@ -200,7 +193,12 @@ export function NativeTranscript({
     };
   }, [jump, focused]);
   const scrollState = useCallback(
-    ({ nativeEvent }: NativeSyntheticEvent<{ away: boolean }>) => {
+    ({ nativeEvent }: NativeSyntheticEvent<{ away: boolean; log?: string }>) => {
+      // Dev builds trace a Mono chat's scroll around a send.
+      if (nativeEvent.log != null) {
+        if (__DEV__) console.log("[transcript]", nativeEvent.log);
+        return;
+      }
       if (focused)
         jump?.visible.set(
           withTiming(nativeEvent.away ? 1 : 0, { duration: 160 }),

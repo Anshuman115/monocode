@@ -234,8 +234,9 @@ export function Composer({
     }
   };
 
-  // Clears, lets go of the keyboard and folds back to the pill at once; the
-  // draft comes back if the desktop never takes it.
+  // Clears and folds back to the pill at once; the draft comes back if the
+  // desktop never takes it. A Mono's chat keeps the keyboard up for the next
+  // message, as a messaging app; a session's card lets go of it.
   const send = async () => {
     // The draft stays put until the desktop can take it.
     if (!canSend || blocked) return;
@@ -244,9 +245,11 @@ export function Composer({
     setSending(true);
     setText("");
     setAttachments([]);
-    focused.set(false);
     morph(false);
-    input.current?.blur();
+    if (!compact) {
+      focused.set(false);
+      input.current?.blur();
+    }
     try {
       await onSend(message, files);
     } catch (reason) {

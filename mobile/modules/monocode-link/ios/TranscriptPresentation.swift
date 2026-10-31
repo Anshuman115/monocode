@@ -18,7 +18,6 @@ struct TranscriptStyle: Equatable {
   var error = "#f87171"
   var rail = "#2e2e2e"
   var agent = ""
-  var agentRects: [TranscriptPixel] = []
   /// CoreText rounds fixed line heights up to whole points, so a fractional
   /// Dynamic Type scale must be rounded the same way before measuring.
   func line(_ value: CGFloat) -> CGFloat { ceil(value * scale - 0.001) }
@@ -201,13 +200,16 @@ final class TranscriptRowModel {
   private(set) var marks: [TranscriptMark] = []
   private(set) var hits: [TranscriptHit] = []
   private(set) var liveLabel: TranscriptLiveLabel?
-  private(set) var mascotRect: CGRect?
   private(set) var userExpandable = false
   private(set) var userExpanded = false
   private(set) var height: CGFloat = 0
   private(set) var cardRect = CGRect.zero
   private(set) var bubbleRadius: CGFloat = 0
-  private(set) var tailRadius: CGFloat = 0
+  /// A Mono chat's time for the row, and the height it centres on, shown
+  /// only while the transcript is slid aside, as in Messages.
+  private(set) var time: (text: String, y: CGFloat)?
+  /// Where a markdown row's text starts: inside its bubble in a Mono's chat.
+  private(set) var contentBase: CGFloat = 20
   private(set) var horizontalRect = CGRect.zero
   private(set) var horizontalWidth: CGFloat = 0
   var group: String? { presentation["group"] as? String }
@@ -256,8 +258,14 @@ final class TranscriptRowModel {
     let s = style.scale
     let runs = row["runs"] as? [[String: Any]] ?? []
     let plain = runs.compactMap { $0["text"] as? String }.joined()
-    let top = presentation["top"] as? CGFloat ?? 0
-    let bottom = presentation["bottom"] as? CGFloat ?? 0
+    // A Mono's reply sits in a bubble, as a chat app's: one surface across
+    // its rows, rounded at the reply's first and last, the text inset in it.
+    // Its bubbles sit close, as a messaging app's.
+    let bubbled = !style.agent.isEmpty && !folded && presentation["reply"] as? Bool == true
+    let replyFirst = presentation["replyFirst"] as? Bool == true
+    let replyLast = presentation["replyLast"] as? Bool == true
+    let top: CGFloat = bubbled && replyFirst ? 3 : presentation["top"] as? CGFloat ?? 0
+    let bottom: CGFloat = bubbled && replyLast ? 3 : presentation["bottom"] as? CGFloat ?? 0
     let base: CGFloat = folded ? 42 : 20
     let available = max(1, style.width - (folded ? 42 : 20) - 20)
     let muted = presentation["muted"] as? Bool == true
@@ -320,7 +328,6 @@ final class TranscriptRowModel {
         surfaces.append(
           TranscriptSurface(
             rect: cardRect, color: UIColor.transcriptHex(style.bubble), radius: bubbleRadius))
-        if !style.agent.isEmpty && !compact { tailRadius = bubbleRadius == 21 ? 18 : 14 }
       }
       if let reaction {
         // As a Messages tapback: the emoji in a round bubble over the top-left
@@ -346,7 +353,10 @@ final class TranscriptRowModel {
           value, x: badge.midX - measured.width / 2, y: badge.midY - measured.height / 2,
           width: measured.width, height: measured.height)
       }
-      if !compact && !emoji, let at = action["at"] as? Double {
+      if !style.agent.isEmpty, let at = action["at"] as? Double {
+        time = (TranscriptTypography.clock(at), cardRect.midY)
+      }
+      if style.agent.isEmpty && !compact && !emoji, let at = action["at"] as? Double {
         let time = string(
           TranscriptTypography.clock(at), size: 12, line: 15,
           color: contentColor.withAlphaComponent(0.4))
@@ -387,41 +397,15 @@ final class TranscriptRowModel {
     case "fold":
       let live = action["live"] as? Bool == true
       if !style.agent.isEmpty {
-        let name = live ? style.agent : action["label"] as? String ?? style.agent
-        let value = string(
-          name, size: 15, line: 20, color: contentColor.withAlphaComponent(0.85), medium: true)
-        // The Mono's badge over its reply: its mascot and name on a glass
-        // capsule, as the app's own buttons.
-        let mascot: CGFloat = 20
-        let pad: CGFloat = 10
-        let size = TranscriptTypography.measure(
-          value, width: max(1, (live ? available * 0.45 : available) - mascot - pad * 3),
-          line: style.line(20))
-        let rect = CGRect(
-          x: 20, y: 4, width: pad + mascot + 8 + size.width + pad + 4,
-          height: max(34, size.height + 14))
-        surfaces.append(
-          TranscriptSurface(
-            rect: rect, color: contentColor.withAlphaComponent(0.07), radius: rect.height / 2,
-            glass: true))
-        mascotRect = CGRect(
-          x: rect.minX + pad, y: rect.midY - mascot / 2, width: mascot, height: mascot)
-        let textY = rect.midY - size.height / 2
-        add(
-          value, x: rect.minX + pad + mascot + 8, y: textY, width: size.width,
-          height: size.height, lines: 1)
-        if live {
-          add(
-            string("·", size: 14, line: 20, color: contentColor.withAlphaComponent(0.25)),
-            x: rect.maxX + 6, y: rect.midY - style.line(20) / 2, width: 5, height: style.line(20))
+        // A Mono's replies carry no badge; only its live status shows, as a
+        // messaging app's typing line, until the reply comes in under it.
+        if live && presentation["alone"] as? Bool != false {
           liveLabel = TranscriptLiveLabel(
-            rect: CGRect(
-              x: rect.maxX + 17, y: rect.midY - style.line(20) / 2,
-              width: max(1, style.width - rect.maxX - 37), height: style.line(20)),
+            rect: CGRect(x: 20, y: 4, width: available, height: style.line(20)),
             text: action["label"] as? String ?? "Thinking…", font: .systemFont(ofSize: 14 * s),
             color: contentColor.withAlphaComponent(0.5), shimmer: true, duration: 1.6)
+          height = 8 + style.line(20)
         }
-        height = rect.maxY + 4
       } else {
         var x: CGFloat = 20
         if action["open"] as? Bool == true {
@@ -514,17 +498,8 @@ final class TranscriptRowModel {
           rect: rect, action: ["type": "error", "notice": action], label: title + ". View details"))
       height = h + 16
     case "divider":
-      // Only a Mono's chat breaks its replies; elsewhere the row takes no room.
-      if style.agent.isEmpty {
-        height = 0
-      } else {
-        marks.append(
-          TranscriptMark(
-            rect: CGRect(x: base, y: 4, width: 144, height: 18),
-            image: TranscriptArtwork.shared.monoDivider,
-            tint: contentColor.withAlphaComponent(0.4)))
-        height = 4 + 18
-      }
+      // A Mono's replies are bubbles of their own, so nothing breaks them.
+      height = 0
     case "choice":
       // A suggested reply, as the desktop's: a ring, checked once it is the
       // reply sent; the others step back. Only an unanswered one takes a tap.
@@ -651,6 +626,8 @@ final class TranscriptRowModel {
       hits.append(TranscriptHit(rect: rect, action: action, label: "Open session " + plain))
       height = rect.maxY + bottom + 4
     case "footer":
+      // A Mono's chat has no copy button or time under its replies.
+      if !style.agent.isEmpty { break }
       let metrics = action["metrics"] as? [String: Any] ?? [:]
       let hasMetrics =
         metrics["cacheHitPercent"] is NSNumber
@@ -694,9 +671,13 @@ final class TranscriptRowModel {
         marker.map {
           max(14, TranscriptTypography.measure($0, width: available, line: style.line(24)).width)
         } ?? 14
-      let x = base + CGFloat(listDepth) * 22 + CGFloat(quoteDepth) * 14 + markerWidth - 14
-      let width = max(1, style.width - x - 20)
-      var y = top + (presentation["gap"] as? CGFloat ?? 0)
+      let bubbleWidth = max(1, style.width - 20 - 56)
+      let pad: (x: CGFloat, y: CGFloat) = (16, 10)
+      contentBase = bubbled ? base + pad.x : base
+      let x = contentBase + CGFloat(listDepth) * 22 + CGFloat(quoteDepth) * 14 + markerWidth - 14
+      let width = max(1, style.width - x - (bubbled ? 56 + pad.x : 20))
+      var y = top + (presentation["gap"] as? CGFloat ?? 0) + (bubbled && replyFirst ? pad.y : 0)
+      var hug: CGFloat?
       let first = isFirst
       let last = isLast
       if kind == "heading" { y += 4 }
@@ -754,6 +735,26 @@ final class TranscriptRowModel {
         }
         add(value, x: x, y: y, width: width, height: measured.height)
         height = y + measured.height + bottom
+        // A one-line-of-thought reply hugs its text.
+        if replyFirst && replyLast && marker == nil && quoteDepth == 0 {
+          hug = measured.width + pad.x * 2
+        }
+      }
+      if bubbled {
+        if replyLast { height += pad.y }
+        let from: CGFloat = replyFirst ? top : 0
+        let to = height - (replyLast ? bottom : 0)
+        var corners: CACornerMask = []
+        if replyFirst { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
+        if replyLast { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+        surfaces.insert(
+          TranscriptSurface(
+            rect: CGRect(x: base, y: from, width: min(bubbleWidth, hug ?? bubbleWidth), height: to - from),
+            color: UIColor.transcriptHex(style.surfaceRaised), radius: 20, corners: corners),
+          at: 0)
+        if replyLast, let at = presentation["at"] as? Double {
+          time = (TranscriptTypography.clock(at), max(from, to - pad.y - style.line(24) / 2))
+        }
       }
     }
     let result = NSMutableAttributedString(string: "")

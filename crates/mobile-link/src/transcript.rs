@@ -839,6 +839,14 @@ fn project(
                     Arc::make_mut(&mut rows[from]).presentation["top"] =
                         json!(if under_line { 4 } else { 12 });
                     Arc::make_mut(rows.last_mut().unwrap()).presentation["bottom"] = json!(4);
+                    // A Mono's chat draws the reply as one bubble across its rows.
+                    let last = rows.len() - 1;
+                    for (index, row) in rows[from..].iter_mut().enumerate() {
+                        let p = &mut Arc::make_mut(row).presentation;
+                        p["reply"] = json!(true);
+                        p["replyFirst"] = json!(index == 0);
+                        p["replyLast"] = json!(from + index == last);
+                    }
                 }
             }
             "notice" => {
@@ -970,6 +978,20 @@ fn project(
                 }
             }
             _ => {}
+        }
+    }
+    // Whether the turn has nothing under its status line yet; a Mono's chat
+    // shows that line only until its reply takes the place.
+    for index in 0..rows.len() {
+        if rows[index].kind == "fold" {
+            let alone = rows.len() == index + 1;
+            Arc::make_mut(&mut rows[index]).presentation["alone"] = json!(alone);
+        }
+    }
+    // When the reply landed, shown beside its last bubble on a slide aside.
+    if turn["completedAt"].is_number() {
+        if let Some(row) = rows.iter_mut().rev().find(|r| r.presentation["replyLast"] == true) {
+            Arc::make_mut(row).presentation["at"] = turn["completedAt"].clone();
         }
     }
     // A reply that was only a reaction has nothing of its own to copy or time.
