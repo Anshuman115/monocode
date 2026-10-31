@@ -98,6 +98,19 @@ private final class TranscriptDecorationCanvas: UIView {
     guard let model, let context = UIGraphicsGetCurrentContext() else { return }
     let p = model.presentation
     let rail = UIColor.transcriptHex(model.style.rail)
+    for paint in model.visualPaints {
+      context.addPath(paint.path)
+      if let width = paint.stroke {
+        context.setStrokeColor(paint.color.cgColor)
+        context.setLineWidth(width)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.strokePath()
+      } else {
+        context.setFillColor(paint.color.cgColor)
+        context.fillPath()
+      }
+    }
     if model.kind == "code" {
       var corners: UIRectCorner = []
       if model.isFirst { corners.formUnion([.topLeft, .topRight]) }

@@ -16,17 +16,18 @@ import { ProviderLogo } from "./ProviderLogo";
 
 /**
  * Opens a session a Mono started over its chat, as a sheet, as a file opens.
- * One in a project the phone isn't shown has nowhere to open.
+ * It may run in any of the desktop's projects, picked for the phone or not;
+ * only one the desktop no longer has can't open.
  */
 export function useOpenLaunchedSession() {
-  const { projects } = useWorkspace();
+  const { allProjects: projects } = useWorkspace();
   return useCallback(
     (projectId: string, sessionId: string, title?: string) => {
       const project = projectForRoute(projects, projectId);
       if (!project) {
         Alert.alert(
           "Open it on your desktop",
-          "This session runs in a project that isn't on your phone.",
+          "This session runs in a project the desktop no longer lists.",
         );
         return;
       }

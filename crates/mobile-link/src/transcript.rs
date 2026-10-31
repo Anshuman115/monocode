@@ -949,6 +949,14 @@ fn project(
                     rows.push(Arc::new(row));
                 }
             }
+            "visual" => {
+                // A chart or dashboard the agent drew, laid out natively from
+                // the tree the desktop rendered.
+                let mut row = Row::text(id, "visual", string(item, "title"));
+                row.action = item.clone();
+                row.presentation = json!({"top": 8, "bottom": 8});
+                rows.push(Arc::new(row));
+            }
             "document" => {
                 // A document the Mono wrote: a tap opens it in the reader.
                 let mut row = Row::text(id, "document", string(item, "title"));

@@ -4,13 +4,22 @@ import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { useConnection } from "@/features/connection/ConnectionProvider";
+import { VisualTree } from "@/features/visuals/VisualTree";
+import type { VisualNode } from "@/features/visuals/types";
 import { Markdown } from "@/features/sessions/Markdown";
 import { themedStyles, useColors } from "@/ui/theme";
 
 import { CodeHeaderTitle, HeaderBlur, HeaderButton } from "./codeScreen";
 import { FileMissing } from "./FileMissing";
 
-type MonoDocument = { title: string; kind: string; body: string };
+type MonoDocument = {
+  title: string;
+  kind: string;
+  body: string;
+  /** A visual's component tree, as the desktop renders it. */
+  tree?: VisualNode;
+  treeError?: string;
+};
 
 /**
  * A document a Mono wrote, read from the desktop as it opens and rendered as
@@ -67,8 +76,19 @@ export function DocumentScreen({
               }),
         }}
       />
-      {document && visual ? (
-        <Text style={styles.note}>Open this visual on your desktop to see it.</Text>
+      {document?.tree ? (
+        // The desktop's dithered visual, drawn here from its rendered tree.
+        <ScrollView
+          style={styles.root}
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={styles.preview}
+        >
+          <VisualTree node={document.tree} />
+        </ScrollView>
+      ) : document && visual ? (
+        <Text style={styles.note}>
+          {document.treeError ?? "Open this visual on your desktop to see it."}
+        </Text>
       ) : document ? (
         <ScrollView
           style={styles.root}

@@ -206,6 +206,8 @@ final class TranscriptRowModel {
   private(set) var hits: [TranscriptHit] = []
   private(set) var liveLabel: TranscriptLiveLabel?
   private(set) var mascotRect: CGRect?
+  /// A visual's dithered cells and lines, drawn by the row's canvas.
+  private(set) var visualPaints: [TranscriptVisualPaint] = []
   private(set) var userExpandable = false
   private(set) var userExpanded = false
   private(set) var height: CGFloat = 0
@@ -600,6 +602,31 @@ final class TranscriptRowModel {
           rect: card, color: contentColor.withAlphaComponent(0.03), radius: 20,
           border: UIColor.transcriptHex(style.stroke)),
         at: 0)
+      height = card.maxY + bottom
+    case "visual":
+      // A chart or dashboard the agent drew, in an outlined bubble, laid out
+      // natively from the tree the desktop rendered.
+      let pad: CGFloat = 16
+      let width = max(1, style.width - base - 20)
+      let inner = max(1, width - pad * 2)
+      var cursor = top + pad
+      let title = string(plain, size: 15, line: 20, color: contentColor, medium: true)
+      add(title, x: base + pad, y: cursor, width: inner, height: style.line(20), lines: 1)
+      cursor += style.line(20) + 12
+      if let tree = action["tree"] as? [String: Any] {
+        let layout = TranscriptVisualLayout(style: style)
+        cursor += layout.layout(tree, x: base + pad, y: cursor, width: inner)
+        for text in layout.texts {
+          add(
+            text.text, x: text.rect.minX, y: text.rect.minY, width: text.rect.width,
+            height: text.rect.height, lines: text.lines)
+        }
+        visualPaints = layout.paints
+      }
+      let card = CGRect(x: base, y: top, width: width, height: cursor + pad - top)
+      surfaces.append(
+        TranscriptSurface(
+          rect: card, color: .clear, radius: 20, border: contentColor.withAlphaComponent(0.16)))
       height = card.maxY + bottom
     case "document":
       // ArtifactCard: the document's mark and title; a tap opens the reader.

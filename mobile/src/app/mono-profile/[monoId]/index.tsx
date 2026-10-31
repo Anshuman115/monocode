@@ -5,12 +5,13 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { PixelMascot } from "@/features/mascots/PixelMascot";
 import { ProjectMascot } from "@/features/mascots/ProjectMascot";
 import { useMonoModel } from "@/features/models/useMonoModel";
+import { ContributionGraph } from "@/features/visuals/charts";
 import { ProviderLogo } from "@/features/sessions/ProviderLogo";
 import { SettingsPage, SettingsRow } from "@/features/settings/SettingsUI";
 import { useMonoProfile, type MonoProfile } from "@/features/workspace/monoProfile";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 import { Icon } from "@/ui/Icon";
-import { radii, themedStyles, useColors, withAlpha } from "@/ui/theme";
+import { radii, themedStyles, useColors } from "@/ui/theme";
 
 // A Mono's profile, as the desktop's details sidebar has it without its
 // Changes: who it is and the model it runs on, with Edit under, then its day,
@@ -122,7 +123,7 @@ function Overview({ profile, name, monoId }: { profile: MonoProfile; name: strin
             <Text style={[styles.caption, styles.streak]}>{contributions.streak}-day streak</Text>
           ) : null}
         </View>
-        <Graph levels={contributions.levels} />
+        <ContributionGraph levels={contributions.levels} />
       </View>
 
       <Text style={styles.heading}>Up next</Text>
@@ -193,9 +194,6 @@ function Overview({ profile, name, monoId }: { profile: MonoProfile; name: strin
                 />
                 <View style={styles.listText}>
                   <Text style={styles.listTitle} numberOfLines={1}>{document.title}</Text>
-                  {document.summary ? (
-                    <Text style={styles.listDetail} numberOfLines={2}>{document.summary}</Text>
-                  ) : null}
                 </View>
                 <Text style={styles.listDetail}>{ago(document.updatedAt)}</Text>
               </Pressable>
@@ -215,35 +213,6 @@ function Tile({ value, label }: { value: string | React.ReactElement; label: str
     <View style={styles.tile}>
       {typeof value === "string" ? <Text style={styles.figure}>{value}</Text> : value}
       <Text style={styles.caption}>{label}</Text>
-    </View>
-  );
-}
-
-/** The desktop's contributions calendar: a column per week from a Sunday,
- *  each day a square in the accent, stronger the busier it was. */
-function Graph({ levels }: { levels: number[] }) {
-  const styles = useStyles();
-  const colors = useColors();
-  const weeks: number[][] = [];
-  for (let at = 0; at < levels.length; at += 7) weeks.push(levels.slice(at, at + 7));
-  return (
-    <View style={styles.graph}>
-      {weeks.map((week, column) => (
-        <View key={column} style={styles.week}>
-          {week.map((level, row) => (
-            <View
-              key={row}
-              style={[
-                styles.day,
-                {
-                  backgroundColor:
-                    level === 0 ? withAlpha(colors.content, 0.06) : withAlpha(colors.accent, 0.25 + level * 0.1875),
-                },
-              ]}
-            />
-          ))}
-        </View>
-      ))}
     </View>
   );
 }
@@ -398,18 +367,6 @@ const useStyles = themedStyles((colors) => ({
   },
   streak: {
     marginLeft: "auto",
-  },
-  graph: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  week: {
-    gap: 3,
-  },
-  day: {
-    width: 9,
-    height: 9,
-    borderRadius: 2,
   },
   listRow: {
     flexDirection: "row",

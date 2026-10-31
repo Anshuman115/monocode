@@ -16,7 +16,9 @@ export default function SessionSheetRoute() {
     /** The card's title, for a session the phone's list leaves out. */
     title?: string;
   }>();
-  const project = projectForRoute(useWorkspace().projects, projectId);
+  // A Mono can start one in any of the desktop's projects, picked for the
+  // phone or not.
+  const project = projectForRoute(useWorkspace().allProjects, projectId);
   const headerHeight = useNativeHeaderHeight();
   if (!project || !sessionId) return <Redirect href="/" />;
   return (

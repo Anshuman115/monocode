@@ -172,6 +172,15 @@ impl Snapshot<'_> {
 }
 
 /// `encodeURIComponent`, as paired phones already know projects by it.
+/// A visual document's component tree, as its first render draws it.
+fn visual_tree(body: &str) -> Result<Value, String> {
+    use monocode_core::visual::{VisualDocument, VisualRuntime};
+    let visual: VisualDocument = serde_json::from_str(body).map_err(|e| e.to_string())?;
+    visual.validate()?;
+    let tree = VisualRuntime::new(&visual.source)?.render()?;
+    serde_json::to_value(tree).map_err(|e| e.to_string())
+}
+
 fn project_id(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for byte in path.bytes() {
@@ -1821,7 +1830,18 @@ impl Shell {
         let Some(document) = listed else {
             return request.reply(Err("This document is no longer available".into()));
         };
-        let reply = |document: monocode_core::mono::Document| json!({"title": document.title, "kind": document.kind, "body": document.body});
+        // A visual runs here and goes as its rendered tree, which the phone
+        // draws with the same dither; its source stays on the desktop.
+        let reply = |document: monocode_core::mono::Document| {
+            let mut value = json!({"title": document.title, "kind": document.kind, "body": document.body});
+            if document.kind == "visual" {
+                match visual_tree(&document.body) {
+                    Ok(tree) => value["tree"] = tree,
+                    Err(error) => value["treeError"] = json!(error),
+                }
+            }
+            value
+        };
         if let Some(document) = document.filter(|d| !d.body.is_empty()) {
             return request.reply(Ok(reply(document)));
         }

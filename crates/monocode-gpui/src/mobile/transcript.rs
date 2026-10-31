@@ -324,9 +324,17 @@ fn notice(rows: &[Row], at: usize, end: usize) -> Option<Value> {
             .filter(|note| !note.text.trim().is_empty())
             .map(|note| json!({"type": "notice", "id": id, "text": note.text})),
         "visual" => {
-            let title = serde_json::from_str::<monocode_core::visual::VisualDocument>(&text)
+            let document = serde_json::from_str::<monocode_core::visual::VisualDocument>(&text)
                 .ok()
-                .filter(|document| document.validate().is_ok())
+                .filter(|document| document.validate().is_ok());
+            // Drawn inline on the phone from its first render; its source and
+            // its handlers stay here.
+            if let Some(document) = &document
+                && let Some(tree) = visual_tree(&document.source)
+            {
+                return Some(json!({"type": "visual", "id": id, "title": document.title, "tree": tree}));
+            }
+            let title = document
                 .map(|document| document.title)
                 .unwrap_or_else(|| "Interactive visual".into());
             Some(
@@ -338,6 +346,31 @@ fn notice(rows: &[Row], at: usize, end: usize) -> Option<Value> {
         }
         _ => None,
     }
+}
+
+/// A visual's first render, kept by its source: the phone's transcript is
+/// rebuilt on every push while a turn streams, and a render runs script.
+fn visual_tree(source: &str) -> Option<Value> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::sync::{LazyLock, Mutex};
+    static RENDERED: LazyLock<Mutex<HashMap<u64, Option<Value>>>> = LazyLock::new(Default::default);
+    let mut hasher = DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(tree) = RENDERED.lock().ok()?.get(&key) {
+        return tree.clone();
+    }
+    let tree = monocode_core::visual::VisualRuntime::new(source)
+        .and_then(|mut runtime| runtime.render())
+        .ok()
+        .and_then(|tree| serde_json::to_value(tree).ok());
+    let mut rendered = RENDERED.lock().ok()?;
+    if rendered.len() > 64 {
+        rendered.clear();
+    }
+    rendered.insert(key, tree.clone());
+    tree
 }
 
 fn tool_label(call: &ToolCall, cwd: &str) -> String {
@@ -911,16 +944,15 @@ mod tests {
         ];
         let info = HashMap::new();
         let turns = all(&source(&rows, &info, false));
-        let notice = turns[0]["items"]
+        // Drawn inline from its rendered tree; the source stays on the desktop.
+        let visual = turns[0]["items"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|item| item["type"] == "notice")
+            .find(|item| item["type"] == "visual")
             .unwrap();
-        assert_eq!(
-            notice["text"],
-            "Capacity explorer · Open on desktop to interact"
-        );
+        assert_eq!(visual["title"], "Capacity explorer");
+        assert_eq!(visual["tree"]["kind"], "text");
         assert!(!turns[0].to_string().contains("visual.text"));
     }
     fn types(turn: &Value) -> Vec<&str> {
