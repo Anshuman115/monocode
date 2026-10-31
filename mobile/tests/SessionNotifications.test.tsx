@@ -63,9 +63,6 @@ vi.mock("@/features/connection/ConnectionProvider", () => ({
     command: state.command,
   }),
 }));
-vi.mock("@/features/workspace/WorkspaceProvider", () => ({
-  useWorkspace: () => ({ projects: [{ id: "project" }] }),
-}));
 vi.mock("@/features/settings/notifications", () => ({
   NOTIFICATION_CATEGORIES: [{ id: "agentFinished" }, { id: "monoMessages" }],
   useNotificationPreferences: () => ({ enabled: () => state.enabled }),

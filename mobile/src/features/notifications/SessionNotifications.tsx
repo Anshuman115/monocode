@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 
 import { useConnection } from "@/features/connection/ConnectionProvider";
-import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 import {
   NOTIFICATION_CATEGORIES,
   useNotificationPreferences,
@@ -71,12 +70,8 @@ export function SessionNotifications() {
   // system settings, where notifications may have been turned on or off.
   const [permissionCheck, setPermissionCheck] = useState(0);
   const command = useRef(connection.command);
-  // The projects this phone shows, for where a tap can open a session.
-  const { projects: shown } = useWorkspace();
-  const shownIds = useRef(new Set<string>());
   useEffect(() => {
     command.current = connection.command;
-    shownIds.current = new Set(shown.map((project) => project.id));
   });
   // Whether the desktop holds this phone's token; until it does, the phone
   // goes on posting its own alerts.
@@ -214,13 +209,16 @@ export function SessionNotifications() {
     const data = response.notification.request.content.data as
       Target | undefined;
     void Notifications.clearLastNotificationResponseAsync();
-    // A Mono's habit run names both: its session if this phone shows the
-    // project, else the Mono's chat.
-    const session =
-      !!data?.projectId &&
-      !!data.sessionId &&
-      (!data.monoId || shownIds.current.has(data.projectId));
-    if (data?.monoId && !session) {
+    // A Mono's habit run names its session too: that opens as the sheet a
+    // Mono's sessions do, in whichever project, picked for the phone or not.
+    if (data?.monoId && data.projectId && data.sessionId) {
+      router.push({
+        pathname: "/session",
+        params: { projectId: data.projectId, sessionId: data.sessionId },
+      });
+      return;
+    }
+    if (data?.monoId) {
       router.push({ pathname: "/mono/[monoId]", params: { monoId: data.monoId } });
       return;
     }
