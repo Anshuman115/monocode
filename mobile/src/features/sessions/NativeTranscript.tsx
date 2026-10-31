@@ -1,6 +1,7 @@
 import { requireNativeView } from "expo";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
+import Storage from "expo-sqlite/kv-store";
 import { useIsFocused } from "expo-router";
 import {
   use,
@@ -36,17 +37,22 @@ import { usePushStarted } from "@/ui/usePushedIn";
 
 import { EmptySession } from "./EmptySession";
 import { useOpenLaunchedSession } from "./LaunchedSessionCard";
-import { openDocument, useMonoChoose } from "./MonoCards";
+import { MonoMessageActions, openDocument, useMonoChoose } from "./MonoCards";
 import { FileOpener } from "./Markdown";
 import { SessionErrorSheet } from "./SessionErrorSheet";
 import { useJumpToEnd, useSessionLayout } from "./SessionScreen";
 import type { TranscriptAgent } from "./TranscriptTurn";
+import { MessageActionsSheet, type HeldMessage } from "./MessageActionsSheet";
 import { TurnMetricsSheet } from "./TurnMetricsSheet";
 import { useReportSessionError, type SessionErrorNotice } from "./sessionError";
 
-type Handle = { scrollToEnd: () => Promise<void> };
+type Handle = { scrollToEnd: () => Promise<void>; selectText: (text: string) => Promise<void> };
 type Action = {
-  type: "copy" | "metrics" | "error" | "link" | "session" | "choice" | "document";
+  type: "copy" | "metrics" | "error" | "link" | "session" | "choice" | "document" | "message";
+  /** A long-pressed message in a Mono's chat: whose it is. */
+  role?: "user" | "agent";
+  /** The long-pressed message's first row. */
+  id?: string;
   url?: string;
   /** A session a Mono started, from its card. */
   sessionId?: string;
@@ -112,6 +118,9 @@ export function NativeTranscript({
   const [errorPresented, setErrorPresented] = useState(false);
   const [metrics, setMetrics] = useState<Action | null>(null);
   const [empty, setEmpty] = useState(false);
+  const [held, setHeld] = useState<HeldMessage | null>(null);
+  const [reactions, react] = useReactions(conversationId);
+  const messageActions = use(MonoMessageActions);
   const configuration = useMemo(
     () =>
       pairing
@@ -152,6 +161,7 @@ export function NativeTranscript({
         error: colors.deletions,
         rail: colors.rail,
         agent: agent?.name ?? "",
+        reactions,
         // The mascot drawn beside a working Mono's status.
         agentRects: agent
           ? (() => {
@@ -163,7 +173,7 @@ export function NativeTranscript({
         pixelRatio,
         collapsed,
       }),
-    [colors, scheme, ink, agent, openFile, fontScale, pixelRatio, collapsed],
+    [colors, scheme, ink, agent, reactions, openFile, fontScale, pixelRatio, collapsed],
   );
   const showError = useCallback((value: SessionErrorNotice) => {
     Keyboard.dismiss();
@@ -192,6 +202,8 @@ export function NativeTranscript({
         void Clipboard.setStringAsync(action.copyText)
           .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
           .catch(() => {});
+      } else if (action.type === "message" && action.text) {
+        setHeld({ text: action.text, role: action.role ?? "agent", id: action.id ?? "" });
       } else if (action.type === "choice" && action.text) {
         choose?.(action.text);
       } else if (action.type === "document" && action.documentId) {
@@ -261,6 +273,21 @@ export function NativeTranscript({
           onDismiss={() => setErrorPresented(false)}
         />
       ) : null}
+      {agent ? (
+        <MessageActionsSheet
+          message={focused ? held : null}
+          onDismiss={() => setHeld(null)}
+          onReply={(message) => messageActions?.reply(message.text)}
+          onMarkUnread={messageActions?.markUnread}
+          onCopy={(message) =>
+            void Clipboard.setStringAsync(message.text)
+              .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
+              .catch(() => {})
+          }
+          onSelect={(message) => void view.current?.selectText(message.text)}
+          onReact={(message, emoji) => react(message.id, emoji)}
+        />
+      ) : null}
       {metrics?.metrics ? (
         <TurnMetricsSheet
           isPresented={focused}
@@ -274,3 +301,32 @@ export function NativeTranscript({
   );
 }
 const styles = StyleSheet.create({ fill: { flex: 1 } });
+
+/**
+ * Reactions the user put on a Mono's replies, by the reply's first row, kept
+ * on this phone only: the Mono doesn't see them. Picking the same one again
+ * takes it off.
+ */
+function useReactions(conversationId: string) {
+  const key = `monocode.reactions.${conversationId}`;
+  const [reactions, setReactions] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(Storage.getItemSync(key) ?? "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const react = useCallback(
+    (id: string, emoji: string) => {
+      if (!id) return;
+      setReactions((current) => {
+        const { [id]: previous, ...rest } = current;
+        const next = previous === emoji ? rest : { ...rest, [id]: emoji };
+        void Storage.setItem(key, JSON.stringify(next));
+        return next;
+      });
+    },
+    [key],
+  );
+  return [reactions, react] as const;
+}

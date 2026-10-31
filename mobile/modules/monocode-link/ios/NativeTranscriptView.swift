@@ -62,6 +62,8 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
   private static let revealWidth: CGFloat = 64
   private let slide = UIPanGestureRecognizer()
   private var times: [String: UILabel] = [:]
+  /// The row last long-pressed, its kind and ID, until its text comes back.
+  private var held: (kind: String, id: String)?
   #if DEBUG
     /// When the last message was sent, for the dev-only scroll trace.
     private var traceSent: CFTimeInterval = 0
@@ -234,6 +236,7 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
     style.fileLinks = input["fileLinks"] as? Bool ?? false
     style.stroke = input["stroke"] as? String ?? style.stroke
     style.surfaceRaised = input["surfaceRaised"] as? String ?? style.surfaceRaised
+    style.reactions = input["reactions"] as? [String: String] ?? [:]
     if let rects = input["agentRects"],
       let data = try? JSONSerialization.data(withJSONObject: rects)
     {
@@ -776,7 +779,16 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
           self?.onAction(action)
         }
       }
-      row.onSelection = { [weak self] id in self?.session?.command(["type": "selection", "id": id])
+      row.onSelection = { [weak self] id in
+        guard let self else { return }
+        // A reply over several rows answers to its first, where a reaction sits.
+        let rows = self.frameData?.rows ?? []
+        var at = rows.firstIndex { $0.id == id }
+        while let index = at, index > 0, rows[index].presentation["reply"] as? Bool == true,
+          rows[index].presentation["replyFirst"] as? Bool != true
+        { at = index - 1 }
+        self.held = at.map { (rows[$0].kind, rows[$0].id) }
+        self.session?.command(["type": "selection", "id": id])
       }
     }
     var held: [String: TranscriptRowView] = [:]
@@ -861,7 +873,24 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       if self.following || atEnd { self.scroll.contentOffset.y = self.targetOffset() }
     }
   }
+  /// A long-pressed message's text: a Mono's chat offers what to do with it
+  /// in a sheet, as Messages does; elsewhere it opens to be selected.
   private func select(_ text: String) {
+    guard !text.isEmpty, active else { return }
+    let kind = held
+    held = nil
+    if !style.agent.isEmpty {
+      UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+      onAction([
+        "type": "message", "text": text, "role": kind?.kind == "user" ? "user" : "agent",
+        "id": kind?.id ?? "",
+      ])
+      return
+    }
+    selectText(text)
+  }
+  /// The text in a sheet to select from.
+  func selectText(_ text: String) {
     guard !text.isEmpty, active else { return }
     var responder: UIResponder? = self
     while let current = responder, !(current is UIViewController) { responder = current.next }

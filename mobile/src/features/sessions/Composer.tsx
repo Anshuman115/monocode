@@ -49,6 +49,8 @@ const TOP_BARE = 12;
 /** The attachments' strip, under the context row as on the desktop. */
 const THUMB = 48;
 const STRIP = THUMB + 10;
+/** The message being replied to, as an outlined pill above the field. */
+const REPLY_ROW = 44;
 const BOTTOM_ROW = BUTTON + EDGE * 2;
 const INPUT_MIN = 64;
 /** A compact field's least height once it has its own row: two lines. */
@@ -84,6 +86,8 @@ export function Composer({
   workspace,
   notice,
   compact = false,
+  reply,
+  onClearReply,
 }: {
   /** Where this runs: the project, or the mono. */
   context: string;
@@ -107,6 +111,9 @@ export function Composer({
    * row above add and send.
    */
   compact?: boolean;
+  /** A Mono's message being replied to, shown over the field until sent or cleared. */
+  reply?: string | null;
+  onClearReply?: () => void;
 }) {
   const scheme = useScheme();
   const colors = useColors();
@@ -127,7 +134,7 @@ export function Composer({
   // A compact draft past the pill's one line, measured at the pill's width so
   // the wider row it moves to can't fold it straight back.
   const [wraps, setWraps] = useState(false);
-  const opens = compact ? wraps || attachments.length > 0 : hasText;
+  const opens = compact ? wraps || attachments.length > 0 || !!reply : hasText || !!reply;
 
   // Focus lives on the UI thread rather than in React state. The keyboard
   // starts moving as the field focuses, and a React commit in that same frame
@@ -143,17 +150,23 @@ export function Composer({
     else if (compact || !focused.get()) progress.set(withTiming(0, MORPH));
   }, [opens, compact, focused, progress]);
 
+  // Picking a message to reply to is ready to type the reply.
+  useEffect(() => {
+    if (reply) input.current?.focus();
+  }, [reply]);
+
   // Lets go of the keyboard as the field gives way.
   useEffect(() => {
     if (blocked) input.current?.blur();
   }, [blocked]);
 
   const strip = attachments.length > 0 ? STRIP : 0;
+  const replyRow = reply ? REPLY_ROW : 0;
   // A Mono's chat has no project or branch to name; the card closes up.
   const topRow = !compact && (workspace || context || branch) ? TOP_ROW : TOP_BARE;
   // A compact card keeps the pill's inset, so the pill's line measures true.
   const marginExpanded = compact ? MARGIN_COLLAPSED : MARGIN_EXPANDED;
-  const expandedHeight = topRow + strip + inputHeight + BOTTOM_ROW;
+  const expandedHeight = topRow + replyRow + strip + inputHeight + BOTTOM_ROW;
 
   const containerStyle = useAnimatedStyle(() => ({
     height: interpolate(progress.get(), [0, 1], [COLLAPSED, expandedHeight]),
@@ -165,7 +178,7 @@ export function Composer({
     return {
       left: interpolate(p, [0, 1], [EDGE + BUTTON + 8, 18]),
       right: interpolate(p, [0, 1], [EDGE + BUTTON + 8, 18]),
-      top: interpolate(p, [0, 1], [EDGE - 1, topRow + strip]),
+      top: interpolate(p, [0, 1], [EDGE - 1, topRow + replyRow + strip]),
       bottom: interpolate(p, [0, 1], [EDGE, BOTTOM_ROW]),
     };
   });
@@ -279,8 +292,24 @@ export function Composer({
         </Animated.View>
       ) : null}
 
+      {reply ? (
+        <Animated.View style={[styles.reply, { top: topRow - 2 }, expandedOnly]}>
+          <Text style={styles.replyText} numberOfLines={1}>
+            {reply.replace(/\s+/g, " ").trim()}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cancel reply"
+            hitSlop={10}
+            onPress={onClearReply}
+          >
+            <Icon name="close" size={16} color={colors.muted} />
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
       {attachments.length > 0 ? (
-        <Animated.View style={[styles.strip, { top: topRow }, expandedOnly]}>
+        <Animated.View style={[styles.strip, { top: topRow + replyRow }, expandedOnly]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -592,6 +621,26 @@ const useStyles = themedStyles((colors) => ({
   },
   inputSlot: {
     position: "absolute",
+  },
+  reply: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    height: REPLY_ROW - 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingLeft: 16,
+    paddingRight: 14,
+    borderRadius: (REPLY_ROW - 8) / 2,
+    borderCurve: "continuous",
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: colors.stroke,
+  },
+  replyText: {
+    flex: 1,
+    color: colors.muted,
+    fontSize: 15,
   },
   strip: {
     position: "absolute",

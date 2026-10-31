@@ -51,6 +51,12 @@ export function markMonoSeen(desktop: string | undefined, mono: Mono) {
   if (now !== null && seen[mono.id] !== now) save({ ...seen, [mono.id]: now });
 }
 
+/** Marks the mono's latest as not seen, so it reads as new until opened again. */
+export function markMonoUnread(desktop: string | undefined, mono: Mono) {
+  load(desktop);
+  if (seen[mono.id] !== "") save({ ...seen, [mono.id]: "" });
+}
+
 /**
  * The monos with a reply the user hasn't seen. One seen for the first time
  * counts as seen, so a new phone doesn't open to every mono marked; one still

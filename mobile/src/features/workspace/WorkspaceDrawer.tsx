@@ -1,5 +1,5 @@
 import { router, useGlobalSearchParams, usePathname } from "expo-router";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -52,7 +52,12 @@ export function WorkspaceDrawer() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const styles = useStyles();
-  const { projects, monos } = useWorkspace();
+  const { projects, monos: roster } = useWorkspace();
+  // The mono heard from last first, as a messaging app's chat list.
+  const monos = useMemo(
+    () => [...roster].sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0)),
+    [roster],
+  );
   const unread = useUnreadMonos(useConnection().pairing?.desktop.fingerprint, monos);
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ projectId?: string; monoId?: string }>();
@@ -324,6 +329,7 @@ const useStyles = themedStyles((colors) => ({
   rowLabel: {
     color: colors.content,
     fontSize: 17,
+    fontWeight: "600",
   },
   rowDetail: {
     color: colors.muted,

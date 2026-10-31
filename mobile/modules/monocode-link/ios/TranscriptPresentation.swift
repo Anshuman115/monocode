@@ -21,6 +21,8 @@ struct TranscriptStyle: Equatable {
   var rail = "#2e2e2e"
   var agent = ""
   var agentRects: [TranscriptPixel] = []
+  /// Reactions the user put on a Mono's replies, by the reply's first row.
+  var reactions: [String: String] = [:]
   /// CoreText rounds fixed line heights up to whole points, so a fractional
   /// Dynamic Type scale must be rounded the same way before measuring.
   func line(_ value: CGFloat) -> CGFloat { ceil(value * scale - 0.001) }
@@ -268,7 +270,12 @@ final class TranscriptRowModel {
     let bubbled = !style.agent.isEmpty && !folded && presentation["reply"] as? Bool == true
     let replyFirst = presentation["replyFirst"] as? Bool == true
     let replyLast = presentation["replyLast"] as? Bool == true
-    let top: CGFloat = bubbled && replyFirst ? 3 : presentation["top"] as? CGFloat ?? 0
+    // A reaction the user put on the reply sits over its top corner; the row
+    // makes room for it.
+    let reaction = bubbled && replyFirst ? style.reactions[id] : nil
+    let top: CGFloat =
+      bubbled && replyFirst
+      ? 3 + (reaction == nil ? 0 : Self.reactionLift) : presentation["top"] as? CGFloat ?? 0
     let bottom: CGFloat = bubbled && replyLast ? 3 : presentation["bottom"] as? CGFloat ?? 0
     let base: CGFloat = folded ? 42 : 20
     let available = max(1, style.width - (folded ? 42 : 20) - 20)
@@ -284,12 +291,35 @@ final class TranscriptRowModel {
       let gap: CGFloat =
         style.agent.isEmpty
         ? (compact ? 4 : 6) : presentation["afterUser"] as? Bool == true ? 4 : 16
-      let y = gap + (reaction == nil ? 0 : Self.reactionLift)
+      // A reply to one of the Mono's messages opens with it quoted, shown as
+      // an outlined pill over the bubble, one line.
+      var message = plain
+      var quoted: String?
+      if !style.agent.isEmpty, message.hasPrefix("> "), let end = message.range(of: "\n\n") {
+        quoted = String(message[message.index(message.startIndex, offsetBy: 2)..<end.lowerBound])
+        message = String(message[end.upperBound...])
+      }
+      let quoteLine = style.line(20)
+      let quoteHeight: CGFloat = quoted == nil ? 0 : quoteLine + 14 + 6
+      let y = gap + quoteHeight + (reaction == nil ? 0 : Self.reactionLift)
       let emoji = !style.agent.isEmpty && action["emojiOnly"] as? Bool == true
       let maxWidth = max(1, style.width - 76 - (emoji ? 0 : 28))
+      if let quoted {
+        let value = string(
+          quoted, size: 14, line: 20, color: contentColor.withAlphaComponent(0.55))
+        let room = max(1, style.width - 76 - 32)
+        let width = min(room, TranscriptTypography.measure(value, width: 1_000_000, line: quoteLine).width)
+        let chip = CGRect(
+          x: style.width - 20 - width - 32, y: gap, width: width + 32, height: quoteLine + 14)
+        surfaces.append(
+          TranscriptSurface(
+            rect: chip, color: .clear, radius: chip.height / 2,
+            border: contentColor.withAlphaComponent(0.18)))
+        add(value, x: chip.minX + 16, y: chip.minY + 7, width: width, height: quoteLine, lines: 1)
+      }
       let ink = emoji ? contentColor : UIColor.transcriptHex(style.bubbleText)
       let body = string(
-        emoji ? plain.trimmingCharacters(in: .whitespacesAndNewlines) : plain,
+        emoji ? message.trimmingCharacters(in: .whitespacesAndNewlines) : message,
         size: emoji ? 56 : 16, line: emoji ? 64 : 23, color: ink)
       let line = style.line(emoji ? 64 : 23)
       let measured = TranscriptTypography.measure(body, width: maxWidth, line: line)
@@ -314,7 +344,7 @@ final class TranscriptRowModel {
         add(label, x: x, y: cursor, width: textWidth, height: labelSize.height)
         cursor += labelSize.height + 4
       }
-      if !plain.isEmpty {
+      if !message.isEmpty {
         add(
           body, x: x, y: cursor, width: max(1, textWidth), height: shownHeight,
           lines: userExpandable && !userExpanded ? 4 : 0)
@@ -574,22 +604,23 @@ final class TranscriptRowModel {
     case "document":
       // ArtifactCard: the document's mark and title; a tap opens the reader.
       let visual = ["html", "visual"].contains(action["kind"] as? String ?? "")
-      let title = string(plain, size: 14, line: 20, color: contentColor)
+      // At the messages' size, outlined so it reads apart from the bubbles.
+      let title = string(plain, size: 16, line: 24, color: contentColor)
       let titleWidth = min(
-        max(1, available - 12 - 16 - 10 - 14),
-        TranscriptTypography.measure(title, width: 1_000_000, line: style.line(20)).width)
+        max(1, style.width - base - 56 - 16 - 18 - 10 - 16),
+        TranscriptTypography.measure(title, width: 1_000_000, line: style.line(24)).width)
       let rect = CGRect(
-        x: base, y: top, width: 12 + 16 + 10 + titleWidth + 14, height: max(38, style.line(20) + 16))
+        x: base, y: top, width: 16 + 18 + 10 + titleWidth + 16, height: max(48, style.line(24) + 22))
       surfaces.append(
         TranscriptSurface(
-          rect: rect, color: contentColor.withAlphaComponent(0.03), radius: 12,
-          border: UIColor.transcriptHex(style.stroke)))
+          rect: rect, color: .clear, radius: 20,
+          border: contentColor.withAlphaComponent(0.16)))
       mark(
-        visual ? "icon:metrics" : "icon:edit", x: rect.minX + 12, y: rect.midY - 8, size: 16,
-        alpha: 0.55)
+        visual ? "icon:metrics" : "icon:edit", x: rect.minX + 16, y: rect.midY - 9, size: 18,
+        alpha: 0.6)
       add(
-        title, x: rect.minX + 38, y: rect.midY - style.line(20) / 2, width: titleWidth,
-        height: style.line(20), lines: 1)
+        title, x: rect.minX + 44, y: rect.midY - style.line(24) / 2, width: titleWidth,
+        height: style.line(24), lines: 1)
       hits.append(
         TranscriptHit(
           rect: rect, action: action, label: "Open \(visual ? "visual" : "document") " + plain))
@@ -608,48 +639,50 @@ final class TranscriptRowModel {
         "done": ("check", UIColor.transcriptHex("#34d399").withAlphaComponent(0.9)),
       ]
       let (icon, tint) = icons[state] ?? icons["done"]!
-      let pad: CGFloat = 12
-      let iconSize: CGFloat = 16
-      let pillPad: CGFloat = 8
-      let providerSize: CGFloat = 14
+      // At the messages' size, outlined so it reads apart from the bubbles.
+      let pad: CGFloat = 16
+      let iconSize: CGFloat = 18
+      let pillPad: CGFloat = 9
+      let providerSize: CGFloat = 15
+      let room = style.width - base - 56
       let project = string(
-        action["project"] as? String ?? "", size: 12, line: 16,
+        action["project"] as? String ?? "", size: 13, line: 18,
         color: contentColor.withAlphaComponent(0.65))
       let projectSize = TranscriptTypography.measure(
-        project, width: available * 0.45 - pillPad * 2 - providerSize - 4, line: style.line(16))
+        project, width: room * 0.45 - pillPad * 2 - providerSize - 4, line: style.line(18))
       let pillWidth = pillPad * 2 + providerSize + 4 + projectSize.width
-      let title = string(plain, size: 14, line: 20, color: contentColor)
-      let titleRoom = max(1, available - pad - iconSize - 10 - 10 - pillWidth - 6)
+      let title = string(plain, size: 16, line: 24, color: contentColor)
+      let titleRoom = max(1, room - pad - iconSize - 10 - 10 - pillWidth - 8)
       let titleWidth = min(
         titleRoom,
-        TranscriptTypography.measure(title, width: 1_000_000, line: style.line(20)).width)
-      let h = max(40, style.line(20) + 16)
+        TranscriptTypography.measure(title, width: 1_000_000, line: style.line(24)).width)
+      let h = max(48, style.line(24) + 22)
       let rect = CGRect(
-        x: base, y: top, width: pad + iconSize + 10 + titleWidth + 10 + pillWidth + 6, height: h)
+        x: base, y: top, width: pad + iconSize + 10 + titleWidth + 10 + pillWidth + 8, height: h)
       surfaces.append(
         TranscriptSurface(
-          rect: rect, color: contentColor.withAlphaComponent(0.03), radius: 12,
-          border: UIColor.transcriptHex(style.stroke)))
+          rect: rect, color: .clear, radius: 20,
+          border: contentColor.withAlphaComponent(0.16)))
       marks.append(
         TranscriptMark(
           rect: CGRect(
             x: rect.minX + pad, y: rect.midY - iconSize / 2, width: iconSize, height: iconSize),
           image: TranscriptArtwork.shared.image("icon:" + icon), tint: tint))
       let titleRect = CGRect(
-        x: rect.minX + pad + iconSize + 10, y: rect.midY - style.line(20) / 2, width: titleWidth,
-        height: style.line(20))
+        x: rect.minX + pad + iconSize + 10, y: rect.midY - style.line(24) / 2, width: titleWidth,
+        height: style.line(24))
       if state == "working" {
         liveLabel = TranscriptLiveLabel(
-          rect: titleRect, text: plain, font: .systemFont(ofSize: 14 * s), color: contentColor,
+          rect: titleRect, text: plain, font: .systemFont(ofSize: 16 * s), color: contentColor,
           shimmer: true, duration: 1.6)
       } else {
         add(
           title, x: titleRect.minX, y: titleRect.minY, width: titleRect.width,
           height: titleRect.height, lines: 1)
       }
-      let pillHeight = max(22, style.line(16) + 6)
+      let pillHeight = max(26, style.line(18) + 8)
       let pill = CGRect(
-        x: rect.maxX - 6 - pillWidth, y: rect.midY - pillHeight / 2, width: pillWidth,
+        x: rect.maxX - 8 - pillWidth, y: rect.midY - pillHeight / 2, width: pillWidth,
         height: pillHeight)
       surfaces.append(
         TranscriptSurface(
@@ -795,6 +828,31 @@ final class TranscriptRowModel {
           at: 0)
         if replyLast, let at = presentation["at"] as? Double {
           time = (TranscriptTypography.clock(at), max(from, to - pad.y - style.line(24) / 2))
+        }
+        if let reaction {
+          // As on the user's messages, mirrored: over the top-right corner,
+          // its two dots trailing off down and to the right.
+          let bubble = CGRect(
+            x: base, y: from, width: min(bubbleWidth, hug ?? bubbleWidth), height: to - from)
+          let value = string(reaction, size: 19, line: 24, color: contentColor)
+          let measured = TranscriptTypography.measure(value, width: bubbleWidth, line: style.line(24))
+          let size = Self.reactionSize
+          let width = max(size, measured.width + 16)
+          let badge = CGRect(
+            x: bubble.maxX - width + size * 0.55, y: bubble.minY - Self.reactionLift, width: width,
+            height: size)
+          let fill = UIColor.transcriptHex(style.surfaceRaised)
+          let edge = UIColor.transcriptHex(style.stroke)
+          let dot = CGRect(x: badge.maxX - 12, y: badge.maxY - 5, width: 10, height: 10)
+          let speck = CGRect(x: dot.maxX, y: dot.maxY + 1, width: 5, height: 5)
+          for circle in [speck, dot] {
+            surfaces.append(
+              TranscriptSurface(rect: circle, color: fill, radius: circle.width / 2, border: edge))
+          }
+          surfaces.append(TranscriptSurface(rect: badge, color: fill, radius: size / 2, border: edge))
+          add(
+            value, x: badge.midX - measured.width / 2, y: badge.midY - measured.height / 2,
+            width: measured.width, height: measured.height)
         }
       }
     }

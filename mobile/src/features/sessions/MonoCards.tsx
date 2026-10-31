@@ -12,6 +12,12 @@ type DocumentItem = Extract<TurnItem, { type: "document" }>;
 /** Sends a suggested reply as the user's message; set by a Mono's chat. */
 export const MonoChoose = createContext<((text: string) => Promise<void>) | null>(null);
 
+/** What a long-pressed message in a Mono's chat can do beyond copying. */
+export const MonoMessageActions = createContext<{
+  reply: (text: string) => void;
+  markUnread: () => void;
+} | null>(null);
+
 /** Picking a suggested reply, with a failed send told rather than lost. */
 export function useMonoChoose() {
   const send = use(MonoChoose);
