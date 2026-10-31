@@ -30,6 +30,8 @@ export default function MonoProfileLayout() {
       {/* A document and a habit title themselves once read. */}
       <Stack.Screen name="document" options={{ title: "" }} />
       <Stack.Screen name="habit" options={{ title: "" }} />
+      {/* The soul or memory editor names itself after the file. */}
+      <Stack.Screen name="file" options={{ title: "" }} />
       <Stack.Screen name="model" options={{ title: "Model", ...androidBackHeader("Model") }} />
       <Stack.Screen
         name="model-options"

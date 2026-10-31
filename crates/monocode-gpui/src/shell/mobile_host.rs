@@ -5,12 +5,13 @@ use super::*;
 use crate::{
     accounts::Tone,
     mobile::{catalog as mobile_catalog, project, transcript as turns},
+    notifications::delivery,
     pickers,
 };
 use gpui::{EntityId, Task};
 use monocode_core::{
     agent::{AccessMode, Settings, TurnInfo},
-    mobile::{Event, Invite, MobileHost, Push, Request, Status, WatchStart, watch},
+    mobile::{Event, Invite, MobileHost, Push, Request, Status, WatchStart, notify, watch},
     transcript::Row,
 };
 use serde_json::{Value, json};
@@ -52,6 +53,9 @@ pub(super) struct Mobile {
     publishing: bool,
     /// Persisted session IDs, which stay stable for paired phones.
     ids: HashMap<i64, String>,
+    /// Sessions whose current turn a phone started: their approvals,
+    /// questions and finish are sent to it.
+    started: HashSet<i64>,
     /// The last message of each Mono conversation not open here, by its
     /// session, with the update time it was read at: read again only once
     /// the conversation has changed.
@@ -602,8 +606,10 @@ impl Shell {
             Ok::<_, String>((
                 // `monoTools`: this desktop answers the phone's Mono profile,
                 // editing, reset, delete and create; the older app doesn't,
-                // and its phones hide them.
-                json!({"projects": projects, "monos": monos, "sessions": sessions, "monoTools": true}),
+                // and its phones hide them. `push`: it notifies phones through
+                // Expo, so they no longer post their own alerts. `monoFiles`:
+                // it reads and saves a Mono's soul and memory for the phone.
+                json!({"projects": projects, "monos": monos, "sessions": sessions, "monoTools": true, "push": true, "monoFiles": true}),
                 ids,
                 previews,
             ))
@@ -729,6 +735,7 @@ impl Shell {
             "mono.profile" | "mono.update" | "mono.reset" | "mono.delete" | "mono.create" => {
                 self.mobile_mono(request, cx)
             }
+            "mono.file" | "mono.saveFile" => self.mobile_mono_file(request, cx),
             "project.fileHighlight" => {
                 let job = string(&request.params, "job").unwrap_or_default();
                 let from = request.params["from"].as_u64().unwrap_or(0) as usize;
@@ -1424,6 +1431,7 @@ impl Shell {
                             .ensure_session(*id, cx)
                             .ok_or("Session is no longer available")?;
                         view.update(cx, |v, cx| v.mobile_submit(text, attachments, cx));
+                        this.mobile.started.insert(*id);
                         Ok(())
                     }
                     Target::Mono(mono) => this
@@ -1532,6 +1540,7 @@ impl Shell {
             let _ = this.update(cx, |this, cx| {
                 let result = result.map(|(summary, settings, attachments)| {
                     let id = summary.id;
+                    this.mobile.started.insert(id);
                     this.add(summary, cx);
                     if let Some(view) = this.sessions.get(&id) {
                         view.update(cx, |v, cx| {
@@ -1551,6 +1560,112 @@ impl Shell {
             });
         })
         .detach();
+    }
+
+    // MARK: notifications
+
+    /// Sends a session's notice to paired phones: always a Mono's, and
+    /// another's while a phone started its current turn, which its finish
+    /// ends. Not while the desktop shows that session in front of the user.
+    pub(super) fn notify_mobile(
+        &mut self,
+        summary: &Session,
+        category: &str,
+        body: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let id = summary.id;
+        let from_phone = if category == "agentFinished" {
+            self.mobile.started.remove(&id)
+        } else {
+            self.mobile.started.contains(&id)
+        };
+        let mono = self.monos.as_ref().and_then(|monos| {
+            let mono = monos.read(cx).notification_mono(id)?;
+            Some((mono.id.clone(), mono.label()))
+        });
+        if self.mobile.host.is_none()
+            || (mono.is_none() && !from_phone)
+            || (self.window_active && self.notice_session_visible(id, cx))
+        {
+            return;
+        }
+        let body = delivery::clip_body(body);
+        let notice = match mono {
+            Some((mono, name)) => notify::Notice {
+                title: name,
+                subtitle: None,
+                body: if body.is_empty() {
+                    "Sent you a message".into()
+                } else {
+                    body
+                },
+                data: json!({"monoId": mono}),
+            },
+            None => {
+                let projects = self.mobile_projects(cx);
+                let key = monocode_core::files::path_key(&summary.cwd);
+                let project = projects
+                    .iter()
+                    .find(|path| monocode_core::files::path_key(path) == key)
+                    .cloned()
+                    .unwrap_or_else(|| summary.cwd.clone());
+                notify::Notice {
+                    title: monocode_core::session_title::display_title(
+                        &summary.title,
+                        Kind::from_id(&summary.provider).label(),
+                    )
+                    .to_owned(),
+                    subtitle: Some(self.appearance(&project).label(&project)),
+                    body: if body.is_empty() {
+                        "Finished".into()
+                    } else {
+                        body
+                    },
+                    data: json!({
+                        "projectId": project_id(&project),
+                        "sessionId": self.mobile_session_id(id),
+                    }),
+                }
+            }
+        };
+        // A Mono's own messages are their own category; its questions and
+        // approvals are like any agent's.
+        let category = if notice.data["monoId"].is_string() && category != "agentInput" {
+            "monoMessages"
+        } else {
+            category
+        };
+        self.send_mobile_notice(category, notice, cx);
+    }
+
+    /// A Mono's report, posted to its chat on its own.
+    pub(super) fn notify_mobile_post(&mut self, session: i64, body: &str, cx: &mut Context<Self>) {
+        if let Some(view) = self.notification_chat(session, cx) {
+            let summary = view.read(cx).summary.clone();
+            self.notify_mobile(&summary, "monoMessages", body, cx);
+        }
+    }
+
+    fn send_mobile_notice(&self, category: &str, notice: notify::Notice, cx: &App) {
+        let Some(host) = self.mobile.host.clone() else {
+            return;
+        };
+        let tokens = host.push_tokens(category);
+        if tokens.is_empty() {
+            return;
+        }
+        cx.background_executor()
+            .spawn(async move {
+                match notify::send(&tokens, &notice) {
+                    Ok(gone) if !gone.is_empty() => {
+                        let _ = host.forget_push_tokens(&gone);
+                    }
+                    Ok(_) => {}
+                    Err(error) => eprintln!("Mobile notification not sent: {error}"),
+                }
+            })
+            .detach();
     }
 
     /// The account a new session uses: the phone's pick, checked against the
@@ -1928,6 +2043,17 @@ impl Shell {
             monos.update(cx, |monos, cx| monos.mobile_profile(&id, &views, cx))
         };
         request.reply(result);
+    }
+
+    /// A Mono's soul or memory for the phone to read, or its edit to save.
+    fn mobile_mono_file(&mut self, request: Request, cx: &mut Context<Self>) {
+        let id = string(&request.params, "monoId").unwrap_or_default();
+        let Some(monos) = self.monos.clone() else {
+            return request.reply(Err("Mono is no longer available".into()));
+        };
+        let work = monos.update(cx, |monos, cx| monos.mobile_file(&id, &request.params, cx));
+        cx.spawn(async move |_, _| request.reply(work.await))
+            .detach();
     }
 
     fn mobile_usage(&mut self, request: Request, cx: &mut Context<Self>) {

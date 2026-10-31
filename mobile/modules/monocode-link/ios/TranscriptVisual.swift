@@ -774,7 +774,12 @@ struct TranscriptCurve {
     let n = points.count
     var ms = [CGFloat](repeating: 0, count: n)
     if n >= 2 {
-      let d = (0..<n - 1).map { k in (ys[k + 1] - ys[k]) / Swift.max(xs[k + 1] - xs[k], 1e-6) }
+      // Typed out: inferring the closure alone times out the type checker.
+      let d: [CGFloat] = (0..<n - 1).map { k -> CGFloat in
+        let rise: CGFloat = ys[k + 1] - ys[k]
+        let run: CGFloat = Swift.max(xs[k + 1] - xs[k], 1e-6)
+        return rise / run
+      }
       ms[0] = d[0]
       ms[n - 1] = d[n - 2]
       for k in 1..<n - 1 { ms[k] = d[k - 1] * d[k] <= 0 ? 0 : (d[k - 1] + d[k]) / 2 }
@@ -784,11 +789,11 @@ struct TranscriptCurve {
           ms[k + 1] = 0
           continue
         }
-        let a = ms[k] / d[k]
-        let b = ms[k + 1] / d[k]
-        let s = a * a + b * b
+        let a: CGFloat = ms[k] / d[k]
+        let b: CGFloat = ms[k + 1] / d[k]
+        let s: CGFloat = a * a + b * b
         if s > 9 {
-          let t = 3 / s.squareRoot()
+          let t: CGFloat = 3 / s.squareRoot()
           ms[k] = t * a * d[k]
           ms[k + 1] = t * b * d[k]
         }

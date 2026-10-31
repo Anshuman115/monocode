@@ -38,6 +38,11 @@ export type Catalog = {
   /** The desktop answers Mono profiles, editing, reset, delete and create;
    *  the older desktop app sends no such flag. */
   monoTools?: boolean;
+  /** The desktop sends this phone push notifications once it registers;
+   *  the older desktop app doesn't, and the phone posts its own. */
+  push?: boolean;
+  /** The desktop reads and saves a Mono's soul and memory for the phone. */
+  monoFiles?: boolean;
 };
 const EMPTY: Catalog = { projects: [], monos: [], sessions: [] };
 const PAIRING = "monocode.mobile.pairing";
@@ -339,4 +344,9 @@ function deviceName() {
  *  it, and make new ones; where it can't, the phone leaves them out. */
 export function useMonoTools() {
   return useConnection().catalog.monoTools === true;
+}
+
+/** Whether the desktop lets the phone edit a Mono's soul and memory. */
+export function useMonoFiles() {
+  return useConnection().catalog.monoFiles === true;
 }

@@ -1,10 +1,12 @@
 //! A Mono's details as the phone shows them (`mono.profile`): the Overview
 //! tab's numbers without its drawing, its habits and documents. And the look
-//! the phone edits (`mono.update`), saved as the desktop's own editor does.
+//! the phone edits (`mono.update`), saved as the desktop's own editor does,
+//! and its soul and memory as Markdown (`mono.file`, `mono.saveFile`).
 use super::dashboard::{Day, levels, local_day, streak};
 use super::*;
 use crate::shell::monos::MonoSession;
 use chrono::{DateTime, Local};
+use monocode_core::mono::files;
 use monocode_core::project_appearance::MASCOTS;
 use monocode_core::time::{now_ms, relative};
 use serde_json::{Value, json};
@@ -227,5 +229,62 @@ impl Monos {
         self.save(cx);
         cx.notify();
         Ok(Value::Null)
+    }
+
+    /// The soul or memory whole, as the phone's editor opens it, or saved over
+    /// the text it opened: a save whose `expectedHash` no longer matches is
+    /// refused, so the phone never overwrites what the Mono wrote meanwhile.
+    pub(crate) fn mobile_file(
+        &mut self,
+        id: &str,
+        params: &Value,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<Value, String>> {
+        let path = match params["file"].as_str() {
+            Some("soul") => "SOUL.md",
+            Some("memory") => "MEMORY.md",
+            _ => return gpui::Task::ready(Err("Unknown file".into())),
+        };
+        if self.roster.get(id).is_none() {
+            return gpui::Task::ready(Err("Mono is no longer available".into()));
+        }
+        let root = self.root.clone();
+        let target = id.to_owned();
+        let save = params["text"].as_str().map(|text| {
+            (
+                text.to_owned(),
+                params["expectedHash"].as_str().map(str::to_owned),
+            )
+        });
+        let saving = save.is_some();
+        let work = cx.background_executor().spawn(async move {
+            match save {
+                Some((text, expected)) => {
+                    match files::save(&root, &target, None, path, &text, expected.as_deref()) {
+                        Ok(hash) => Ok(json!({ "hash": hash })),
+                        Err(e) if e == files::CONFLICT => Err(
+                            "It changed on the desktop while you were editing. Reopen it to see the latest."
+                                .into(),
+                        ),
+                        Err(e) => Err(e),
+                    }
+                }
+                None => files::read(&root, &target, None, path).map(|file| {
+                    json!({ "text": file.text.unwrap_or_default(), "hash": file.hash })
+                }),
+            }
+        });
+        let id = id.to_owned();
+        cx.spawn(async move |this, cx| {
+            let result = work.await;
+            // The desktop's open editor and the next turn read the new text.
+            if saving && result.is_ok() {
+                let _ = this.update(cx, |this, cx| {
+                    this.reload_files(&id, cx);
+                    cx.notify();
+                });
+            }
+            result
+        })
     }
 }

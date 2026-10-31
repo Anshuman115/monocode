@@ -277,6 +277,12 @@ impl Shell {
             ));
             self.observations.push(cx.subscribe(
                 &monos,
+                |this, _, event: &crate::monos::NotificationPosted, cx| {
+                    this.notify_mobile_post(event.session, &event.body, cx)
+                },
+            ));
+            self.observations.push(cx.subscribe(
+                &monos,
                 |this, _, event: &crate::monos::NotificationFinished, cx| {
                     if !event.was_cancelled && !event.habit && !event.summary.archived {
                         this.deliver_session_notice(
@@ -373,7 +379,7 @@ impl Shell {
         views
     }
 
-    fn notification_chat(&self, id: i64, cx: &App) -> Option<Entity<Conversation>> {
+    pub(super) fn notification_chat(&self, id: i64, cx: &App) -> Option<Entity<Conversation>> {
         self.sessions
             .get(&id)
             .cloned()
@@ -432,7 +438,7 @@ impl Shell {
         }
     }
 
-    fn notice_session_visible(&self, id: i64, cx: &App) -> bool {
+    pub(super) fn notice_session_visible(&self, id: i64, cx: &App) -> bool {
         if self.app_view_open() || self.settings.is_some() || self.app_search.is_some() {
             return false;
         }
@@ -593,6 +599,7 @@ impl Shell {
         cue: Option<crate::sound::Cue>,
         cx: &mut Context<Self>,
     ) {
+        self.notify_mobile(summary, category, body, cx);
         self.dispatch_notice(
             summary,
             category,

@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { PixelMascot } from "@/features/mascots/PixelMascot";
 import { PIXEL_MASCOT_NAMES } from "@/features/mascots/pixelMascots";
@@ -9,6 +9,7 @@ import { useMonoModel } from "@/features/models/useMonoModel";
 import { ProviderLogo } from "@/features/sessions/ProviderLogo";
 import { SettingsPage, SettingsRow } from "@/features/settings/SettingsUI";
 import { useOffline } from "@/features/connection/ConnectionNotice";
+import { useMonoFiles } from "@/features/connection/ConnectionProvider";
 import { useWorkspace, type MonoChange } from "@/features/workspace/WorkspaceProvider";
 import { Icon } from "@/ui/Icon";
 import { setMonoAccent, useMonoAccent, type MonoAccent } from "@/features/workspace/monoAccent";
@@ -30,6 +31,8 @@ export default function EditMonoScreen() {
   const mono = monos.find((m) => m.id === monoId);
   const offline = useOffline();
   const { model, harness } = useMonoModel(mono);
+  // The older desktop app can't hand the phone its soul and memory.
+  const files = useMonoFiles();
   const styles = useStyles();
   const colors = useColors();
   const scheme = useScheme();
@@ -91,6 +94,29 @@ export default function EditMonoScreen() {
           onPress={() => router.push({ pathname: "/mono-profile/[monoId]/model", params: { monoId } })}
         />
       </View>
+
+      {files ? (
+        <>
+          <Text style={styles.heading}>Mind</Text>
+          <View style={[styles.card, offline && styles.off]} pointerEvents={offline ? "none" : "auto"}>
+            <SettingsRow
+              icon="sparkle"
+              label="Soul"
+              onPress={() =>
+                router.push({ pathname: "/mono-profile/[monoId]/file", params: { monoId, file: "soul" } })
+              }
+            />
+            <View style={styles.divider} />
+            <SettingsRow
+              icon="note"
+              label="Memory"
+              onPress={() =>
+                router.push({ pathname: "/mono-profile/[monoId]/file", params: { monoId, file: "memory" } })
+              }
+            />
+          </View>
+        </>
+      ) : null}
 
       <Text style={styles.heading}>Mascot</Text>
       <View
@@ -207,6 +233,11 @@ const useStyles = themedStyles((colors) => ({
   },
   off: {
     opacity: 0.4,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 44,
+    backgroundColor: colors.stroke,
   },
   note: {
     color: colors.muted,

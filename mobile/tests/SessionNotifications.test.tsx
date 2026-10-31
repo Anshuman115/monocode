@@ -12,10 +12,12 @@ const state = vi.hoisted(() => ({
   appState: "active",
   paired: true,
   enabled: true,
+  push: false,
   sessions: [] as { id: string; projectId: string; busy: boolean; waiting: string | null }[],
   settings: { status: "undetermined", canAskAgain: true } as {
     status: string;
     canAskAgain: boolean;
+    granted?: boolean;
     ios?: { status: number };
   },
   onAppState: undefined as ((next: string) => void) | undefined,
@@ -23,6 +25,8 @@ const state = vi.hoisted(() => ({
   requestPermissions: vi.fn(),
   setChannel: vi.fn(),
   schedule: vi.fn(),
+  pushToken: vi.fn(),
+  command: vi.fn(),
 }));
 
 vi.mock("react-native", () => ({
@@ -41,21 +45,26 @@ vi.mock("expo-notifications", () => ({
   requestPermissionsAsync: state.requestPermissions,
   setNotificationChannelAsync: state.setChannel,
   scheduleNotificationAsync: state.schedule,
+  getExpoPushTokenAsync: state.pushToken,
   useLastNotificationResponse: () => null,
   DEFAULT_ACTION_IDENTIFIER: "default",
   AndroidImportance: { DEFAULT: 3 },
   IosAuthorizationStatus: { NOT_DETERMINED: 0 },
 }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
+vi.mock("expo-constants", () => ({
+  default: { expoConfig: { extra: { eas: { projectId: "project-id" } } } },
+}));
 vi.mock("@/features/connection/ConnectionProvider", () => ({
   useConnection: () => ({
     pairing: state.paired ? "desktop" : null,
     connected: state.paired,
-    catalog: { sessions: state.sessions, projects: [] },
+    catalog: { sessions: state.sessions, projects: [], push: state.push },
+    command: state.command,
   }),
 }));
 vi.mock("@/features/settings/notifications", () => ({
-  NOTIFICATION_CATEGORIES: [{ id: "agentFinished" }],
+  NOTIFICATION_CATEGORIES: [{ id: "agentFinished" }, { id: "monoMessages" }],
   useNotificationPreferences: () => ({ enabled: () => state.enabled }),
 }));
 
@@ -72,12 +81,15 @@ beforeEach(() => {
   state.appState = "active";
   state.paired = true;
   state.enabled = true;
+  state.push = false;
   state.sessions = [];
   state.settings = { status: "undetermined", canAskAgain: true };
   state.getPermissions.mockImplementation(async () => state.settings);
   state.requestPermissions.mockResolvedValue({ status: "granted" });
   state.setChannel.mockResolvedValue(null);
   state.schedule.mockResolvedValue("notification");
+  state.pushToken.mockResolvedValue({ data: "ExponentPushToken[phone]" });
+  state.command.mockResolvedValue(null);
   root = createRoot(document.createElement("div"));
 });
 afterEach(() => act(() => root.unmount()));
@@ -155,4 +167,29 @@ it.each([true, false])("reflects Android notification denial with canAskAgain %s
   state.settings.status = "granted";
   await act(async () => state.onAppState?.("active"));
   expect(blocked).toBe(false);
+});
+
+it("registers its push token and turned-off categories with a desktop that pushes", async () => {
+  state.push = true;
+  state.enabled = false;
+  state.settings = { status: "granted", canAskAgain: true, granted: true };
+  await render();
+  expect(state.pushToken).toHaveBeenCalledWith({ projectId: "project-id" });
+  expect(state.command).toHaveBeenCalledWith("device.push", {
+    token: "ExponentPushToken[phone]",
+    disabled: ["agentFinished", "monoMessages"],
+  });
+});
+
+it("tells a pushing desktop it can't notify without permission, and posts nothing itself", async () => {
+  state.push = true;
+  state.settings = { status: "denied", canAskAgain: false, granted: false };
+  state.sessions = [{ id: "session", projectId: "project", busy: true, waiting: null }];
+  await render();
+  state.appState = "background";
+  state.sessions = [{ ...state.sessions[0], busy: false }];
+  await render();
+  expect(state.pushToken).not.toHaveBeenCalled();
+  expect(state.command).toHaveBeenCalledWith("device.push", { token: null, disabled: [] });
+  expect(state.schedule).not.toHaveBeenCalled();
 });
