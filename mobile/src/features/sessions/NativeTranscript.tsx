@@ -31,7 +31,7 @@ import {
 } from "@/features/workspace/WorkspaceProvider";
 import type { TurnMetrics } from "@/features/workspace/types";
 import { pixelLayers } from "@/features/mascots/pixelMascots";
-import { mix, useColors, useScheme, useTheme } from "@/ui/theme";
+import { mix, useAccent, useColors, useScheme, useTheme } from "@/ui/theme";
 import { usePushStarted } from "@/ui/usePushedIn";
 
 import { EmptySession } from "./EmptySession";
@@ -94,7 +94,10 @@ export function NativeTranscript({
   const layout = useSessionLayout();
   const colors = useColors();
   const scheme = useScheme();
+  // Classic draws the user's Mono bubbles in ink, unless an accent is picked.
   const theme = useTheme();
+  const accent = useAccent();
+  const ink = theme === "mono" && accent === "theme";
   const { fontScale, scale: pixelRatio } = useWindowDimensions();
   const [collapsed] = useCollapsedToolCalls();
   const focused = useIsFocused();
@@ -128,16 +131,16 @@ export function NativeTranscript({
         muted: colors.muted,
         accent: colors.accent,
         // A Mono's chat sets the user's bubbles apart: Classic in ink (black
-        // on light, off-white on dark), the tinted themes in their accent,
-        // dimmed into the background so it doesn't glare.
+        // on light, off-white on dark), else in the accent, dimmed into the
+        // background so it doesn't glare.
         bubble: !agent
           ? colors.bubble
-          : theme === "mono"
+          : ink
             ? scheme === "dark" ? "#ececec" : "#111111"
             : mix(colors.accent, colors.background, scheme === "dark" ? 0.4 : 0.1),
         bubbleText: !agent
           ? colors.content
-          : theme === "mono"
+          : ink
             ? scheme === "dark" ? "#111111" : "#ffffff"
             : scheme === "dark" ? colors.content : "#ffffff",
         surface: colors.surface,
@@ -160,7 +163,7 @@ export function NativeTranscript({
         pixelRatio,
         collapsed,
       }),
-    [colors, scheme, theme, agent, openFile, fontScale, pixelRatio, collapsed],
+    [colors, scheme, ink, agent, openFile, fontScale, pixelRatio, collapsed],
   );
   const showError = useCallback((value: SessionErrorNotice) => {
     Keyboard.dismiss();
@@ -233,7 +236,7 @@ export function NativeTranscript({
     <View style={styles.fill}>
       {agent && empty ? (
         <View style={StyleSheet.absoluteFill}>
-          <EmptySession />
+          <EmptySession mono={agent} />
         </View>
       ) : null}
       <NativeView

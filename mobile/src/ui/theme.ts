@@ -200,9 +200,67 @@ export function useTheme(): ThemeName {
   return useSyncExternalStore(subscribeTheme, () => theme);
 }
 
-/** A theme's palette in a scheme. */
-export function paletteFor(scheme: Scheme, name: ThemeName = theme): Palette {
-  return THEMES[name].palettes[scheme];
+/**
+ * Accents the app can be drawn in over any theme, each in both schemes:
+ * light's deeper, so it holds its contrast on a pale background. "theme"
+ * keeps the theme's own.
+ */
+export const ACCENTS = {
+  blue: { label: "Blue", dark: "#4c9ef5", light: "#1f7ae0" },
+  teal: { label: "Teal", dark: "#3cc4c4", light: "#0f7f86" },
+  green: { label: "Green", dark: "#4cc38a", light: "#13804f" },
+  orange: { label: "Orange", dark: "#f0884a", light: "#c2531a" },
+  red: { label: "Red", dark: "#f06a6a", light: "#c9302c" },
+  pink: { label: "Pink", dark: "#ec6fa3", light: "#c42a6c" },
+  violet: { label: "Violet", dark: "#9d87f5", light: "#6a4fd6" },
+} satisfies Record<string, { label: string } & Record<Scheme, string>>;
+
+export type AccentName = keyof typeof ACCENTS | "theme";
+
+const ACCENT_KEY = "accent";
+
+function loadAccent(): AccentName {
+  try {
+    const stored = Storage.getItemSync(ACCENT_KEY);
+    return stored && stored in ACCENTS ? (stored as AccentName) : "theme";
+  } catch {
+    return "theme";
+  }
+}
+
+let accent = loadAccent();
+
+/** Draws the app's accent in `next` whatever the theme, and remembers it. */
+export function setAccent(next: AccentName) {
+  if (next === accent) return;
+  accent = next;
+  void Storage.setItem(ACCENT_KEY, next);
+  themeListeners.forEach((listener) => listener());
+}
+
+/** The accent picked over the theme's, or "theme" for its own. */
+export function useAccent(): AccentName {
+  return useSyncExternalStore(subscribeTheme, () => accent);
+}
+
+// One object per scheme, theme and accent, so memos keyed on a palette hold.
+const accented = new Map<string, Palette>();
+
+/** A theme's palette in a scheme, with the accent picked over its own. */
+export function paletteFor(
+  scheme: Scheme,
+  name: ThemeName = theme,
+  over: AccentName = accent,
+): Palette {
+  const base = THEMES[name].palettes[scheme];
+  if (over === "theme") return base;
+  const key = `${name}.${scheme}.${over}`;
+  let palette = accented.get(key);
+  if (!palette) {
+    palette = { ...base, accent: ACCENTS[over][scheme] };
+    accented.set(key, palette);
+  }
+  return palette;
 }
 
 export const radii = {
@@ -216,9 +274,9 @@ export function useScheme(): Scheme {
   return useColorScheme() === "light" ? "light" : "dark";
 }
 
-/** The palette of the scheme and theme the app is drawn in. */
+/** The palette of the scheme, theme and accent the app is drawn in. */
 export function useColors() {
-  return paletteFor(useScheme(), useTheme());
+  return paletteFor(useScheme(), useTheme(), useAccent());
 }
 
 /**
@@ -233,10 +291,11 @@ export function themedStyles<T extends StyleSheet.NamedStyles<T>>(
   return function useStyles() {
     const scheme = useScheme();
     const name = useTheme();
-    const key = `${name}.${scheme}`;
+    const over = useAccent();
+    const key = `${name}.${scheme}.${over}`;
     let sheet = sheets.get(key);
     if (!sheet) {
-      sheet = StyleSheet.create(build(paletteFor(scheme, name)));
+      sheet = StyleSheet.create(build(paletteFor(scheme, name, over)));
       sheets.set(key, sheet);
     }
     return sheet;

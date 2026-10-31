@@ -126,6 +126,6 @@ function MonoTranscript({
   return turns.length > 0 ? (
     <Transcript turns={turns} agent={agent} hasOlder={hasOlder} loadOlder={loadOlder} />
   ) : (
-    <EmptySession />
+    <EmptySession mono={agent} />
   );
 }

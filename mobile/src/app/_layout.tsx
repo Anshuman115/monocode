@@ -26,6 +26,7 @@ import { applySavedAppearance } from "@/features/settings/appearance";
 import { ScenePagerHost } from "@/ui/ScenePager";
 import {
   paletteFor,
+  useAccent,
   useScheme,
   useTheme,
   type Palette,
@@ -102,18 +103,19 @@ type NavigationLook = {
   screens: ReturnType<typeof screenOptions>;
 };
 
-// Built the first time a scheme and theme are drawn, and kept, so the
-// navigators see the same objects until either changes.
+// Built the first time a scheme, theme and accent are drawn, and kept, so the
+// navigators see the same objects until any changes.
 const looks = new Map<string, NavigationLook>();
 
 /** The navigation theme and screen options of the scheme and theme in use. */
 function useNavigationLook(): NavigationLook {
   const scheme = useScheme();
   const theme: ThemeName = useTheme();
-  const key = `${theme}.${scheme}`;
+  const accent = useAccent();
+  const key = `${theme}.${scheme}.${accent}`;
   let look = looks.get(key);
   if (!look) {
-    const colors = paletteFor(scheme, theme);
+    const colors = paletteFor(scheme, theme, accent);
     look = {
       navigation: navigationTheme(scheme, colors),
       screens: screenOptions(colors),

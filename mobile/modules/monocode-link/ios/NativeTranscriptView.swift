@@ -360,7 +360,10 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       frameData = frame
       updateGeometry()
       displayRows()
-      if frame.status["error"] is String { spinner.stopAnimating() }
+      // Loaded with nothing in it, or failed: there's nothing left to wait on.
+      if frame.status["error"] is String || frame.status["ready"] as? Bool == true {
+        spinner.stopAnimating()
+      }
       return
     }
     spinner.stopAnimating()
