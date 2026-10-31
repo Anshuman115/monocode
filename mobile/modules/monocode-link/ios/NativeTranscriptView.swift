@@ -436,6 +436,9 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       foldRows(from: old)
     } else {
       displayRows(animate: wasInitialized && changed && !loadingOlder)
+      if wasInitialized && changed && !olderArrived, let old {
+        for id in entering(from: old, to: frame) { visible[id].map(enter) }
+      }
     }
     publishViewport()
     updateAway()
@@ -445,6 +448,65 @@ final class NativeTranscriptView: ExpoView, UIScrollViewDelegate, UIGestureRecog
       loadingOlder = true
       session?.command(["type": "older"])
     }
+  }
+
+  /// A Mono chat's rows that are new in `frame`: not ones taking over what
+  /// left with the same look, as a sent message over its local echo or the
+  /// desktop's status line over the phone's.
+  private func entering(from old: TranscriptLayoutFrame, to frame: TranscriptLayoutFrame) -> [String] {
+    guard !style.agent.isEmpty else { return [] }
+    let look = { (row: TranscriptRowModel) in
+      row.kind == "fold" ? "fold" : row.kind + "\u{0}" + row.text.string
+    }
+    let now = Set(frame.rows.map(\.id))
+    let before = Set(old.rows.map(\.id))
+    var gone: [String: Int] = [:]
+    for row in old.rows where !now.contains(row.id) { gone[look(row), default: 0] += 1 }
+    var entering: [String] = []
+    for row in frame.rows where !before.contains(row.id) && row.height > 0 {
+      if let left = gone[look(row)], left > 0 {
+        gone[look(row)] = left - 1
+      } else {
+        entering.append(row.id)
+      }
+    }
+    return entering
+  }
+  /// A new message comes in as Messages' do: it rises a little and grows from
+  /// its bubble's tail corner on a spring as it fades in. Only on the layer,
+  /// so rows keep being laid out by frame meanwhile.
+  private func enter(_ row: TranscriptRowView) {
+    guard let model = row.model, !UIAccessibility.isReduceMotionEnabled else { return }
+    let bubble = model.kind == "user" ? model.cardRect : model.surfaces.first?.rect
+    let corner =
+      bubble.map { model.kind == "user" ? CGPoint(x: $0.maxX, y: $0.maxY) : CGPoint(x: $0.minX, y: $0.maxY) }
+      ?? CGPoint(x: 20, y: row.bounds.maxY)
+    let dx = corner.x - row.bounds.midX
+    let dy = corner.y - row.bounds.midY
+    // A reply over several rows is one bubble in pieces: they rise together
+    // without growing, so no seam opens between them.
+    let p = model.presentation
+    let piece = p["reply"] as? Bool == true
+      && !(p["replyFirst"] as? Bool == true && p["replyLast"] as? Bool == true)
+    let scale: CGFloat = piece ? 1 : 0.9
+    var from = CATransform3DMakeTranslation(0, 14, 0)
+    from = CATransform3DTranslate(from, dx, dy, 0)
+    from = CATransform3DScale(from, scale, scale, 1)
+    from = CATransform3DTranslate(from, -dx, -dy, 0)
+    let grow = CASpringAnimation(keyPath: "transform")
+    grow.fromValue = from
+    grow.toValue = CATransform3DIdentity
+    grow.mass = 1
+    grow.stiffness = 300
+    grow.damping = 28
+    grow.duration = grow.settlingDuration
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 0
+    fade.toValue = 1
+    fade.duration = 0.18
+    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    row.layer.add(grow, forKey: "enter")
+    row.layer.add(fade, forKey: "enterFade")
   }
 
   /// Rows under a fold slide while what it holds is clipped open or shut, and
