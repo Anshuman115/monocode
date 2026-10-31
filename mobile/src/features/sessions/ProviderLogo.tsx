@@ -9,7 +9,9 @@ import { MONOCHROME_PROVIDERS, PROVIDER_SVGS } from "./providerSvgs";
  *  would parse its XML again for every row it mounts. */
 const parsed = new Map<Harness, JsxAST | null>();
 function markOf(harness: Harness) {
-  if (!parsed.has(harness)) parsed.set(harness, parse(PROVIDER_SVGS[harness]));
+  // A provider this build doesn't know, from a newer desktop, has no mark.
+  const source = PROVIDER_SVGS[harness] as string | undefined;
+  if (!parsed.has(harness)) parsed.set(harness, source ? parse(source) : null);
   return parsed.get(harness) ?? null;
 }
 

@@ -171,6 +171,7 @@ it.each([true, false])("reflects Android notification denial with canAskAgain %s
 
 it("registers its push token and turned-off categories with a desktop that pushes", async () => {
   state.push = true;
+  state.os = "ios";
   state.enabled = false;
   state.settings = { status: "granted", canAskAgain: true, granted: true };
   await render();
@@ -183,6 +184,7 @@ it("registers its push token and turned-off categories with a desktop that pushe
 
 it("tells a pushing desktop it can't notify without permission, and posts nothing itself", async () => {
   state.push = true;
+  state.os = "ios";
   state.settings = { status: "denied", canAskAgain: false, granted: false };
   state.sessions = [{ id: "session", projectId: "project", busy: true, waiting: null }];
   await render();
@@ -192,4 +194,16 @@ it("tells a pushing desktop it can't notify without permission, and posts nothin
   expect(state.pushToken).not.toHaveBeenCalled();
   expect(state.command).toHaveBeenCalledWith("device.push", { token: null, disabled: [] });
   expect(state.schedule).not.toHaveBeenCalled();
+});
+
+it("keeps local alerts on Android, which has no push credentials yet", async () => {
+  state.push = true;
+  state.settings = { status: "granted", canAskAgain: true, granted: true };
+  state.sessions = [{ id: "session", projectId: "project", busy: true, waiting: null }];
+  await render();
+  state.appState = "background";
+  state.sessions = [{ ...state.sessions[0], busy: false }];
+  await render();
+  expect(state.command).not.toHaveBeenCalled();
+  expect(state.schedule).toHaveBeenCalledOnce();
 });

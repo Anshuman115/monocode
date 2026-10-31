@@ -989,11 +989,12 @@ impl Shell {
                 (manager.open_chat(id)?, name)
             }
         };
-        let launches = self.mobile_launches(target, cx);
         let chat = view.read(cx);
         if !chat.history_loaded() {
             return None;
         }
+        // Built for every streamed frame, so only once there's history to show.
+        let launches = self.mobile_launches(target, cx);
         let waiting = match chat.mobile_waiting(cx) {
             Some(crate::conversation::MobileWaiting::Approval) => Some("Waiting for approval"),
             Some(crate::conversation::MobileWaiting::Question) => Some("Waiting for answers"),
@@ -1580,9 +1581,10 @@ impl Shell {
         } else {
             self.mobile.started.contains(&id)
         };
+        // A Mono's own chat, or one of its habit runs.
         let mono = self.monos.as_ref().and_then(|monos| {
             let mono = monos.read(cx).notification_mono(id)?;
-            Some((mono.id.clone(), mono.label()))
+            Some((mono.id.clone(), mono.label(), mono.session_id != Some(id)))
         });
         if self.mobile.host.is_none()
             || (mono.is_none() && !from_phone)
@@ -1592,7 +1594,7 @@ impl Shell {
         }
         let body = delivery::clip_body(body);
         let notice = match mono {
-            Some((mono, name)) => notify::Notice {
+            Some((mono, name, habit)) => notify::Notice {
                 title: name,
                 subtitle: None,
                 body: if body.is_empty() {
@@ -1600,43 +1602,71 @@ impl Shell {
                 } else {
                     body
                 },
-                data: json!({"monoId": mono}),
+                // A habit run's question is in its own session, not the
+                // Mono's chat; open that where the phone can.
+                data: if habit && self.session_summaries.contains_key(&id) {
+                    self.mobile_notice_session(summary, cx)
+                } else {
+                    json!({"monoId": mono})
+                },
             },
             None => {
-                let projects = self.mobile_projects(cx);
-                let key = monocode_core::files::path_key(&summary.cwd);
-                let project = projects
-                    .iter()
-                    .find(|path| monocode_core::files::path_key(path) == key)
-                    .cloned()
-                    .unwrap_or_else(|| summary.cwd.clone());
+                let (project, _) = self.mobile_notice_project(summary, cx);
                 notify::Notice {
                     title: monocode_core::session_title::display_title(
                         &summary.title,
-                        Kind::from_id(&summary.provider).label(),
+                        &summary.provider,
                     )
                     .to_owned(),
-                    subtitle: Some(self.appearance(&project).label(&project)),
+                    subtitle: Some(project),
                     body: if body.is_empty() {
                         "Finished".into()
                     } else {
                         body
                     },
-                    data: json!({
-                        "projectId": project_id(&project),
-                        "sessionId": self.mobile_session_id(id),
-                    }),
+                    data: self.mobile_notice_session(summary, cx),
                 }
             }
         };
         // A Mono's own messages are their own category; its questions and
         // approvals are like any agent's.
-        let category = if notice.data["monoId"].is_string() && category != "agentInput" {
+        let category = if self
+            .monos
+            .as_ref()
+            .is_some_and(|monos| monos.read(cx).notification_mono(id).is_some())
+            && category != "agentInput"
+        {
             "monoMessages"
         } else {
             category
         };
         self.send_mobile_notice(category, notice, cx);
+    }
+
+    /// The project a session's notice is filed under, by name and path.
+    fn mobile_notice_project(&self, summary: &Session, cx: &App) -> (String, String) {
+        let key = monocode_core::files::path_key(&summary.cwd);
+        let path = self
+            .mobile_projects(cx)
+            .into_iter()
+            .find(|path| monocode_core::files::path_key(path) == key)
+            .unwrap_or_else(|| summary.cwd.clone());
+        (self.appearance(&path).label(&path), path)
+    }
+
+    /// Where a tap on a session's notice opens it on the phone.
+    fn mobile_notice_session(&mut self, summary: &Session, cx: &App) -> Value {
+        let (_, path) = self.mobile_notice_project(summary, cx);
+        json!({
+            "projectId": project_id(&path),
+            "sessionId": self.mobile_session_id(summary.id),
+        })
+    }
+
+    /// A turn the phone started ended with no finish to tell it of, as when
+    /// it was stopped: the session's next turns are the desktop's again.
+    pub(super) fn mobile_turn_ended(&mut self, id: i64) {
+        self.mobile.started.remove(&id);
     }
 
     /// A Mono's report, posted to its chat on its own.

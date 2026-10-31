@@ -51,18 +51,30 @@ export default function EditMonoScreen() {
       Alert.alert("Couldn’t save", reason instanceof Error ? reason.message : String(reason)),
     );
   };
-  // The name saves once typing pauses, not on every key.
+  // The name saves once typing pauses, not on every key, or as the screen
+  // closes if that comes first. A cleared name leaves the saved one.
+  const pending = useRef<string | null>(null);
+  const flush = useRef(() => {});
   useEffect(() => {
-    const next = name.trim();
-    if (next === saved.current) return;
-    const timer = setTimeout(() => {
+    flush.current = () => {
+      const next = pending.current;
+      pending.current = null;
+      if (next === null) return;
       saved.current = next;
       save({ name: next });
-    }, 600);
+    };
+  });
+  useEffect(() => {
+    const next = name.trim();
+    if (!next || next === saved.current) {
+      pending.current = null;
+      return;
+    }
+    pending.current = next;
+    const timer = setTimeout(() => flush.current(), 600);
     return () => clearTimeout(timer);
-    // `save` changes with the Mono; the name alone decides when to save.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
+  useEffect(() => () => flush.current(), []);
 
   if (!mono) return null;
   return (

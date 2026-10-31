@@ -57,7 +57,8 @@ export function SessionNotifications() {
   const anyOn = NOTIFICATION_CATEGORIES.some(({ id }) =>
     preferences.enabled(id),
   );
-  const push = connection.catalog.push === true;
+  // Android has no push credentials yet (FCM), so it keeps local alerts.
+  const push = connection.catalog.push === true && Platform.OS === "ios";
   const disabled = NOTIFICATION_CATEGORIES.filter(
     ({ id }) => !preferences.enabled(id),
   )
@@ -149,7 +150,7 @@ export function SessionNotifications() {
     if (!before) return;
     // In front of the user, the app itself shows what changed; the desktop
     // that pushes sends the rest.
-    if (AppState.currentState === "active" || connection.catalog.push) return;
+    if (AppState.currentState === "active" || push) return;
     const preferences = current.current;
     const projects = connection.catalog.projects;
     for (const session of sessions) {
@@ -181,7 +182,7 @@ export function SessionNotifications() {
         trigger: Platform.OS === "android" ? { channelId: SESSION_CHANNEL } : null,
       });
     }
-  }, [connection.connected, connection.catalog]);
+  }, [connection.connected, connection.catalog, push]);
 
   // A tap opens the session or Mono, the app's last one too if it launched it.
   const response = Notifications.useLastNotificationResponse();

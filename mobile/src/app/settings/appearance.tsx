@@ -190,7 +190,7 @@ function AccentPicker() {
               key={name}
               accessibilityRole="radio"
               accessibilityLabel={label}
-              accessibilityState={{ selected }}
+              accessibilityState={{ checked: selected }}
               hitSlop={4}
               onPress={() => pick(name)}
               style={[styles.accentRing, selected && { borderColor: fill }]}
